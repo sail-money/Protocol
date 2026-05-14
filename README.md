@@ -8,4 +8,4 @@ Sail is a minimal account-abstraction primitive for onchain Separately Managed A
 
 ## Status
 
-Specification finalized — implementation in progress.
+In progress. 
