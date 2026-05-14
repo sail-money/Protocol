@@ -4,7 +4,7 @@ Sail is a minimal account-abstraction primitive for onchain Separately Managed A
 
 ## Documents
 
-- [v2 Specification](./docs/spec.md)
+- [Specification](./docs/spec.md)
 
 ## Status
 
