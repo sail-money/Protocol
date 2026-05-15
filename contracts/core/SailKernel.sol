@@ -504,7 +504,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to revoke.
     /// @param  sig        EIP-712 signature over RevokePermission struct by permissionSigner.
-    function revokePermission(address account, address permission, bytes calldata sig) external {
+    function revokePermission(address account, address permission, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -670,7 +670,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address[] calldata permissions,
         uint256 deadline,
         bytes calldata sig
-    ) external {
+    ) external nonReentrant {
         if (permissions.length == 0) return;
         _requireRegistered(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
@@ -827,16 +827,19 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 protocolCut    = Math.mulDiv(grossFee, governance.currentProtocolCutBps(), 10_000);
         uint256 remainder      = grossFee - protocolCut;
         uint256 distributorCut = Math.mulDiv(remainder, distributorBps, 10_000);
+        // If the policy returns a non-zero distributorBps but a zero distributor address,
+        // fold the distributor share into managerTake rather than silently dropping it.
+        if (distributor == address(0)) distributorCut = 0;
         uint256 managerTake    = remainder - distributorCut;
 
         if (feeToken == address(0)) {
-            if (protocolCut    > 0)                              _safeTransferETH(account, treasury,    protocolCut);
-            if (distributorCut > 0 && distributor != address(0)) _safeTransferETH(account, distributor, distributorCut);
-            if (managerTake    > 0)                              _safeTransferETH(account, recipient,   managerTake);
+            if (protocolCut    > 0) _safeTransferETH(account, treasury,    protocolCut);
+            if (distributorCut > 0) _safeTransferETH(account, distributor, distributorCut);
+            if (managerTake    > 0) _safeTransferETH(account, recipient,   managerTake);
         } else {
-            if (protocolCut    > 0)                              _safeTransferERC20(account, feeToken, treasury,    protocolCut);
-            if (distributorCut > 0 && distributor != address(0)) _safeTransferERC20(account, feeToken, distributor, distributorCut);
-            if (managerTake    > 0)                              _safeTransferERC20(account, feeToken, recipient,   managerTake);
+            if (protocolCut    > 0) _safeTransferERC20(account, feeToken, treasury,    protocolCut);
+            if (distributorCut > 0) _safeTransferERC20(account, feeToken, distributor, distributorCut);
+            if (managerTake    > 0) _safeTransferERC20(account, feeToken, recipient,   managerTake);
         }
 
         IFeePolicy(cfg.feePolicy).recordCollection(account, grossFee, currentNav);

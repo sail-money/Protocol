@@ -115,6 +115,9 @@ contract SailGovernance {
     /// @param  maxPermissionFeeWei Constitutional ceiling for the per-permission registration fee.
     constructor(address initialGovernance, uint256 maxPermissionFeeWei) {
         if (initialGovernance == address(0)) revert ZeroAddress();
+        // Cap at 1e36 wei (~1e18 ETH). Values above this would allow base + sizeContrib
+        // to overflow uint256 in _calcPermissionFee (sum of two values each <= cap).
+        if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
         governance = initialGovernance;
         MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
         emit GovernanceTransferred(address(0), initialGovernance);
