@@ -219,6 +219,23 @@ contract SailGovernance {
     /// @dev    The transfer is only finalised when the candidate calls `acceptGovernance`.
     ///         Calling this again before acceptance overwrites `pendingGovernance`, allowing
     ///         the current governance to cancel or redirect an in-flight nomination.
+    ///
+    ///         **IMPORTANT — timelock role rotation required:**
+    ///         After `acceptGovernance` completes, the new governance holds the `governance`
+    ///         storage variable but does NOT yet hold `PROPOSER_ROLE` or `EXECUTOR_ROLE` on
+    ///         the TimelockController (those roles remain with the old governance).
+    ///         Before or concurrent with the two-step transfer, the current governance MUST
+    ///         schedule and execute a `rotateTimelockRoles(newGovernance)` call via the
+    ///         timelock to hand over scheduling and execution rights. Failure to do so leaves
+    ///         the new governance unable to enact any timelocked parameter changes.
+    ///
+    ///         Recommended sequence:
+    ///           1. Current governance calls `proposeGovernance(candidate)`.
+    ///           2. Current governance schedules `rotateTimelockRoles(candidate)` via the
+    ///              timelock (48-hour delay).
+    ///           3. After 48 hours, current governance executes `rotateTimelockRoles`.
+    ///           4. Candidate calls `acceptGovernance()` to finalise the transfer.
+    ///
     /// @param  candidate Address being nominated as the next governance.
     function proposeGovernance(address candidate) external onlyGovernance {
         if (candidate == address(0)) revert ZeroAddress();
@@ -227,13 +244,36 @@ contract SailGovernance {
     }
 
     /// @notice Step 2: nominated address accepts, completing the transfer.
-    /// @dev    Clears `pendingGovernance` after the transfer to signal no in-flight nomination.
+    /// @dev    Clears `pendingGovernance` after the transfer. See `proposeGovernance` for the
+    ///         required timelock role rotation procedure that must precede this call.
     function acceptGovernance() external {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
         address previous  = governance;
         governance        = pendingGovernance;
         pendingGovernance = address(0);
         emit GovernanceTransferred(previous, governance);
+    }
+
+    /// @notice Rotate PROPOSER_ROLE and EXECUTOR_ROLE on the timelock from `oldGov` to `newGov`.
+    /// @dev    Must be called via the 48-hour timelock (scheduled by the current PROPOSER).
+    ///         Intended to be executed as part of a governance handoff — grants roles to the
+    ///         incoming governance and revokes them from the outgoing governance in one atomic
+    ///         operation.
+    ///
+    ///         The timelock holds its own DEFAULT_ADMIN_ROLE (admin=address(0) in constructor),
+    ///         so only the timelock itself can grant or revoke roles. This function provides a
+    ///         safe entry point for that operation.
+    ///
+    /// @param  oldGov Address to revoke PROPOSER_ROLE and EXECUTOR_ROLE from.
+    /// @param  newGov Address to grant PROPOSER_ROLE and EXECUTOR_ROLE to.
+    function rotateTimelockRoles(address oldGov, address newGov) external onlyTimelock {
+        if (newGov == address(0)) revert ZeroAddress();
+        bytes32 proposer = timelock.PROPOSER_ROLE();
+        bytes32 executor = timelock.EXECUTOR_ROLE();
+        timelock.grantRole(proposer, newGov);
+        timelock.grantRole(executor, newGov);
+        timelock.revokeRole(proposer, oldGov);
+        timelock.revokeRole(executor, oldGov);
     }
 
     // -------------------------------------------------------------------------

@@ -122,6 +122,10 @@ contract BoundedBorrowPermission is IPermission {
     /// @dev Thrown when a requested `maxLtvBps` exceeds 10 000 (100%).
     error LtvBpsTooLarge(uint256 bps);
 
+    /// @dev Thrown when `collateralOracle` and `borrowOracle` report different decimals.
+    ///      Both must use the same denomination and precision for the LTV ratio to be valid.
+    error OracleDecimalMismatch(uint8 collateralDec, uint8 borrowDec);
+
     // -------------------------------------------------------------------------
     // Modifier
     // -------------------------------------------------------------------------
@@ -156,6 +160,15 @@ contract BoundedBorrowPermission is IPermission {
     ) {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         if (_maxLtvBps > 10_000) revert LtvBpsTooLarge(_maxLtvBps);
+
+        // When both oracles are set, verify at construction that they report the same
+        // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
+        // consistent. A mismatch would silently produce an off-by-orders-of-magnitude LTV.
+        if (_collateralOracle != address(0) && _borrowOracle != address(0)) {
+            (, uint8 colDec) = IOracle(_collateralOracle).getPrice(address(0), address(0));
+            (, uint8 borDec) = IOracle(_borrowOracle).getPrice(address(0), address(0));
+            if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
+        }
 
         maxAmountPerTx   = _maxAmountPerTx;
         maxLtvBps        = _maxLtvBps;
@@ -256,7 +269,7 @@ contract BoundedBorrowPermission is IPermission {
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;
-        if (borPrice == 0) return true;
+        if (borPrice == 0) return false; // fail-closed: unpriced asset blocks all borrows
 
         uint256 ltvBps = Math.mulDiv(Math.mulDiv(amount, borPrice, 1), 10_000, colValue);
         return ltvBps <= maxLtvBps;

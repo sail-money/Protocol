@@ -237,6 +237,17 @@ contract SailKernelTest is Test {
         _govExecute(data, _govSchedule(data));
     }
 
+    /// @dev Schedule and execute a call to `kernel` via the governance timelock.
+    function _kernelTimelockExec(bytes memory data) internal {
+        bytes32 salt = bytes32(_saltNonce++);
+        TimelockController tl = gov.timelock();
+        vm.prank(TEAM);
+        tl.schedule(address(kernel), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.prank(TEAM);
+        tl.execute(address(kernel), 0, data, bytes32(0), salt);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 1. Account registration
     // ─────────────────────────────────────────────────────────────────────────
@@ -858,14 +869,20 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_SetTreasury_UpdatesAddress() public {
-        vm.prank(TEAM);
-        kernel.setTreasury(address(0x5555));
+        _kernelTimelockExec(abi.encodeCall(kernel.setTreasury, (address(0x5555))));
         assertEq(kernel.treasury(), address(0x5555));
     }
 
-    function test_SetTreasury_RevertsForNonGovernance() public {
+    function test_SetTreasury_RevertsForNonTimelock() public {
         vm.prank(address(0xBAD));
-        vm.expectRevert(SailKernel.NotGovernance.selector);
+        vm.expectRevert(SailKernel.NotTimelock.selector);
+        kernel.setTreasury(address(0x5555));
+    }
+
+    function test_SetTreasury_RevertsForGovernanceDirect() public {
+        // setTreasury now requires 48h timelock, even governance cannot call directly
+        vm.prank(TEAM);
+        vm.expectRevert(SailKernel.NotTimelock.selector);
         kernel.setTreasury(address(0x5555));
     }
 
