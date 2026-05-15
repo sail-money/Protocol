@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {SailKernel} from "../contracts/core/SailKernel.sol";
 import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,8 +36,9 @@ contract BatchPermissionsTest is Test {
     BatchMockPermission perm2;
     BatchMockPermission perm3;
 
-    address constant TEAM     = address(0x1111);
-    address constant TREASURY = address(0x2222);
+    address constant TEAM            = address(0x1111);
+    address constant TREASURY        = address(0x2222);
+    address constant EMERGENCY_ADMIN = address(0xEEEE);
 
     uint256 constant SIGNER_KEY  = 0xDEAD;
     uint256 constant MANAGER_KEY = 0xBEEF;
@@ -49,7 +51,7 @@ contract BatchPermissionsTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
         manager    = vm.addr(MANAGER_KEY);
 
-        gov    = new SailGovernance(TEAM, 1 ether);
+        gov    = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN);
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new BatchMockSafe();
 
@@ -61,6 +63,18 @@ contract BatchPermissionsTest is Test {
     }
 
     receive() external payable {} // accept refunds
+
+    uint256 private _saltNonce;
+
+    function _govExec(bytes memory data) internal {
+        TimelockController tl = gov.timelock();
+        bytes32 salt = bytes32(_saltNonce++);
+        vm.prank(TEAM);
+        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Signature helpers
@@ -197,8 +211,7 @@ contract BatchPermissionsTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_BatchRegister_ExactFeeSucceeds() public {
-        // Set BASE_FEE so the fee is non-trivial and deterministic
-        vm.prank(TEAM); gov.setBaseFee(0.01 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 fee1     = _fee(address(perm1));
@@ -219,7 +232,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_UnderpaymentReverts() public {
-        vm.prank(TEAM); gov.setBaseFee(0.01 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));
@@ -235,7 +248,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_OverpaymentRefunded() public {
-        vm.prank(TEAM); gov.setBaseFee(0.01 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));

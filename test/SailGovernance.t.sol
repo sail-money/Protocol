@@ -3,30 +3,65 @@ pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 contract SailGovernanceTest is Test {
     SailGovernance gov;
 
-    address constant TEAM    = address(0x1111);
-    address constant ALICE   = address(0x2222);
-    address constant BOB     = address(0x3333);
-    uint256 constant MAX_FEE = 1 ether;
+    address constant TEAM            = address(0x1111);
+    address constant ALICE           = address(0x2222);
+    address constant BOB             = address(0x3333);
+    address constant EMERGENCY_ADMIN = address(0x4444);
+    uint256 constant MAX_FEE         = 1 ether;
 
+    uint256 private _saltNonce;
+
+    event GovernanceTransferProposed(address indexed proposedGovernance);
     event GovernanceTransferred(address indexed previousGovernance, address indexed newGovernance);
     event ProtocolCutUpdated(uint256 oldBps, uint256 newBps);
     event BaseFeeUpdated(uint256 oldFee, uint256 newFee);
     event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
+    event Paused(uint256 expiry);
+    event Unpaused();
 
     function setUp() public {
-        gov = new SailGovernance(TEAM, MAX_FEE);
+        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
     }
 
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Timelock helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function _timelockSchedule(bytes memory data) internal returns (bytes32 salt) {
+        salt = bytes32(_saltNonce++);
+        TimelockController tl = gov.timelock();
+        address proposer = gov.governance();
+        vm.prank(proposer);
+        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+    }
+
+    function _timelockExecute(bytes memory data, bytes32 salt) internal {
+        TimelockController tl = gov.timelock();
+        address executor = gov.governance();
+        vm.prank(executor);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
+
+    function _timelockExec(bytes memory data) internal {
+        _timelockExecute(data, _timelockSchedule(data));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Constructor
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
 
     function test_Constructor_SetsGovernance() public view {
         assertEq(gov.governance(), TEAM);
+    }
+
+    function test_Constructor_SetsEmergencyAdmin() public view {
+        assertEq(gov.emergencyAdmin(), EMERGENCY_ADMIN);
     }
 
     function test_Constructor_SetsImmutableCaps() public view {
@@ -40,218 +75,333 @@ contract SailGovernanceTest is Test {
         assertEq(gov.COMPLEXITY_RATE(), 0);
     }
 
+    function test_Constructor_CreatesTimelock() public view {
+        assertTrue(address(gov.timelock()) != address(0));
+    }
+
     function test_Constructor_EmitsGovernanceTransferred() public {
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(address(0), TEAM);
-        new SailGovernance(TEAM, MAX_FEE);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
     }
 
-    function test_Constructor_RevertsOnZeroAddress() public {
+    function test_Constructor_RevertsOnZeroGovernance() public {
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(address(0), MAX_FEE);
+        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN);
     }
 
-    // -------------------------------------------------------------------------
-    // Constitutional caps — cannot be exceeded under any circumstances
-    // -------------------------------------------------------------------------
+    function test_Constructor_RevertsOnZeroEmergencyAdmin() public {
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        new SailGovernance(TEAM, MAX_FEE, address(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constitutional caps — enforced at execution time via timelock
+    // ─────────────────────────────────────────────────────────────────────────
 
     function test_MaxProtocolCutBps_IsImmutable() public view {
         assertEq(gov.MAX_PROTOCOL_CUT_BPS(), 2_500);
     }
 
     function test_SetProtocolCutBps_AtExactCap() public {
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(2_500);
+        _timelockExec(abi.encodeCall(gov.setProtocolCutBps, (2_500)));
         assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), 2_500);
     }
 
     function test_SetProtocolCutBps_RevertsAboveCap() public {
-        vm.prank(TEAM);
+        bytes memory data = abi.encodeCall(gov.setProtocolCutBps, (2_501));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
         vm.expectRevert(
             abi.encodeWithSelector(SailGovernance.ExceedsProtocolCutCap.selector, 2_501, 2_500)
         );
-        gov.setProtocolCutBps(2_501);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     function testFuzz_SetProtocolCutBps_RevertsAboveCap(uint256 excess) public {
         excess = bound(excess, 1, type(uint256).max - 2_500);
         uint256 requested = 2_500 + excess;
-        vm.prank(TEAM);
+        bytes memory data = abi.encodeCall(gov.setProtocolCutBps, (requested));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
         vm.expectRevert(
             abi.encodeWithSelector(SailGovernance.ExceedsProtocolCutCap.selector, requested, 2_500)
         );
-        gov.setProtocolCutBps(requested);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     function testFuzz_SetProtocolCutBps_WithinCap(uint256 bps) public {
         bps = bound(bps, 0, 2_500);
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(bps);
+        _timelockExec(abi.encodeCall(gov.setProtocolCutBps, (bps)));
         assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), bps);
     }
 
     function test_SetBaseFee_AtExactCap() public {
-        vm.prank(TEAM);
-        gov.setBaseFee(MAX_FEE);
+        _timelockExec(abi.encodeCall(gov.setBaseFee, (MAX_FEE)));
         assertEq(gov.BASE_FEE(), MAX_FEE);
     }
 
     function test_SetBaseFee_RevertsAboveCap() public {
-        vm.prank(TEAM);
+        bytes memory data = abi.encodeCall(gov.setBaseFee, (MAX_FEE + 1));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
         vm.expectRevert(
             abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE)
         );
-        gov.setBaseFee(MAX_FEE + 1);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     function testFuzz_SetBaseFee_RevertsAboveCap(uint256 excess) public {
         excess = bound(excess, 1, type(uint256).max - MAX_FEE);
         uint256 requested = MAX_FEE + excess;
-        vm.prank(TEAM);
+        bytes memory data = abi.encodeCall(gov.setBaseFee, (requested));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
         vm.expectRevert(
             abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, requested, MAX_FEE)
         );
-        gov.setBaseFee(requested);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     function testFuzz_SetBaseFee_WithinCap(uint256 fee) public {
         fee = bound(fee, 0, MAX_FEE);
-        vm.prank(TEAM);
-        gov.setBaseFee(fee);
+        _timelockExec(abi.encodeCall(gov.setBaseFee, (fee)));
         assertEq(gov.BASE_FEE(), fee);
     }
 
-    // -------------------------------------------------------------------------
-    // Governance transfer
-    // -------------------------------------------------------------------------
-
-    function test_TransferGovernance_UpdatesAddress() public {
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-        assertEq(gov.governance(), ALICE);
+    function testFuzz_SetComplexityRate_AnyValue(uint256 rate) public {
+        _timelockExec(abi.encodeCall(gov.setComplexityRate, (rate)));
+        assertEq(gov.COMPLEXITY_RATE(), rate);
     }
 
-    function test_TransferGovernance_EmitsEvent() public {
-        vm.expectEmit(true, true, false, false);
-        emit GovernanceTransferred(TEAM, ALICE);
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Setters reject direct calls — only timelock may invoke them
+    // ─────────────────────────────────────────────────────────────────────────
 
-    function test_TransferGovernance_NewGovernanceCanAct() public {
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-
-        vm.prank(ALICE);
-        gov.setProtocolCutBps(1_000);
-        assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), 1_000);
-    }
-
-    function test_TransferGovernance_OldGovernanceCanNoLongerAct() public {
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-
-        vm.prank(TEAM);
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.setProtocolCutBps(1_000);
-    }
-
-    function test_TransferGovernance_RevertsOnZeroAddress() public {
-        vm.prank(TEAM);
-        vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        gov.transferGovernance(address(0));
-    }
-
-    function test_TransferGovernance_ChainedTransfer() public {
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-        vm.prank(ALICE);
-        gov.transferGovernance(BOB);
-        assertEq(gov.governance(), BOB);
-    }
-
-    // -------------------------------------------------------------------------
-    // Unauthorized callers rejected
-    // -------------------------------------------------------------------------
-
-    function test_Unauthorized_SetProtocolCutBps() public {
-        vm.prank(ALICE);
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
+    function test_Setter_RevertsIfCalledDirectly() public {
+        vm.startPrank(TEAM);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setProtocolCutBps(100);
-    }
-
-    function test_Unauthorized_SetBaseFee() public {
-        vm.prank(ALICE);
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setBaseFee(0.01 ether);
-    }
-
-    function test_Unauthorized_SetComplexityRate() public {
-        vm.prank(ALICE);
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.setComplexityRate(42);
-    }
-
-    function test_Unauthorized_TransferGovernance() public {
-        vm.prank(ALICE);
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.transferGovernance(ALICE);
-    }
-
-    function testFuzz_Unauthorized_AllSetters(address caller) public {
-        vm.assume(caller != TEAM);
-        vm.startPrank(caller);
-
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.setProtocolCutBps(100);
-
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.setBaseFee(0.01 ether);
-
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setComplexityRate(1);
-
-        vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.transferGovernance(caller);
-
         vm.stopPrank();
     }
 
-    // -------------------------------------------------------------------------
+    function testFuzz_Setter_RevertsForAnyDirectCaller(address caller) public {
+        vm.assume(caller != address(gov.timelock()));
+        vm.startPrank(caller);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
+        gov.setProtocolCutBps(100);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
+        gov.setBaseFee(0.01 ether);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
+        gov.setComplexityRate(1);
+        vm.stopPrank();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Two-step governance transfer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_ProposeGovernance_SetsPendingGovernance() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        assertEq(gov.pendingGovernance(), ALICE);
+    }
+
+    function test_ProposeGovernance_EmitsEvent() public {
+        vm.expectEmit(true, false, false, false);
+        emit GovernanceTransferProposed(ALICE);
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+    }
+
+    function test_ProposeGovernance_RevertsOnZeroAddress() public {
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        gov.proposeGovernance(address(0));
+    }
+
+    function test_ProposeGovernance_RevertsIfNotGovernance() public {
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        gov.proposeGovernance(ALICE);
+    }
+
+    function test_ProposeGovernance_OverridesPending() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(TEAM);
+        gov.proposeGovernance(BOB);
+        assertEq(gov.pendingGovernance(), BOB);
+    }
+
+    function test_AcceptGovernance_TransfersControl() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        assertEq(gov.governance(), ALICE);
+    }
+
+    function test_AcceptGovernance_ClearsPendingGovernance() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        assertEq(gov.pendingGovernance(), address(0));
+    }
+
+    function test_AcceptGovernance_EmitsEvent() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.expectEmit(true, true, false, false);
+        emit GovernanceTransferred(TEAM, ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+    }
+
+    function test_AcceptGovernance_RevertsIfNotPendingGovernance() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(BOB);
+        vm.expectRevert(SailGovernance.NotPendingGovernance.selector);
+        gov.acceptGovernance();
+    }
+
+    function test_AcceptGovernance_RevertsIfNothingProposed() public {
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.NotPendingGovernance.selector);
+        gov.acceptGovernance();
+    }
+
+    function test_TwoStep_OldGovernanceCannotProposeAfterAccept() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        gov.proposeGovernance(BOB);
+    }
+
+    function test_TwoStep_NewGovernanceCanPropose() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        vm.prank(ALICE);
+        gov.proposeGovernance(BOB);
+        assertEq(gov.pendingGovernance(), BOB);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Emergency pause
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Pause_SetsPauseExpiry() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        assertEq(gov.pauseExpiry(), block.timestamp + 72 hours);
+    }
+
+    function test_Pause_EmitsEvent() public {
+        uint256 expectedExpiry = block.timestamp + 72 hours;
+        vm.expectEmit(false, false, false, true);
+        emit Paused(expectedExpiry);
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+    }
+
+    function test_Unpause_ClearsPauseExpiry() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        assertEq(gov.pauseExpiry(), 0);
+    }
+
+    function test_Unpause_EmitsEvent() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.expectEmit(false, false, false, false);
+        emit Unpaused();
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+    }
+
+    function test_Pause_RevertsIfNotEmergencyAdmin() public {
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.NotEmergencyAdmin.selector);
+        gov.pause();
+    }
+
+    function test_Unpause_RevertsIfNotEmergencyAdmin() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.NotEmergencyAdmin.selector);
+        gov.unpause();
+    }
+
+    function test_IsPaused_TrueWhenActive() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        assertTrue(gov.isPaused());
+    }
+
+    function test_IsPaused_FalseAfterExpiry() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.warp(block.timestamp + 72 hours + 1);
+        assertFalse(gov.isPaused());
+    }
+
+    function test_IsPaused_FalseAfterUnpause() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        assertFalse(gov.isPaused());
+    }
+
+    function test_IsPaused_FalseByDefault() public view {
+        assertFalse(gov.isPaused());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Events on parameter updates
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
 
     function test_SetProtocolCutBps_EmitsEvent() public {
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(500);
+        _timelockExec(abi.encodeCall(gov.setProtocolCutBps, (500)));
 
+        bytes memory data = abi.encodeCall(gov.setProtocolCutBps, (1_000));
+        bytes32 salt = _timelockSchedule(data);
         vm.expectEmit(false, false, false, true);
         emit ProtocolCutUpdated(500, 1_000);
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(1_000);
+        _timelockExecute(data, salt);
     }
 
     function test_SetBaseFee_EmitsEvent() public {
+        bytes memory data = abi.encodeCall(gov.setBaseFee, (0.1 ether));
+        bytes32 salt = _timelockSchedule(data);
         vm.expectEmit(false, false, false, true);
         emit BaseFeeUpdated(0, 0.1 ether);
-        vm.prank(TEAM);
-        gov.setBaseFee(0.1 ether);
+        _timelockExecute(data, salt);
     }
 
     function test_SetComplexityRate_EmitsEvent() public {
+        bytes memory data = abi.encodeCall(gov.setComplexityRate, (7));
+        bytes32 salt = _timelockSchedule(data);
         vm.expectEmit(false, false, false, true);
         emit ComplexityRateUpdated(0, 7);
-        vm.prank(TEAM);
-        gov.setComplexityRate(7);
-    }
-
-    // -------------------------------------------------------------------------
-    // COMPLEXITY_RATE has no cap (no upper bound in the spec)
-    // -------------------------------------------------------------------------
-
-    function testFuzz_SetComplexityRate_AnyValue(uint256 rate) public {
-        vm.prank(TEAM);
-        gov.setComplexityRate(rate);
-        assertEq(gov.COMPLEXITY_RATE(), rate);
+        _timelockExecute(data, salt);
     }
 }
