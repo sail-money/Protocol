@@ -124,15 +124,18 @@ contract GMXPerpPermissionTest is Test {
     }
 
     /// @dev Build a Context from calldata bytes (target = EXCHANGE_ROUTER, account = SAFE).
-    function _ctx(bytes memory data) internal pure returns (Context memory) {
+    function _ctx(bytes memory data) internal view returns (Context memory) {
         bytes4 sel;
         if (data.length >= 4) assembly { sel := mload(add(data, 32)) }
         return Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   EXCHANGE_ROUTER,
-            selector: sel,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE_ROUTER,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
     }
 
@@ -194,11 +197,14 @@ contract GMXPerpPermissionTest is Test {
         bytes4 sel;
         assembly { sel := mload(add(data, 32)) }
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   address(0xBAD),
-            selector: sel,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         address(0xBAD),
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -210,11 +216,14 @@ contract GMXPerpPermissionTest is Test {
     function test_WrongSelector_ReturnsFalse() public view {
         bytes memory data = _createOrderCalldata(MARKET_BTC, COLLATERAL_USDC, 100_000e30, true, SAFE);
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   EXCHANGE_ROUTER,
-            selector: bytes4(0xDEAD0000),
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE_ROUTER,
+            selector:       bytes4(0xDEAD0000),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -335,11 +344,14 @@ contract GMXPerpPermissionTest is Test {
         data[2] = 0x6a;
         data[3] = 0x6a;
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   EXCHANGE_ROUTER,
-            selector: bytes4(0x0b686a6a),
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE_ROUTER,
+            selector:       bytes4(0x0b686a6a),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -355,11 +367,14 @@ contract GMXPerpPermissionTest is Test {
         // Remaining bytes are zero — the inner ABI offsets will point out of bounds
         // causing abi.decode to revert
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   EXCHANGE_ROUTER,
-            selector: bytes4(0x0b686a6a),
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE_ROUTER,
+            selector:       bytes4(0x0b686a6a),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(junk, ctx));
     }

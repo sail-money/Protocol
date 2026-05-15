@@ -66,6 +66,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     struct TransferConfig {
         address[] recipients;
         address[] tokens;
+        uint256   maxAmountPerTx;
     }
 
     // -------------------------------------------------------------------------
@@ -115,7 +116,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
         (SwapConfig memory swap, BorrowConfig memory borrow, TransferConfig memory transfer) =
             abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
 
-        if (swap.maxSlippageBps > 10_000) revert SlippageBpsTooLarge(swap.maxSlippageBps);
+        if (swap.maxSlippageBps > 9_999) revert SlippageBpsTooLarge(swap.maxSlippageBps);
         if (borrow.maxLtvBps    > 10_000) revert LtvBpsTooLarge(borrow.maxLtvBps);
 
         _applySwap(account, swap);
@@ -295,16 +296,19 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     function _evalTransfer(bytes calldata txData, Context calldata ctx) internal view returns (bool) {
         if (ctx.value != 0) return false;
         if (!isTransferToken[ctx.account][ctx.target]) return false;
+        TransferConfig storage cfg = _transfer[ctx.account];
 
         if (ctx.selector == TRANSFER_SELECTOR) {
             if (txData.length < LEN_TRANSFER) return false;
-            (address to,) = abi.decode(txData[4:], (address, uint256));
+            (address to, uint256 amount) = abi.decode(txData[4:], (address, uint256));
+            if (amount > cfg.maxAmountPerTx) return false;
             return isTransferRecipient[ctx.account][to];
         }
 
         // TRANSFERFROM_SELECTOR
         if (txData.length < LEN_TRANSFERFROM) return false;
-        (, address tfTo,) = abi.decode(txData[4:], (address, address, uint256));
+        (, address tfTo, uint256 tfAmount) = abi.decode(txData[4:], (address, address, uint256));
+        if (tfAmount > cfg.maxAmountPerTx) return false;
         return isTransferRecipient[ctx.account][tfTo];
     }
 }

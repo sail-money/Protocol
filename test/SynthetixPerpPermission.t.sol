@@ -49,7 +49,8 @@ contract SynthetixPerpPermissionTest is Test {
             true,  // allowLong
             true,  // allowShort
             synths,
-            SIGNER
+            SIGNER,
+            type(uint256).max  // maxWithdrawalPerTx — no cap for existing tests
         );
     }
 
@@ -77,10 +78,10 @@ contract SynthetixPerpPermissionTest is Test {
         );
     }
 
-    function _ctx(bytes memory data) internal pure returns (Context memory) {
+    function _ctx(bytes memory data) internal view returns (Context memory) {
         bytes4 sel;
         if (data.length >= 4) assembly { sel := mload(add(data, 32)) }
-        return Context({account: SAFE, manager: address(0), target: PERPS_PROXY, selector: sel, value: 0});
+        return Context({account: SAFE, manager: address(0), submitter: address(0), target: PERPS_PROXY, selector: sel, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -112,21 +113,21 @@ contract SynthetixPerpPermissionTest is Test {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(address(0), markets, MAX_SIZE, true, true, synths, SIGNER);
+        new SynthetixPerpPermission(address(0), markets, MAX_SIZE, true, true, synths, SIGNER, type(uint256).max);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0));
+        new SynthetixPerpPermission(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0), type(uint256).max);
     }
 
     function test_Constructor_RevertsOnNegativeMaxSize() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.NegativeMaxSizeDelta.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER);
+        new SynthetixPerpPermission(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER, type(uint256).max);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -162,11 +163,14 @@ contract SynthetixPerpPermissionTest is Test {
         bytes4 sel;
         assembly { sel := mload(add(data, 32)) }
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   address(0xDEAD),
-            selector: sel,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         address(0xDEAD),
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -180,11 +184,14 @@ contract SynthetixPerpPermissionTest is Test {
         bytes4 sel;
         assembly { sel := mload(add(data, 32)) }
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   PERPS_PROXY,
-            selector: sel,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         PERPS_PROXY,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -305,11 +312,14 @@ contract SynthetixPerpPermissionTest is Test {
 
         // Build ctx manually so selector matches
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   PERPS_PROXY,
-            selector: COMMIT_ORDER_SELECTOR,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         PERPS_PROXY,
+            selector:       COMMIT_ORDER_SELECTOR,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(short_, ctx));
     }
@@ -322,11 +332,14 @@ contract SynthetixPerpPermissionTest is Test {
         for (uint256 i; i < 99; i++) short_[i] = full[i];
 
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   PERPS_PROXY,
-            selector: MODIFY_COLLATERAL_SELECTOR,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         PERPS_PROXY,
+            selector:       MODIFY_COLLATERAL_SELECTOR,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(short_, ctx));
     }

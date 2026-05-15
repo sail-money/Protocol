@@ -468,12 +468,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (_permissions[account].length >= limit)
             revert TooManyPermissions(account, limit);
 
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(REGISTER_PERMISSION_TYPEHASH, account, permission, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
 
         uint256 fee = _calcPermissionFee(permission);
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
@@ -492,12 +493,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  sig        EIP-712 signature over RevokePermission struct by permissionSigner.
     function revokePermission(address account, address permission, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(REVOKE_PERMISSION_TYPEHASH, account, permission, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
         _removePermission(account, permission);
         emit PermissionRevoked(account, permission);
     }
@@ -517,12 +519,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _requireRegistered(account);
         if (_permissionIndex[account][newPermission] != 0) revert PermissionAlreadyRegistered(newPermission);
 
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(REPLACE_PERMISSION_TYPEHASH, account, oldPermission, newPermission, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
 
         uint256 idx = _permissionIndex[account][oldPermission];
         if (idx == 0) revert PermissionNotRegistered(oldPermission);
@@ -544,12 +547,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  sig     EIP-712 signature over RevokeSession struct by permissionSigner.
     function revokeSession(address account, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(REVOKE_SESSION_TYPEHASH, account, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
         configs[account].sessionActive = false;
         emit SessionRevoked(account);
     }
@@ -560,12 +564,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  sig     EIP-712 signature over ActivateSession struct by permissionSigner.
     function activateSession(address account, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(ACTIVATE_SESSION_TYPEHASH, account, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
         configs[account].sessionActive = true;
         emit SessionActivated(account);
     }
@@ -577,12 +582,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
     function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, nonce)),
             sig
         );
+        signerNonces[account] = nonce + 1;
         configs[account].feePolicy = newFeePolicy;
         emit FeePolicyUpdated(account, newFeePolicy);
     }
@@ -603,7 +609,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address[] calldata permissions,
         uint256 deadline,
         bytes calldata sig
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (permissions.length == 0) return;
         _requireRegistered(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
@@ -613,7 +619,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (_permissions[account].length + permissions.length > limit)
             revert TooManyPermissions(account, limit);
 
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(
@@ -625,6 +631,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             )),
             sig
         );
+        signerNonces[account] = nonce + 1;
 
         // Compute total fee before any state changes
         uint256 totalFee;
@@ -662,7 +669,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _requireRegistered(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
-        uint256 nonce = signerNonces[account]++;
+        uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
             keccak256(abi.encode(
@@ -674,6 +681,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             )),
             sig
         );
+        signerNonces[account] = nonce + 1;
 
         for (uint256 i; i < permissions.length; i++) {
             _removePermission(account, permissions[i]);
@@ -726,7 +734,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!cfg.sessionActive) revert SessionInactive(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
-        uint256 nonce    = managerNonces[account]++;
+        uint256 nonce    = managerNonces[account];
         bytes32 dataHash = keccak256(data);
         bytes32 digest   = _hashTypedDataV4(keccak256(abi.encode(
             DISPATCH_TYPEHASH,
@@ -738,6 +746,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             deadline
         )));
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
+        managerNonces[account] = nonce + 1;
 
         // Walk permissions — each evaluated via staticcall with gas cap.
         // Zero registered permissions means deny by default (allowlist semantics).
