@@ -72,10 +72,12 @@ abstract contract FactoryTestBase is Test {
 
         vm.deal(address(this), 100 ether);
 
-        gov = new SailGovernance(address(this), MAX_PERM_FEE);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(0xEEEE));
+        vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
         gov.setBaseFee(BASE_FEE);
         gov.setComplexityRate(COMPLEXITY_RATE);
+        vm.stopPrank();
 
         kernel  = new SailKernel(address(gov), TREASURY);
         factory = new PermissionFactory(address(kernel));
@@ -83,7 +85,8 @@ abstract contract FactoryTestBase is Test {
         safe = new MockSafe();
         vm.deal(address(safe), 100 ether);
 
-        kernel.registerAccount(address(safe), permSigner, manager, address(0));
+        vm.prank(address(safe));
+        kernel.registerAccount(permSigner, manager, address(0));
     }
 
     receive() external payable {}
@@ -92,7 +95,7 @@ abstract contract FactoryTestBase is Test {
 
     function _calcFee(address template) internal view returns (uint256) {
         uint256 size = template.code.length;
-        uint256 fee  = gov.BASE_FEE() + size * gov.COMPLEXITY_RATE();
+        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
         uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
         return fee > cap ? cap : fee;
     }

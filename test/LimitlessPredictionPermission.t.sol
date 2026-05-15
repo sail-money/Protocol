@@ -92,8 +92,17 @@ contract LimitlessPredictionPermissionTest is Test {
         return abi.encodeWithSelector(FILL_ORDER, order, makerAmount);
     }
 
-    function _ctx(bytes memory /*data*/) internal pure returns (Context memory) {
-        return Context({account: SAFE, manager: address(0), target: EXCHANGE, selector: FILL_ORDER, value: 0});
+    function _ctx(bytes memory /*data*/) internal view returns (Context memory) {
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE,
+            selector:       FILL_ORDER,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -162,7 +171,7 @@ contract LimitlessPredictionPermissionTest is Test {
 
     function test_WrongTarget_ReturnsFalse() public view {
         bytes memory data = _buildOrder(SAFE, MARKET_YES, MAX_SIZE, SIDE_BUY);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: address(0xDEAD), selector: FILL_ORDER, value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: address(0xDEAD), selector: FILL_ORDER, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(data, ctx));
     }
 
@@ -172,7 +181,7 @@ contract LimitlessPredictionPermissionTest is Test {
 
     function test_WrongSelector_ReturnsFalse() public view {
         bytes memory data = _buildOrder(SAFE, MARKET_YES, MAX_SIZE, SIDE_BUY);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: EXCHANGE, selector: bytes4(0xdeadbeef), value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: EXCHANGE, selector: bytes4(0xdeadbeef), value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(data, ctx));
     }
 
@@ -260,7 +269,7 @@ contract LimitlessPredictionPermissionTest is Test {
 
     function test_TooShortCalldata_ReturnsFalse() public view {
         bytes memory short_ = new bytes(515);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: EXCHANGE, selector: FILL_ORDER, value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: EXCHANGE, selector: FILL_ORDER, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(short_, ctx));
     }
 
@@ -353,7 +362,7 @@ contract LimitlessPredictionPermissionTest is Test {
     function testFuzz_WrongTarget_Fails(address target) public view {
         vm.assume(target != EXCHANGE);
         bytes memory data = _buildOrder(SAFE, MARKET_YES, MAX_SIZE, SIDE_BUY);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: target, selector: FILL_ORDER, value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: target, selector: FILL_ORDER, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(data, ctx));
     }
 }

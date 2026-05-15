@@ -44,7 +44,8 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
-        kernel.registerAccount(address(safeB), permSigner, manager, address(0));
+        vm.prank(address(safeB));
+        kernel.registerAccount(permSigner, manager, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
