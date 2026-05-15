@@ -93,14 +93,24 @@ contract PermissionFactory {
         if (n != configureDeadlines.length) revert LengthMismatch();
         if (n != configureSigs.length)      revert LengthMismatch();
 
-        for (uint256 i; i < n; i++) {
+        _batchConfigure(account, templates, params, configureDeadlines, configureSigs);
+        kernel.registerPermissions{value: msg.value}(account, templates, kernelDeadline, kernelBatchSig);
+        _refundExcess();
+        emit BatchAttached(account, templates);
+    }
+
+    function _batchConfigure(
+        address account,
+        address[] calldata templates,
+        bytes[] calldata params,
+        uint256[] memory configureDeadlines,
+        bytes[] calldata configureSigs
+    ) private {
+        for (uint256 i; i < templates.length; i++) {
             IConfigurablePermission(templates[i]).configure(
                 account, params[i], configureDeadlines[i], configureSigs[i]
             );
         }
-        kernel.registerPermissions{value: msg.value}(account, templates, kernelDeadline, kernelBatchSig);
-        _refundExcess();
-        emit BatchAttached(account, templates);
     }
 
     // -------------------------------------------------------------------------

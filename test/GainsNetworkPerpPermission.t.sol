@@ -98,10 +98,19 @@ contract GainsNetworkPerpPermissionTest is Test {
         return abi.encodeWithSelector(CLOSE_TRADE_SELECTOR, pairIndex, index);
     }
 
-    function _ctx(bytes memory data) internal pure returns (Context memory) {
+    function _ctx(bytes memory data) internal view returns (Context memory) {
         bytes4 sel;
         if (data.length >= 4) assembly { sel := mload(add(data, 32)) }
-        return Context({account: SAFE, manager: address(0), target: GTRADE_ROUTER, selector: sel, value: 0});
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         GTRADE_ROUTER,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -162,11 +171,14 @@ contract GainsNetworkPerpPermissionTest is Test {
     function test_WrongTarget_ReturnsFalse() public view {
         bytes memory data = _openTrade(SAFE, PAIR_BTC, 10_000e18, true, 10);
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   STRANGER,     // wrong target
-            selector: OPEN_TRADE_SELECTOR,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         STRANGER,
+            selector:       OPEN_TRADE_SELECTOR,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -178,11 +190,14 @@ contract GainsNetworkPerpPermissionTest is Test {
     function test_WrongSelector_ReturnsFalse() public view {
         bytes memory data = abi.encodeWithSignature("approve(address,uint256)", GTRADE_ROUTER, 1e18);
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   GTRADE_ROUTER,
-            selector: bytes4(keccak256("approve(address,uint256)")),
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         GTRADE_ROUTER,
+            selector:       bytes4(keccak256("approve(address,uint256)")),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(data, ctx));
     }
@@ -323,11 +338,14 @@ contract GainsNetworkPerpPermissionTest is Test {
         for (uint256 i; i < 419; i++) short_[i] = full[i];
         // Build context using the selector from the full calldata
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   GTRADE_ROUTER,
-            selector: OPEN_TRADE_SELECTOR,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         GTRADE_ROUTER,
+            selector:       OPEN_TRADE_SELECTOR,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(short_, ctx));
     }
@@ -339,11 +357,14 @@ contract GainsNetworkPerpPermissionTest is Test {
         bytes memory short_ = new bytes(67);
         for (uint256 i; i < 67; i++) short_[i] = full[i];
         Context memory ctx = Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   GTRADE_ROUTER,
-            selector: CLOSE_TRADE_SELECTOR,
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         GTRADE_ROUTER,
+            selector:       CLOSE_TRADE_SELECTOR,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate(short_, ctx));
     }
