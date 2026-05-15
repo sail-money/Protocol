@@ -234,6 +234,22 @@ contract BoundedSwapPermissionTest is Test {
         assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
     }
 
+    function test_V3_OracleHighDecimals_78_Blocked() public {
+        // dec = 78 → 10^78 overflows uint256 → kernel must treat as denial (return false)
+        oracle.setPrice(TOKEN_IN, TOKEN_OUT, 1e18, 78);
+        bytes memory data = _v3(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, 0);
+        assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
+    function test_V3_OracleDecimals_77_Accepted() public {
+        // dec = 77 is the maximum safe value (10^77 fits in uint256)
+        // price = 10^77 → expectedOut = amountIn * 10^77 / 10^77 = amountIn
+        oracle.setPrice(TOKEN_IN, TOKEN_OUT, 10**77, 77);
+        // amountOutMinimum = AMOUNT_IN satisfies amountOutMin >= expectedOut * (1 - slippage)
+        bytes memory data = _v3(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, AMOUNT_IN);
+        assertTrue(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // V3 — oracle-disabled paths
     // ═════════════════════════════════════════════════════════════════════════
