@@ -113,14 +113,25 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     // -------------------------------------------------------------------------
 
     function _applyConfig(address account, bytes calldata params) internal override {
-        (SwapConfig memory swap, BorrowConfig memory borrow, TransferConfig memory transfer) =
-            abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
+        _applyConfigSwap(account, params);
+        _applyConfigBorrow(account, params);
+        _applyConfigTransfer(account, params);
+    }
 
-        if (swap.maxSlippageBps > 9_999) revert SlippageBpsTooLarge(swap.maxSlippageBps);
-        if (borrow.maxLtvBps    > 10_000) revert LtvBpsTooLarge(borrow.maxLtvBps);
-
+    function _applyConfigSwap(address account, bytes calldata params) private {
+        (SwapConfig memory swap,,) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
+        if (swap.maxSlippageBps > 10_000) revert SlippageBpsTooLarge(swap.maxSlippageBps);
         _applySwap(account, swap);
+    }
+
+    function _applyConfigBorrow(address account, bytes calldata params) private {
+        (, BorrowConfig memory borrow,) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
+        if (borrow.maxLtvBps > 10_000) revert LtvBpsTooLarge(borrow.maxLtvBps);
         _applyBorrow(account, borrow);
+    }
+
+    function _applyConfigTransfer(address account, bytes calldata params) private {
+        (,, TransferConfig memory transfer) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
         _applyTransfer(account, transfer);
     }
 
@@ -188,31 +199,37 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
 
     function _evalSwap(bytes calldata txData, Context calldata ctx) internal view returns (bool) {
         if (!isSwapRouter[ctx.account][ctx.target]) return false;
-        SwapConfig storage s = _swap[ctx.account];
-
         if (ctx.selector == EXACT_INPUT_SINGLE) {
-            if (txData.length < LEN_V3) return false;
-            (
-                address tokenIn,
-                address tokenOut,
-                ,
-                address recipient,
-                ,
-                uint256 amountIn,
-                uint256 amountOutMinimum,
-            ) = abi.decode(
-                txData[4:],
-                (address, address, uint24, address, uint256, uint256, uint256, uint160)
-            );
-            if (!isSwapTokenIn[ctx.account][tokenIn])   return false;
-            if (!isSwapTokenOut[ctx.account][tokenOut]) return false;
-            if (recipient != ctx.account)               return false;
-            if (amountIn > s.maxAmountPerTx)            return false;
-            return _swapOracleCheck(s, tokenIn, tokenOut, amountIn, amountOutMinimum);
+            return _evalSwapV3(txData, ctx);
         }
+        return _evalSwapV2(txData, ctx);
+    }
 
-        // SWAP_EXACT_TOKENS
+    function _evalSwapV3(bytes calldata txData, Context calldata ctx) internal view returns (bool) {
+        if (txData.length < LEN_V3) return false;
+        SwapConfig storage s = _swap[ctx.account];
+        (
+            address tokenIn,
+            address tokenOut,
+            ,
+            address recipient,
+            ,
+            uint256 amountIn,
+            uint256 amountOutMinimum,
+        ) = abi.decode(
+            txData[4:],
+            (address, address, uint24, address, uint256, uint256, uint256, uint160)
+        );
+        if (!isSwapTokenIn[ctx.account][tokenIn])   return false;
+        if (!isSwapTokenOut[ctx.account][tokenOut]) return false;
+        if (recipient != ctx.account)               return false;
+        if (amountIn > s.maxAmountPerTx)            return false;
+        return _swapOracleCheck(s, tokenIn, tokenOut, amountIn, amountOutMinimum);
+    }
+
+    function _evalSwapV2(bytes calldata txData, Context calldata ctx) internal view returns (bool) {
         if (txData.length < LEN_V2_MIN) return false;
+        SwapConfig storage s = _swap[ctx.account];
         (
             uint256 v2AmountIn,
             uint256 v2AmountOutMin,

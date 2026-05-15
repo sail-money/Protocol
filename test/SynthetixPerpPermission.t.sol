@@ -81,7 +81,16 @@ contract SynthetixPerpPermissionTest is Test {
     function _ctx(bytes memory data) internal view returns (Context memory) {
         bytes4 sel;
         if (data.length >= 4) assembly { sel := mload(add(data, 32)) }
-        return Context({account: SAFE, manager: address(0), submitter: address(0), target: PERPS_PROXY, selector: sel, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         PERPS_PROXY,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

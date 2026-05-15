@@ -93,7 +93,16 @@ contract LimitlessPredictionPermissionTest is Test {
     }
 
     function _ctx(bytes memory /*data*/) internal view returns (Context memory) {
-        return Context({account: SAFE, manager: address(0), submitter: address(0), target: EXCHANGE, selector: FILL_ORDER, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         EXCHANGE,
+            selector:       FILL_ORDER,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

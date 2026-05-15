@@ -218,7 +218,7 @@ contract BundlePermissionTest is FactoryTestBase {
 
         // Measure evaluate() gas for each domain.
         Context memory ctxSwap = Context({
-            account: address(safe), manager: manager, submitter: address(0), target: UNI_V3_ROUTER,
+            account: address(safe), manager: manager, submitter: manager, target: UNI_V3_ROUTER,
             selector: 0x414bf389, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number
         });
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 1 ether, 0);
@@ -228,8 +228,9 @@ contract BundlePermissionTest is FactoryTestBase {
         uint256 swapGas = g0 - gasleft();
 
         Context memory ctxBorrow = Context({
-            account: address(safe), manager: manager, submitter: address(0), target: AAVE_V3_POOL,
-            selector: bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)")), value: 0, blockTimestamp: block.timestamp, blockNumber: block.number
+            account: address(safe), manager: manager, submitter: manager, target: AAVE_V3_POOL,
+            selector: bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)")), value: 0,
+            blockTimestamp: block.timestamp, blockNumber: block.number
         });
         bytes memory borrowData = _aaveBorrow(USDC, 1_000, address(safe));
         g0 = gasleft();
@@ -237,7 +238,7 @@ contract BundlePermissionTest is FactoryTestBase {
         uint256 borrowGas = g0 - gasleft();
 
         Context memory ctxTransfer = Context({
-            account: address(safe), manager: manager, submitter: address(0), target: USDC,
+            account: address(safe), manager: manager, submitter: manager, target: USDC,
             selector: 0xa9059cbb, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number
         });
         bytes memory transferData = abi.encodeWithSignature(
