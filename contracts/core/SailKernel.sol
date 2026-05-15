@@ -315,6 +315,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `onlyGovernance` when caller is not the current governance address.
     error NotGovernance();
 
+    /// @dev Thrown by `onlyTimelock` when caller is not the governance 48-hour timelock.
+    error NotTimelock();
+
     /// @dev Thrown when a caller other than the account's permissionSigner invokes a guarded op.
     error NotPermissionSigner();
 
@@ -352,6 +355,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _;
     }
 
+    /// @dev Reverts with NotTimelock when caller is not the governance timelock.
+    ///      Used for high-impact setters that must observe the 48-hour delay.
+    modifier onlyTimelock() {
+        if (msg.sender != address(governance.timelock())) revert NotTimelock();
+        _;
+    }
+
     /// @dev Reverts with ProtocolPaused when governance.isPaused() returns true.
     modifier whenNotPaused() {
         if (governance.isPaused()) revert ProtocolPaused();
@@ -363,8 +373,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     /// @notice Update the treasury address that receives the protocol's fee share.
+    /// @dev    Enforces the 48-hour timelock so that a compromised governance key cannot
+    ///         instantly redirect all protocol fee flows. Schedule via governance.timelock().
     /// @param  newTreasury New treasury address. Must not be the zero address.
-    function setTreasury(address newTreasury) external onlyGovernance {
+    function setTreasury(address newTreasury) external onlyTimelock {
         if (newTreasury == address(0)) revert ZeroAddress();
         address old = treasury;
         treasury = newTreasury;
@@ -524,7 +536,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         revert with `SessionInactive` until `activateSession` is called.
     /// @param  account The registered Safe account.
     /// @param  sig     EIP-712 signature over RevokeSession struct by permissionSigner.
-    function revokeSession(address account, bytes calldata sig) external {
+    function revokeSession(address account, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -540,7 +552,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         signature to prove the key is still under the operator's control.
     /// @param  account The registered Safe account.
     /// @param  sig     EIP-712 signature over ActivateSession struct by permissionSigner.
-    function activateSession(address account, bytes calldata sig) external {
+    function activateSession(address account, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -557,7 +569,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  account      The registered Safe account.
     /// @param  newFeePolicy New fee policy contract address; address(0) = no fee policy.
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
-    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external {
+    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -801,6 +813,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (distributor == address(0)) distributorCut = 0;
         uint256 managerTake    = remainder - distributorCut;
 
+        // Record state update BEFORE external transfers (CEI pattern).
+        // This prevents a policy that reverts after transfers from leaving funds extracted
+        // but state un-updated, which would allow a second collection over the same period.
+        IFeePolicy(cfg.feePolicy).recordCollection(account, grossFee, currentNav);
+
         if (feeToken == address(0)) {
             if (protocolCut    > 0) _safeTransferETH(account, treasury,    protocolCut);
             if (distributorCut > 0) _safeTransferETH(account, distributor, distributorCut);
@@ -811,7 +828,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
             if (managerTake    > 0) _safeTransferERC20(account, feeToken, recipient,   managerTake);
         }
 
-        IFeePolicy(cfg.feePolicy).recordCollection(account, grossFee, currentNav);
         emit FeesCollected(account, feeToken, grossFee, protocolCut, distributorCut, managerTake);
     }
 

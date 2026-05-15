@@ -47,7 +47,7 @@ contract StandardFeePolicy is IFeePolicy {
     // Mutable parameters — adjustable by feeManager
     // -------------------------------------------------------------------------
 
-    /// @notice Annual management fee rate in basis points. Max 500 (5%).
+    /// @notice Annual management fee rate in basis points. Max 1 000 (10%).
     uint256 public managementFeeBps;
 
     /// @notice Performance fee rate on profits above HWM, in basis points. Max 5 000 (50%).
@@ -166,7 +166,7 @@ contract StandardFeePolicy is IFeePolicy {
     // -------------------------------------------------------------------------
 
     /// @notice Deploy a StandardFeePolicy with the given fee schedule and access control.
-    /// @param  _managementFeeBps  Annual management fee in basis points. Max 500 (5%).
+    /// @param  _managementFeeBps  Annual management fee in basis points. Max 1 000 (10%).
     /// @param  _performanceFeeBps Performance fee in basis points. Max 5 000 (50%).
     /// @param  _distributor       Initial distributor address; address(0) = no split.
     /// @param  _distributorBps    Distributor's share of manager's net fee in basis points.

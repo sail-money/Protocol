@@ -181,6 +181,27 @@ contract BoundedBorrowPermissionTest is Test {
         assertEq(p.borrowOracle(),     address(0));
     }
 
+    function test_Constructor_RevertsOracleDecimalMismatch() public {
+        address[] memory e = new address[](0);
+        // colOracle reports dec=0, borOracle reports dec=8 → mismatch → revert
+        BorrowMockOracle colO = new BorrowMockOracle();
+        BorrowMockOracle borO = new BorrowMockOracle();
+        colO.setPrice(address(0), address(0), 1, 0);
+        borO.setPrice(address(0), address(0), 1, 8);
+        vm.expectRevert(abi.encodeWithSelector(BoundedBorrowPermission.OracleDecimalMismatch.selector, uint8(0), uint8(8)));
+        new BoundedBorrowPermission(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
+    }
+
+    function test_Constructor_OracleDecimalsMatchingPasses() public {
+        address[] memory e = new address[](0);
+        BorrowMockOracle colO = new BorrowMockOracle();
+        BorrowMockOracle borO = new BorrowMockOracle();
+        colO.setPrice(address(0), address(0), 1, 8);
+        borO.setPrice(address(0), address(0), 1, 8);
+        BoundedBorrowPermission p = new BoundedBorrowPermission(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
+        assertEq(p.collateralOracle(), address(colO));
+    }
+
     function test_Discriminator() public view {
         assertEq(perm.discriminator(), keccak256("BoundedBorrowPermission"));
     }
@@ -422,11 +443,11 @@ contract BoundedBorrowPermissionTest is Test {
         assertFalse(perm.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
 
-    function test_Oracle_ZeroBorrowPrice_Passes() public {
-        // zero borrow price → zero borrow value → LTV = 0 → always passes
+    function test_Oracle_ZeroBorrowPrice_Blocked() public {
+        // zero borrow price → oracle broken/unsupported → fail-closed (deny borrow)
         borOracle.setPrice(USDC, address(0), 0, 0);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
-        assertTrue(perm.evaluate(data, _ctx(AAVE, SEL_AAVE)));
+        assertFalse(perm.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
 
     function test_Oracle_DisabledBothAddressZero_Passes() public {
