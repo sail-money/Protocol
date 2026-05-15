@@ -59,7 +59,8 @@ contract BatchPermissionsTest is Test {
         perm2  = new BatchMockPermission();
         perm3  = new BatchMockPermission();
 
-        kernel.registerAccount(address(safe), permSigner, manager, address(0));
+        vm.prank(address(safe));
+        kernel.registerAccount(permSigner, manager, address(0));
     }
 
     receive() external payable {} // accept refunds
@@ -197,13 +198,11 @@ contract BatchPermissionsTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.signerNonces(address(safe));
 
-        kernel.registerPermissions(
-            address(safe), perms, deadline,
-            _signRegisterBatch(address(safe), perms, nonce, deadline)
-        );
+        // Empty array returns early — no signature required, nonce NOT consumed
+        kernel.registerPermissions(address(safe), perms, deadline, "");
 
         assertEq(kernel.getPermissions(address(safe)).length, 0);
-        assertEq(kernel.signerNonces(address(safe)), nonce + 1);
+        assertEq(kernel.signerNonces(address(safe)), nonce, "empty array must not consume a nonce");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -468,14 +467,12 @@ contract BatchPermissionsTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.signerNonces(address(safe));
 
-        kernel.revokePermissions(
-            address(safe), perms, deadline,
-            _signRevokeBatch(address(safe), perms, nonce, deadline)
-        );
+        // Empty array returns early — no signature required, nonce NOT consumed
+        kernel.revokePermissions(address(safe), perms, deadline, "");
 
         assertTrue(kernel.isPermissionRegistered(address(safe), address(perm1)),
             "perm1 must still be registered after empty revoke batch");
-        assertEq(kernel.signerNonces(address(safe)), nonce + 1);
+        assertEq(kernel.signerNonces(address(safe)), nonce, "empty array must not consume a nonce");
     }
 
     function test_BatchRevoke_ThreePermissions_AllRemoved() public {
@@ -699,12 +696,137 @@ contract BatchPermissionsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // maxPermissionsPerAccount cap enforcement via batch
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_RegisterPermissions_RevertsWhenBatchExceedsCap() public {
+        // Fill the account to 18 permissions via individual calls
+        uint256 cap = gov.maxPermissionsPerAccount();
+        uint256 filledCount = cap - 2;
+        for (uint256 i = 0; i < filledCount; i++) {
+            BatchMockPermission p = new BatchMockPermission();
+            uint256 singleNonce = kernel.signerNonces(address(safe));
+            bytes32 structHash = keccak256(abi.encode(
+                kernel.REGISTER_PERMISSION_TYPEHASH(),
+                address(safe),
+                address(p),
+                singleNonce
+            ));
+            bytes32 digest = kernel.hashTypedDataV4(structHash);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
+            kernel.registerPermission(address(safe), address(p), abi.encodePacked(r, s, v));
+        }
+        assertEq(kernel.getPermissions(address(safe)).length, filledCount);
+
+        // Now try to batch-register 3 more (only 2 slots left → should revert)
+        BatchMockPermission p1 = new BatchMockPermission();
+        BatchMockPermission p2 = new BatchMockPermission();
+        BatchMockPermission p3 = new BatchMockPermission();
+        address[] memory perms = new address[](3);
+        perms[0] = address(p1);
+        perms[1] = address(p2);
+        perms[2] = address(p3);
+
+        uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signRegisterBatch(address(safe), perms, nonce, deadline);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(SailKernel.TooManyPermissions.selector, address(safe), cap)
+        );
+        kernel.registerPermissions(address(safe), perms, deadline, sig);
+
+        // State unchanged
+        assertEq(kernel.getPermissions(address(safe)).length, filledCount);
+    }
+
+    function test_RegisterPermissions_ExactlyFillsCap() public {
+        uint256 cap = gov.maxPermissionsPerAccount();
+        address[] memory perms = new address[](cap);
+        for (uint256 i = 0; i < cap; i++) {
+            perms[i] = address(new BatchMockPermission());
+        }
+
+        uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signRegisterBatch(address(safe), perms, nonce, deadline);
+
+        kernel.registerPermissions(address(safe), perms, deadline, sig);
+        assertEq(kernel.getPermissions(address(safe)).length, cap);
+    }
+
+    function test_RegisterPermissions_EmptyArrayIsNoOp() public {
+        uint256 nonceBefore = kernel.signerNonces(address(safe));
+        address[] memory empty = new address[](0);
+        // No signature needed — returns before consuming nonce
+        kernel.registerPermissions(address(safe), empty, block.timestamp + 1 hours, "");
+        assertEq(kernel.signerNonces(address(safe)), nonceBefore, "nonce must not be consumed for empty array");
+        assertEq(kernel.getPermissions(address(safe)).length, 0);
+    }
+
+    function test_RevokePermissions_EmptyArrayIsNoOp() public {
+        uint256 nonceBefore = kernel.signerNonces(address(safe));
+        address[] memory empty = new address[](0);
+        kernel.revokePermissions(address(safe), empty, block.timestamp + 1 hours, "");
+        assertEq(kernel.signerNonces(address(safe)), nonceBefore, "nonce must not be consumed for empty array");
+    }
+
+    function test_RegisterPermissions_RevertsOnDuplicateInBatch() public {
+        address p = address(new BatchMockPermission());
+        address[] memory perms = new address[](2);
+        perms[0] = p;
+        perms[1] = p; // duplicate
+
+        uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signRegisterBatch(address(safe), perms, nonce, deadline);
+
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionAlreadyRegistered.selector, p));
+        kernel.registerPermissions(address(safe), perms, deadline, sig);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // _hashAddressArray order-dependence (D-12)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_HashAddressArray_OrderDependent() public {
+        address a1 = address(0xAAAA);
+        address a2 = address(0xBBBB);
+
+        address[] memory order1 = new address[](2);
+        order1[0] = a1; order1[1] = a2;
+
+        address[] memory order2 = new address[](2);
+        order2[0] = a2; order2[1] = a1;
+
+        uint256 nonce1 = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 hours;
+
+        bytes32 h1 = keccak256(abi.encode(
+            kernel.REGISTER_PERMISSIONS_TYPEHASH(),
+            address(safe),
+            _hashPerms(order1),
+            nonce1,
+            deadline
+        ));
+        bytes32 h2 = keccak256(abi.encode(
+            kernel.REGISTER_PERMISSIONS_TYPEHASH(),
+            address(safe),
+            _hashPerms(order2),
+            nonce1,
+            deadline
+        ));
+
+        assertTrue(h1 != h2, "different orderings must produce different digests");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Internal helper
     // ─────────────────────────────────────────────────────────────────────────
 
     function _fee(address perm) internal view returns (uint256) {
         uint256 size = perm.code.length;
-        uint256 fee  = gov.BASE_FEE() + size * gov.COMPLEXITY_RATE();
+        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
         uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
         return fee > cap ? cap : fee;
     }

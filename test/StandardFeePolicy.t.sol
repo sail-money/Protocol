@@ -61,8 +61,8 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_Constructor_RevertsManagementFeeAboveCap() public {
-        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 501));
-        new StandardFeePolicy(501, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 1001));
+        new StandardFeePolicy(1001, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
     }
 
     function test_Constructor_RevertsPerformanceFeeAboveCap() public {
@@ -71,8 +71,8 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_Constructor_AtExactMaxManagementFee() public {
-        StandardFeePolicy p = new StandardFeePolicy(500, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
-        assertEq(p.managementFeeBps(), 500);
+        StandardFeePolicy p = new StandardFeePolicy(1_000, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        assertEq(p.managementFeeBps(), 1_000);
     }
 
     function test_Constructor_AtExactMaxPerformanceFee() public {
@@ -84,6 +84,16 @@ contract StandardFeePolicyTest is Test {
         StandardFeePolicy p = new StandardFeePolicy(MGMT_BPS, PERF_BPS, address(0), 0, KERNEL, FEE_MANAGER);
         assertEq(p.distributor(), address(0));
         assertEq(p.distributorBps(), 0);
+    }
+
+    function test_Constructor_RevertsDistributorBpsAboveCap() public {
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.DistributorBpsTooLarge.selector, 10_001));
+        new StandardFeePolicy(MGMT_BPS, PERF_BPS, DISTRIBUTOR, 10_001, KERNEL, FEE_MANAGER);
+    }
+
+    function test_Constructor_AtExactMaxDistributorBps() public {
+        StandardFeePolicy p = new StandardFeePolicy(MGMT_BPS, PERF_BPS, DISTRIBUTOR, 10_000, KERNEL, FEE_MANAGER);
+        assertEq(p.distributorBps(), 10_000);
     }
 
     // ── computeFee: uninitialised ─────────────────────────────────────────────
@@ -222,6 +232,19 @@ contract StandardFeePolicyTest is Test {
 
     // ── recordCollection: initialisation ─────────────────────────────────────
 
+    function test_RecordCollection_RevertsOnZeroInitialNav() public {
+        vm.prank(KERNEL);
+        vm.expectRevert(StandardFeePolicy.ZeroInitialNav.selector);
+        policy.recordCollection(ACCOUNT, 0, 0);
+    }
+
+    function test_RecordCollection_ZeroNavAfterInitDoesNotRevert() public {
+        // Zero nav is only forbidden on the FIRST call (init). Subsequent calls are fine.
+        _initAccount(ACCOUNT, NAV);
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, 0, 0); // nav drops to 0 after init — no revert
+    }
+
     function test_RecordCollection_InitialisesHWM() public {
         _initAccount(ACCOUNT, NAV);
         assertEq(policy.highWaterMark(ACCOUNT), NAV);
@@ -232,12 +255,10 @@ contract StandardFeePolicyTest is Test {
         assertEq(policy.lastCollectionTimestamp(ACCOUNT), T0);
     }
 
-    function test_RecordCollection_InitNoFeesCollectedEvent() public {
-        // First call must NOT emit FeesCollected
-        vm.recordLogs();
+    function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
+        vm.expectEmit(true, false, false, true, address(policy));
+        emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
         _initAccount(ACCOUNT, NAV);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(logs.length, 0);
     }
 
     function test_RecordCollection_FirstCallReturnsFeeZeroOnNextCompute() public {
@@ -434,14 +455,14 @@ contract StandardFeePolicyTest is Test {
 
     function test_SetManagementFeeBps_AtExactMax() public {
         vm.prank(FEE_MANAGER);
-        policy.setManagementFeeBps(500);
-        assertEq(policy.managementFeeBps(), 500);
+        policy.setManagementFeeBps(1_000);
+        assertEq(policy.managementFeeBps(), 1_000);
     }
 
     function test_SetManagementFeeBps_RevertsAboveCap() public {
         vm.prank(FEE_MANAGER);
-        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 501));
-        policy.setManagementFeeBps(501);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 1001));
+        policy.setManagementFeeBps(1001);
     }
 
     function test_SetManagementFeeBps_RevertsNotFeeManager() public {
@@ -585,6 +606,25 @@ contract StandardFeePolicyTest is Test {
         assertEq(dbps, 750);
     }
 
+    function test_SetDistributorBps_RevertsAbove10000() public {
+        vm.prank(FEE_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.DistributorBpsTooLarge.selector, 10_001));
+        policy.setDistributorBps(10_001);
+    }
+
+    function test_SetDistributorBps_AtExactly10000_Passes() public {
+        vm.prank(FEE_MANAGER);
+        policy.setDistributorBps(10_000);
+        assertEq(policy.distributorBps(), 10_000);
+    }
+
+    function testFuzz_SetDistributorBps_AboveCap(uint256 bps) public {
+        bps = bound(bps, 10_001, type(uint256).max);
+        vm.prank(FEE_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.DistributorBpsTooLarge.selector, bps));
+        policy.setDistributorBps(bps);
+    }
+
     // ── setters: transferFeeManager ───────────────────────────────────────────
 
     function test_TransferFeeManager_Succeeds() public {
@@ -706,14 +746,14 @@ contract StandardFeePolicyTest is Test {
     }
 
     function testFuzz_SetManagementFeeBps_AboveCap(uint256 bps) public {
-        bps = bound(bps, 501, type(uint256).max);
+        bps = bound(bps, 1001, type(uint256).max);
         vm.prank(FEE_MANAGER);
         vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, bps));
         policy.setManagementFeeBps(bps);
     }
 
     function testFuzz_HWM_NeverDecreases(uint256 nav1, uint256 nav2) public {
-        nav1 = bound(nav1, 0, 1e33);
+        nav1 = bound(nav1, 1, 1e33);
         nav2 = bound(nav2, 0, 1e33);
 
         _initAccount(ACCOUNT, nav1);
