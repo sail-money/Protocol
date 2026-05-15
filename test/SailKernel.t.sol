@@ -40,6 +40,8 @@ contract MockSafe {
         return (c.to, c.value, c.data, c.operation);
     }
 
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
+
     function setSuccess(bool s) external { moduleCallSuccess = s; }
     function clearCalls() external { delete calls; }
 

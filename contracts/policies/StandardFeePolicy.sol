@@ -207,9 +207,10 @@ contract StandardFeePolicy is IFeePolicy {
         _distributorBps = distributorBps;
 
         // Uninitialised: no fee accrued until the first recordCollection seeds state.
-        if (lastCollectionTimestamp[account] == 0) return (0, _distributor, _distributorBps);
+        uint256 lastTs = lastCollectionTimestamp[account];
+        if (lastTs == 0) return (0, _distributor, _distributorBps);
 
-        uint256 elapsed = block.timestamp - lastCollectionTimestamp[account];
+        uint256 elapsed = block.timestamp - lastTs;
 
         uint256 managementFee = Math.mulDiv(
             currentNav,
@@ -235,6 +236,7 @@ contract StandardFeePolicy is IFeePolicy {
             if (currentNav == 0) revert ZeroInitialNav();
             highWaterMark[account]           = currentNav;
             lastCollectionTimestamp[account] = block.timestamp;
+            emit FeesCollected(account, grossFee, currentNav, currentNav);
             return;
         }
 

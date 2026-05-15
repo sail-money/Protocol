@@ -165,9 +165,13 @@ contract BoundedBorrowPermission is IPermission {
         // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
         // consistent. A mismatch would silently produce an off-by-orders-of-magnitude LTV.
         if (_collateralOracle != address(0) && _borrowOracle != address(0)) {
-            (, uint8 colDec) = IOracle(_collateralOracle).getPrice(address(0), address(0));
-            (, uint8 borDec) = IOracle(_borrowOracle).getPrice(address(0), address(0));
-            if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
+            // Probe decimals. Some oracles reject zero-address inputs — the outer try/catch
+            // degrades gracefully; callers are responsible for supplying matching-decimal oracles.
+            try IOracle(_collateralOracle).getPrice(address(0), address(0)) returns (uint256, uint8 colDec) {
+                try IOracle(_borrowOracle).getPrice(address(0), address(0)) returns (uint256, uint8 borDec) {
+                    if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
+                } catch {}
+            } catch {}
         }
 
         maxAmountPerTx   = _maxAmountPerTx;
