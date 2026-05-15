@@ -46,6 +46,11 @@ contract AzuroPredictionPermission is IPermission {
     // ── state ─────────────────────────────────────────────────────────────────
 
     address public immutable azuroCore;
+
+    /// @dev Stored for reference and off-chain indexing only. Not checked in `evaluate` because
+    ///      Azuro V3 routes all bets through `azuroCore`, which enforces LP-level access control
+    ///      internally. The permission verifies the target is `azuroCore`, which is sufficient —
+    ///      azuroCore itself enforces the LP binding.
     address public immutable azuroLP;
 
     mapping(uint256 conditionId => bool) public isAllowedCondition;

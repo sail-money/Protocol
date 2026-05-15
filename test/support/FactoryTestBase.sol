@@ -6,6 +6,7 @@ import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/PermissionFactory.sol";
 import "../../contracts/templates/shared/BaseSharedPermission.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 /// @notice Records every execTransactionFromModule call and forwards plain-ETH transfers
 ///         so fee splits land in real balances.
@@ -72,10 +73,14 @@ abstract contract FactoryTestBase is Test {
 
         vm.deal(address(this), 100 ether);
 
-        gov = new SailGovernance(address(this), MAX_PERM_FEE);
-        gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
-        gov.setBaseFee(BASE_FEE);
-        gov.setComplexityRate(COMPLEXITY_RATE);
+        // Deploy governance with this test contract as governance + emergencyAdmin
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this));
+
+        // Set tunable parameters via timelock
+        TimelockController tl = gov.timelock();
+        _timelockExec(tl, abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
+        _timelockExec(tl, abi.encodeCall(gov.setBaseFee, (BASE_FEE)));
+        _timelockExec(tl, abi.encodeCall(gov.setComplexityRate, (COMPLEXITY_RATE)));
 
         kernel  = new SailKernel(address(gov), TREASURY);
         factory = new PermissionFactory(address(kernel));
@@ -83,7 +88,22 @@ abstract contract FactoryTestBase is Test {
         safe = new MockSafe();
         vm.deal(address(safe), 100 ether);
 
-        kernel.registerAccount(address(safe), permSigner, manager, address(0));
+        // registerAccount is called by the Safe itself (msg.sender == account)
+        vm.prank(address(safe));
+        kernel.registerAccount(permSigner, manager, address(0));
+    }
+
+    function _timelockSchedule(TimelockController tl, bytes memory data) internal returns (bytes32 salt) {
+        salt = bytes32(uint256(keccak256(abi.encode(data, block.timestamp))));
+        vm.prank(address(this));
+        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+    }
+
+    function _timelockExec(TimelockController tl, bytes memory data) internal {
+        bytes32 salt = _timelockSchedule(tl, data);
+        vm.prank(address(this));
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     receive() external payable {}
@@ -92,7 +112,7 @@ abstract contract FactoryTestBase is Test {
 
     function _calcFee(address template) internal view returns (uint256) {
         uint256 size = template.code.length;
-        uint256 fee  = gov.BASE_FEE() + size * gov.COMPLEXITY_RATE();
+        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
         uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
         return fee > cap ? cap : fee;
     }

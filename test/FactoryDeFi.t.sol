@@ -44,7 +44,8 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
-        kernel.registerAccount(address(safeB), permSigner, manager, address(0));
+        vm.prank(address(safeB));
+        kernel.registerAccount(permSigner, manager, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -256,7 +257,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         _attach(
             address(safe),
             transferTemplate,
-            abi.encode(_one(BENEFICIARY), _one(USDC))
+            abi.encode(_one(BENEFICIARY), _one(USDC), type(uint256).max)
         );
 
         bytes memory data = abi.encodeWithSignature(
@@ -270,7 +271,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         _attach(
             address(safe),
             transferTemplate,
-            abi.encode(_one(BENEFICIARY), _one(USDC))
+            abi.encode(_one(BENEFICIARY), _one(USDC), type(uint256).max)
         );
 
         bytes memory data = abi.encodeWithSignature(
@@ -412,7 +413,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory swapParams =
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
                       uint256(10 ether), uint256(0), address(0));
-        bytes memory transferParams = abi.encode(_one(BENEFICIARY), _one(USDC));
+        bytes memory transferParams = abi.encode(_one(BENEFICIARY), _one(USDC), type(uint256).max);
         bytes memory borrowParams   = abi.encode(
             _one(AAVE_V3_POOL), _one(USDC),
             uint256(1_000), uint256(7_500),

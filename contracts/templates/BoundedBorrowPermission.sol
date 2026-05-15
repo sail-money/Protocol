@@ -165,13 +165,16 @@ contract BoundedBorrowPermission is IPermission {
         // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
         // consistent. A mismatch would silently produce an off-by-orders-of-magnitude LTV.
         if (_collateralOracle != address(0) && _borrowOracle != address(0)) {
-            // Probe decimals. Some oracles reject zero-address inputs — the outer try/catch
-            // degrades gracefully; callers are responsible for supplying matching-decimal oracles.
             try IOracle(_collateralOracle).getPrice(address(0), address(0)) returns (uint256, uint8 colDec) {
-                try IOracle(_borrowOracle).getPrice(address(0), address(0)) returns (uint256, uint8 borDec) {
-                    if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
-                } catch {}
+                // If the collateral oracle probe succeeds, require the borrow oracle to also
+                // respond so we can verify decimal alignment. A revert here means the borrow
+                // oracle doesn't support address(0) probing — replace with a real asset address
+                // or use a wrapper oracle that accepts zero-address inputs.
+                (, uint8 borDec) = IOracle(_borrowOracle).getPrice(address(0), address(0));
+                if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
             } catch {}
+            // If the collateral oracle itself reverts on the zero-address probe, the check is
+            // skipped entirely. Callers are responsible for supplying matching-decimal oracles.
         }
 
         maxAmountPerTx   = _maxAmountPerTx;
@@ -262,9 +265,11 @@ contract BoundedBorrowPermission is IPermission {
     // -------------------------------------------------------------------------
 
     /// @dev Returns true immediately when either oracle is address(0).
-    ///      ltvBps = amount × borrowPrice × 10_000 / collateralValue.
-    ///      Uses Math.mulDiv for overflow-safe 512-bit intermediate multiplication.
-    ///      Oracle decimals above 77 are unsupported (10^78 overflows uint256) — skip LTV check.
+    ///      ltvBps = (amount × borrowPrice / 10^borDec) × 10_000 / (colValue / 10^colDec).
+    ///      Both oracle values are normalised by their reported decimal precision so that
+    ///      oracles with different decimal encodings (e.g. 0-dec USD vs 18-dec WAD) compare
+    ///      correctly. Uses Math.mulDiv for overflow-safe 512-bit intermediate multiplication.
+    ///      Oracle decimals above 77 are unsupported (10^78 overflows uint256) — fail-closed.
     function _ltvCheck(address asset, uint256 amount, address account) internal view returns (bool) {
         if (collateralOracle == address(0) || borrowOracle == address(0)) return true;
 
@@ -275,7 +280,14 @@ contract BoundedBorrowPermission is IPermission {
         if (colValue == 0) return false;
         if (borPrice == 0) return false; // fail-closed: unpriced asset blocks all borrows
 
-        uint256 ltvBps = Math.mulDiv(Math.mulDiv(amount, borPrice, 1), 10_000, colValue);
+        // Normalise both oracle values to unitless quantities:
+        //   borrowScaled = amount * borPrice / 10^borDec
+        //   colNorm      = colValue / 10^colDec
+        // ltvBps = borrowScaled * 10_000 / colNorm
+        uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
+        uint256 colNorm      = colValue / (10 ** uint256(colDec));
+        if (colNorm == 0) return false; // colValue too small vs precision — fail-closed
+        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
         return ltvBps <= maxLtvBps;
     }
 }

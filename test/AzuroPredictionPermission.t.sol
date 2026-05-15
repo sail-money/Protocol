@@ -128,8 +128,8 @@ contract AzuroPredictionPermissionTest is Test {
         return abi.encodeWithSelector(BET_FOR, orders);
     }
 
-    function _ctx(bytes memory /*data*/) internal pure returns (Context memory) {
-        return Context({account: SAFE, manager: address(0), target: CORE, selector: BET_FOR, value: 0});
+    function _ctx(bytes memory /*data*/) internal view returns (Context memory) {
+        return Context({account: SAFE, manager: address(0), submitter: address(0), target: CORE, selector: BET_FOR, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_WrongTarget_ReturnsFalse() public view {
         bytes memory data = _buildOrders(SAFE, COND_FOOTBALL, MAX_PAYOUT);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: address(0xDEAD), selector: BET_FOR, value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: address(0xDEAD), selector: BET_FOR, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(data, ctx));
     }
 
@@ -209,7 +209,7 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_WrongSelector_ReturnsFalse() public view {
         bytes memory data = _buildOrders(SAFE, COND_FOOTBALL, MAX_PAYOUT);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: CORE, selector: bytes4(0xdeadbeef), value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: CORE, selector: bytes4(0xdeadbeef), value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(data, ctx));
     }
 
@@ -291,7 +291,7 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_TooShortCalldata_ReturnsFalse() public view {
         bytes memory short_ = new bytes(99);
-        Context memory ctx = Context({account: SAFE, manager: address(0), target: CORE, selector: BET_FOR, value: 0});
+        Context memory ctx = Context({account: SAFE, manager: address(0), submitter: address(0), target: CORE, selector: BET_FOR, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
         assertFalse(perm.evaluate(short_, ctx));
     }
 

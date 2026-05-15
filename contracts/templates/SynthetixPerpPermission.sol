@@ -41,9 +41,14 @@ contract SynthetixPerpPermission is IPermission {
     bool    public allowShort;
     address public permissionSigner;
 
+    /// @notice Maximum collateral withdrawal per transaction in absolute token units.
+    ///         Only enforced for negative amountDelta (withdrawals). 0 = no cap.
+    uint256 public maxWithdrawalPerTx;
+
     // ── events ────────────────────────────────────────────────────────────────
     event MaxSizeDeltaUpdated(int128 oldMax, int128 newMax);
     event DirectionUpdated(bool allowLong, bool allowShort);
+    event MaxWithdrawalUpdated(uint256 oldMax, uint256 newMax);
 
     // ── errors ────────────────────────────────────────────────────────────────
     error NotPermissionSigner();
@@ -62,7 +67,8 @@ contract SynthetixPerpPermission is IPermission {
         bool    _allowLong,
         bool    _allowShort,
         uint128[] memory allowedCollateralSynthMarketIds,
-        address _permissionSigner
+        address _permissionSigner,
+        uint256 _maxWithdrawalPerTx
     ) {
         if (_perpsMarketProxy == address(0)) revert ZeroAddress();
         if (_permissionSigner  == address(0)) revert ZeroAddress();
@@ -73,6 +79,7 @@ contract SynthetixPerpPermission is IPermission {
         allowLong            = _allowLong;
         allowShort           = _allowShort;
         permissionSigner     = _permissionSigner;
+        maxWithdrawalPerTx   = _maxWithdrawalPerTx;
 
         for (uint256 i; i < allowedMarketIds.length; i++) {
             isAllowedMarket[allowedMarketIds[i]] = true;
@@ -95,6 +102,14 @@ contract SynthetixPerpPermission is IPermission {
         allowLong  = _allowLong;
         allowShort = _allowShort;
         emit DirectionUpdated(_allowLong, _allowShort);
+    }
+
+    /// @notice Update the maximum collateral withdrawal per transaction.
+    /// @param  newMax New cap in absolute token units. Set to 0 to disable the cap.
+    function setMaxWithdrawalPerTx(uint256 newMax) external onlyPermissionSigner {
+        uint256 old = maxWithdrawalPerTx;
+        maxWithdrawalPerTx = newMax;
+        emit MaxWithdrawalUpdated(old, newMax);
     }
 
     // ── IPermission ───────────────────────────────────────────────────────────
@@ -145,12 +160,13 @@ contract SynthetixPerpPermission is IPermission {
         if (txData.length < LEN_MODIFY_COLLATERAL) return false;
 
         (
-            ,              // accountId     (uint128)
+            ,                    // accountId     (uint128)
             uint128 synthMarketId,
-                           // amountDelta   (int256)
+            int256  amountDelta
         ) = abi.decode(txData[4:], (uint128, uint128, int256));
 
         if (!isAllowedSynthMarket[synthMarketId]) return false;
+        if (amountDelta < 0 && uint256(-amountDelta) > maxWithdrawalPerTx) return false;
 
         return true;
     }
