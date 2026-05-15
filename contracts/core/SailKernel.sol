@@ -180,13 +180,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
     address        public treasury;
 
     // -------------------------------------------------------------------------
-    // Emergency pause
-    // -------------------------------------------------------------------------
-
-    /// @notice When true, all dispatch and fee-collection calls are blocked.
-    bool public paused;
-
-    // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
 
@@ -266,14 +259,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newTreasury New treasury address.
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
 
-    /// @notice Emitted when the protocol is paused.
-    /// @param  by Address that triggered the pause (governance).
-    event Paused(address indexed by);
-
-    /// @notice Emitted when the protocol is unpaused.
-    /// @param  by Address that triggered the unpause (governance).
-    event Unpaused(address indexed by);
-
     // -------------------------------------------------------------------------
     // Errors
     // -------------------------------------------------------------------------
@@ -341,7 +326,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @dev Thrown by `dispatch` when no permissions are registered (deny-by-default).
     error NoPermissionsRegistered(address account);
-
     /// @dev Thrown by `dispatch` / `collectFees` when the protocol is paused.
     error ProtocolPaused();
 
@@ -368,9 +352,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _;
     }
 
-    /// @dev Reverts with ProtocolPaused when the protocol is paused.
+    /// @dev Reverts with ProtocolPaused when governance.isPaused() returns true.
     modifier whenNotPaused() {
-        if (paused) revert ProtocolPaused();
+        if (governance.isPaused()) revert ProtocolPaused();
         _;
     }
 
@@ -385,19 +369,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address old = treasury;
         treasury = newTreasury;
         emit TreasuryUpdated(old, newTreasury);
-    }
-
-    /// @notice Halt all dispatches and fee collections. Reverts all `dispatch` and
-    ///         `collectFees` calls until `unpause` is called.
-    function pause() external onlyGovernance {
-        paused = true;
-        emit Paused(msg.sender);
-    }
-
-    /// @notice Resume normal protocol operation after a pause.
-    function unpause() external onlyGovernance {
-        paused = false;
-        emit Unpaused(msg.sender);
     }
 
     // -------------------------------------------------------------------------
@@ -471,6 +442,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         external
         payable
         nonReentrant
+        whenNotPaused
     {
         _requireRegistered(account);
         if (_permissionIndex[account][permission] != 0) revert PermissionAlreadyRegistered(permission);

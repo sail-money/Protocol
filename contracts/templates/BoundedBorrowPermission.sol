@@ -254,7 +254,7 @@ contract BoundedBorrowPermission is IPermission {
         (uint256 colValue, uint8 colDec) = IOracle(collateralOracle).getPrice(account, address(0));
         (uint256 borPrice, uint8 borDec) = IOracle(borrowOracle).getPrice(asset, address(0));
 
-        if (colDec > 77 || borDec > 77) return true;
+        if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;
         if (borPrice == 0) return true;
 

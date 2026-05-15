@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}                    from "forge-std/Test.sol";
 import {SailKernel}              from "../contracts/core/SailKernel.sol";
 import {SailGovernance}          from "../contracts/governance/SailGovernance.sol";
+import {TimelockController}      from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPermission, Context}    from "../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}              from "../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                 from "../contracts/interfaces/IOracle.sol";
@@ -146,9 +147,10 @@ contract SailKernelTest is Test {
     MockPermission perm;
     MockFeePolicy  feePolicy;
 
-    address constant TEAM     = address(0x1111);
-    address constant TREASURY = address(0x2222);
-    address constant DIST     = address(0x4444);
+    address constant TEAM            = address(0x1111);
+    address constant TREASURY        = address(0x2222);
+    address constant DIST            = address(0x4444);
+    address constant EMERGENCY_ADMIN = address(0xEEEE);
 
     uint256 constant MANAGER_KEY = 0xBEEF;
     uint256 constant SIGNER_KEY  = 0xDEAD;
@@ -162,7 +164,7 @@ contract SailKernelTest is Test {
         manager    = vm.addr(MANAGER_KEY);
         permSigner = vm.addr(SIGNER_KEY);
 
-        gov      = new SailGovernance(TEAM, 1 ether);
+        gov      = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN);
         kernel   = new SailKernel(address(gov), TREASURY);
         safe     = new MockSafe();
         perm     = new MockPermission();
@@ -213,6 +215,26 @@ contract SailKernelTest is Test {
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    uint256 private _saltNonce;
+
+    function _govSchedule(bytes memory data) internal returns (bytes32 salt) {
+        salt = bytes32(_saltNonce++);
+        TimelockController tl = gov.timelock();
+        vm.prank(TEAM);
+        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+    }
+
+    function _govExecute(bytes memory data, bytes32 salt) internal {
+        TimelockController tl = gov.timelock();
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
+
+    function _govExec(bytes memory data) internal {
+        _govExecute(data, _govSchedule(data));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -337,8 +359,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_ChargesFee() public {
-        vm.prank(TEAM);
-        gov.setBaseFee(0.1 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -350,8 +371,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_RefundsExcess() public {
-        vm.prank(TEAM);
-        gov.setBaseFee(0.1 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -366,8 +386,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_RevertsOnInsufficientFee() public {
-        vm.prank(TEAM);
-        gov.setBaseFee(0.1 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -411,8 +430,7 @@ contract SailKernelTest is Test {
 
     function test_ReplacePermission_ChargesFee() public {
         _registerPermission(address(perm));
-        vm.prank(TEAM);
-        gov.setBaseFee(0.1 ether);
+        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
 
         MockPermission perm2 = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
@@ -654,8 +672,7 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_CollectFees_SplitsCorrectly() public {
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(1_000);
+        _govExec(abi.encodeCall(gov.setProtocolCutBps, (1_000)));
 
         uint256 grossFee = 1_000_000;
         feePolicy.setFee(grossFee, DIST, 2_000);
@@ -687,8 +704,7 @@ contract SailKernelTest is Test {
     }
 
     function test_CollectFees_SkipsZeroDistributor() public {
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(500);
+        _govExec(abi.encodeCall(gov.setProtocolCutBps, (500)));
 
         feePolicy.setFee(1_000_000, address(0), 1_000);
 
@@ -708,7 +724,7 @@ contract SailKernelTest is Test {
         uint256 grossFee       = 10_000;
         uint256 distributorBps = 2_000; // 20%
         // No protocol cut for simplicity
-        vm.prank(TEAM); gov.setProtocolCutBps(0);
+        _govExec(abi.encodeCall(gov.setProtocolCutBps, (0)));
 
         // distributor = address(0), but bps = 20%
         feePolicy.setFee(grossFee, address(0), distributorBps);
@@ -767,12 +783,18 @@ contract SailKernelTest is Test {
     }
 
     function test_CollectFees_ProtocolCutCannotExceedCap() public {
+        // Cap is enforced at timelock execution — above-cap call reverts
+        bytes memory badData = abi.encodeCall(gov.setProtocolCutBps, (2_501));
+        bytes32 salt = _govSchedule(badData);
+        TimelockController tl = gov.timelock();
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsProtocolCutCap.selector, 2_501, 2_500)
+        );
         vm.prank(TEAM);
-        vm.expectRevert(abi.encodeWithSelector(SailGovernance.ExceedsProtocolCutCap.selector, 2_501, 2_500));
-        gov.setProtocolCutBps(2_501);
+        tl.execute(address(gov), 0, badData, bytes32(0), salt);
 
-        vm.prank(TEAM);
-        gov.setProtocolCutBps(2_500);
+        // At the cap (25%): grossFee=10_000 → protocolCut=2_500, managerTake=7_500
+        _govExec(abi.encodeCall(gov.setProtocolCutBps, (2_500)));
 
         feePolicy.setFee(10_000, address(0), 0);
         vm.prank(manager);
@@ -784,15 +806,6 @@ contract SailKernelTest is Test {
         assertEq(managerV, 7_500);
     }
 
-    function test_CollectFees_RevertsWhenPaused() public {
-        feePolicy.setFee(1_000, address(0), 0);
-        vm.prank(TEAM);
-        kernel.pause();
-
-        vm.prank(manager);
-        vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.collectFees(address(safe), 1_000, 0, address(0), manager);
-    }
 
     function test_CollectFees_RevertsOnZeroRecipient() public {
         feePolicy.setFee(1_000, address(0), 0);
@@ -857,13 +870,15 @@ contract SailKernelTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Emergency pause
+    // Protocol pause (via governance emergency admin)
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Pause_BlocksDispatch() public {
-        vm.prank(TEAM);
-        kernel.pause();
-        assertTrue(kernel.paused());
+    function test_Dispatch_RevertsWhenPaused() public {
+        _registerPermission(address(perm));
+        perm.setResult(true);
+
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
@@ -873,46 +888,56 @@ contract SailKernelTest is Test {
         kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
     }
 
-    function test_Unpause_RestoresDispatch() public {
-        _registerPermission(address(perm));
-        vm.prank(TEAM);
-        kernel.pause();
-        vm.prank(TEAM);
-        kernel.unpause();
-        assertFalse(kernel.paused());
+    function test_CollectFees_RevertsWhenPaused() public {
+        feePolicy.setFee(1_000, address(0), 0);
 
-        _dispatch(address(0xABCD), 0, "");
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.ProtocolPaused.selector);
+        kernel.collectFees(address(safe), 1_000, 0, address(0), manager);
+    }
+
+    function test_RegisterPermission_RevertsWhenPaused() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh    = keccak256(abi.encode(
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce
+        ));
+        bytes memory sig = _signerSig(sh);
+
+        vm.expectRevert(SailKernel.ProtocolPaused.selector);
+        kernel.registerPermission(address(safe), address(perm), sig);
+    }
+
+    function test_PauseExpiry_AllowsDispatchAfter72h() public {
+        _registerPermission(address(perm));
+        perm.setResult(true);
+
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+
+        vm.warp(block.timestamp + 72 hours + 1);
+
+        _dispatch(address(0xABCD), 0, abi.encodeWithSignature("go()"));
         assertEq(safe.callCount(), 1);
     }
 
-    function test_Pause_EmitsEvent() public {
-        vm.expectEmit(true, false, false, false);
-        emit SailKernel.Paused(TEAM);
-        vm.prank(TEAM);
-        kernel.pause();
-    }
+    function test_Unpause_AllowsDispatch() public {
+        _registerPermission(address(perm));
+        perm.setResult(true);
 
-    function test_Unpause_EmitsEvent() public {
-        vm.prank(TEAM);
-        kernel.pause();
-        vm.expectEmit(true, false, false, false);
-        emit SailKernel.Unpaused(TEAM);
-        vm.prank(TEAM);
-        kernel.unpause();
-    }
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
 
-    function test_Pause_RevertsForNonGovernance() public {
-        vm.prank(address(0xBAD));
-        vm.expectRevert(SailKernel.NotGovernance.selector);
-        kernel.pause();
-    }
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
 
-    function test_Unpause_RevertsForNonGovernance() public {
-        vm.prank(TEAM);
-        kernel.pause();
-        vm.prank(address(0xBAD));
-        vm.expectRevert(SailKernel.NotGovernance.selector);
-        kernel.unpause();
+        _dispatch(address(0xABCD), 0, abi.encodeWithSignature("go()"));
+        assertEq(safe.callCount(), 1);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

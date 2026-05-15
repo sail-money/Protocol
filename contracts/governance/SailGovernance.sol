@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+
 /// @title  SailGovernance
 /// @notice Protocol-level governance and fee-parameter store for the Sail kernel.
 /// @dev    Maintains two categories of settings:
 ///           • Constitutional caps — immutable after deployment; no governance action can
 ///             raise them. They bound all mutable parameters below.
-///           • Tunable parameters — adjustable by the current `governance` address within
-///             the caps above.
+///           • Tunable parameters — adjustable by the current `governance` address (via the
+///             48-hour timelock) within the caps above.
 ///
 ///         Governance transfer is two-step (propose → accept) to prevent irrecoverable
 ///         loss from a mistyped successor address.
+///
+///         All parameter changes flow through `timelock` (48-hour delay).
+///         The `emergencyAdmin` may pause the kernel for up to 72 hours without a timelock.
 /// @custom:security-contact security@sail.money
 contract SailGovernance {
     // -------------------------------------------------------------------------
@@ -57,12 +62,33 @@ contract SailGovernance {
     ///         for this when sizing positions on gas-expensive networks.
     uint256 public maxPermissionsPerAccount;
 
+    // -------------------------------------------------------------------------
+    // Access control
+    // -------------------------------------------------------------------------
+
     /// @notice Address with governance rights (may set parameters and transfer governance).
     address public governance;
 
     /// @notice Pending successor nominated by `proposeGovernance`.
     ///         Zero address means no transfer is in flight.
     address public pendingGovernance;
+
+    /// @notice Address that can pause the kernel in an emergency (no timelock).
+    address public immutable emergencyAdmin;
+
+    // -------------------------------------------------------------------------
+    // Timelock — 48-hour delay on all parameter changes
+    // -------------------------------------------------------------------------
+
+    /// @notice On-chain timelock enforcing a 48-hour delay on all parameter changes.
+    TimelockController public immutable timelock;
+
+    // -------------------------------------------------------------------------
+    // Pause — emergency admin can pause for up to 72 hours
+    // -------------------------------------------------------------------------
+
+    /// @notice Timestamp at which the current pause expires. 0 = not paused.
+    uint256 public pauseExpiry;
 
     // -------------------------------------------------------------------------
     // Events
@@ -98,6 +124,13 @@ contract SailGovernance {
     /// @param  newLimit New limit.
     event MaxPermissionsPerAccountUpdated(uint256 oldLimit, uint256 newLimit);
 
+    /// @notice Emitted when the kernel is paused by the emergency admin.
+    /// @param  expiry Timestamp at which the pause auto-expires.
+    event Paused(uint256 expiry);
+
+    /// @notice Emitted when the emergency admin manually lifts a pause.
+    event Unpaused();
+
     // -------------------------------------------------------------------------
     // Errors
     // -------------------------------------------------------------------------
@@ -107,6 +140,12 @@ contract SailGovernance {
 
     /// @dev Thrown by `acceptGovernance` when caller is not `pendingGovernance`.
     error NotPendingGovernance();
+
+    /// @dev Thrown by `onlyTimelock` when caller is not the timelock contract.
+    error NotTimelock();
+
+    /// @dev Thrown by `onlyEmergencyAdmin` when caller is not the emergency admin.
+    error NotEmergencyAdmin();
 
     /// @dev Thrown when a requested `currentProtocolCutBps` exceeds `MAX_PROTOCOL_CUT_BPS`.
     error ExceedsProtocolCutCap(uint256 requested, uint256 cap);
@@ -122,7 +161,7 @@ contract SailGovernance {
     error ZeroAddress();
 
     // -------------------------------------------------------------------------
-    // Modifier
+    // Modifiers
     // -------------------------------------------------------------------------
 
     /// @dev Reverts with NotGovernance when caller is not the current governance address.
@@ -131,21 +170,44 @@ contract SailGovernance {
         _;
     }
 
+    /// @dev Reverts with NotTimelock when caller is not the timelock contract.
+    modifier onlyTimelock() {
+        if (msg.sender != address(timelock)) revert NotTimelock();
+        _;
+    }
+
+    /// @dev Reverts with NotEmergencyAdmin when caller is not the emergency admin.
+    modifier onlyEmergencyAdmin() {
+        if (msg.sender != emergencyAdmin) revert NotEmergencyAdmin();
+        _;
+    }
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy the governance contract with an initial governance address and fee cap.
+    /// @notice Deploy the governance contract.
     /// @param  initialGovernance   Address to hold initial governance rights.
     /// @param  maxPermissionFeeWei Constitutional ceiling for the per-permission registration fee.
-    constructor(address initialGovernance, uint256 maxPermissionFeeWei) {
-        if (initialGovernance == address(0)) revert ZeroAddress();
+    /// @param  _emergencyAdmin     Address that can pause the kernel without a timelock delay.
+    constructor(address initialGovernance, uint256 maxPermissionFeeWei, address _emergencyAdmin) {
+        if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
         // Cap at 1e36 wei (~1e18 ETH). Values above this would allow base + sizeContrib
         // to overflow uint256 in _calcPermissionFee (sum of two values each <= cap).
         if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
-        governance = initialGovernance;
+
+        governance     = initialGovernance;
+        emergencyAdmin = _emergencyAdmin;
         MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
         maxPermissionsPerAccount = 20;
+
+        // Governance is the sole proposer and executor; no admin (self-governing timelock).
+        address[] memory proposers = new address[](1);
+        proposers[0] = initialGovernance;
+        address[] memory executors = new address[](1);
+        executors[0] = initialGovernance;
+        timelock = new TimelockController(48 hours, proposers, executors, address(0));
+
         emit GovernanceTransferred(address(0), initialGovernance);
     }
 
@@ -175,12 +237,12 @@ contract SailGovernance {
     }
 
     // -------------------------------------------------------------------------
-    // Parameter setters
+    // Parameter setters — only callable via the 48-hour timelock
     // -------------------------------------------------------------------------
 
     /// @notice Set the protocol's share of each fee collection.
     /// @param  newBps New basis-point value. Must not exceed MAX_PROTOCOL_CUT_BPS (2 500).
-    function setProtocolCutBps(uint256 newBps) external onlyGovernance {
+    function setProtocolCutBps(uint256 newBps) external onlyTimelock {
         if (newBps > MAX_PROTOCOL_CUT_BPS) revert ExceedsProtocolCutCap(newBps, MAX_PROTOCOL_CUT_BPS);
         uint256 old = currentProtocolCutBps;
         currentProtocolCutBps = newBps;
@@ -189,7 +251,7 @@ contract SailGovernance {
 
     /// @notice Set the flat component of the permission registration fee.
     /// @param  newFee New fee in wei. Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setBaseFee(uint256 newFee) external onlyGovernance {
+    function setBaseFee(uint256 newFee) external onlyTimelock {
         if (newFee > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newFee, MAX_PERMISSION_FEE_WEI);
         uint256 old = baseFee;
         baseFee = newFee;
@@ -202,7 +264,7 @@ contract SailGovernance {
     ///         Rate is bounded at MAX_PERMISSION_FEE_WEI for consistency with setBaseFee.
     /// @param  newRate New rate in wei per byte of permission bytecode.
     ///                 Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setComplexityRate(uint256 newRate) external onlyGovernance {
+    function setComplexityRate(uint256 newRate) external onlyTimelock {
         if (newRate > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newRate, MAX_PERMISSION_FEE_WEI);
         uint256 old = complexityRate;
         complexityRate = newRate;
@@ -218,11 +280,32 @@ contract SailGovernance {
     ///         registrations until those accounts fall below the live limit again.
     /// @param  newLimit New per-account permission limit.
     ///                  Must be between 1 and MAX_PERMISSIONS_CAP (100) inclusive.
-    function setMaxPermissionsPerAccount(uint256 newLimit) external onlyGovernance {
+    function setMaxPermissionsPerAccount(uint256 newLimit) external onlyTimelock {
         if (newLimit == 0 || newLimit > MAX_PERMISSIONS_CAP)
             revert ExceedsPermissionsCap(newLimit, MAX_PERMISSIONS_CAP);
         uint256 old = maxPermissionsPerAccount;
         maxPermissionsPerAccount = newLimit;
         emit MaxPermissionsPerAccountUpdated(old, newLimit);
+    }
+
+    // -------------------------------------------------------------------------
+    // Emergency pause — admin only, auto-expires after 72 hours
+    // -------------------------------------------------------------------------
+
+    /// @notice Pause the kernel for up to 72 hours. Can be called without a timelock delay.
+    function pause() external onlyEmergencyAdmin {
+        pauseExpiry = block.timestamp + 72 hours;
+        emit Paused(pauseExpiry);
+    }
+
+    /// @notice Lift the pause early.
+    function unpause() external onlyEmergencyAdmin {
+        pauseExpiry = 0;
+        emit Unpaused();
+    }
+
+    /// @notice Returns true if the kernel is currently paused.
+    function isPaused() external view returns (bool) {
+        return block.timestamp < pauseExpiry;
     }
 }
