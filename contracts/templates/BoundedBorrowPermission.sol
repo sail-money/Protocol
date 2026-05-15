@@ -2,64 +2,153 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {IOracle} from "../interfaces/IOracle.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IOracle}              from "../interfaces/IOracle.sol";
+import {Math}                 from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Gates protocol borrows so the manager can only borrow through approved
-///         protocols, with approved assets, within an amount cap, and — when
-///         oracles are configured — within an LTV ceiling.
+/// @title  BoundedBorrowPermission
+/// @notice Gates ERC-20 borrows from lending protocols.
+///         For each supported selector the kernel enforces:
+///           • `ctx.target` is in the allowed-protocols list
+///           • asset is in the allowed-assets list
+///           • amount does not exceed the per-tx cap
+///           • onBehalfOf / receiver is the Safe itself (`ctx.account`)
+///           • if oracles are configured, LTV does not exceed `maxLtvBps`
 ///
-///         Supported selectors:
-///           Aave V3  borrow(address,uint256,uint256,uint16,address)
-///           Morpho   borrow(address,uint256,address,address)
-///           Compound borrow(uint256)
+///         Supported selectors and their expected calldata layouts:
+///
+///           borrow(address,uint256,uint256,uint16,address)  — Aave v2 / v3
+///           borrow(address,uint256,address,address)          — Morpho
+///           borrow(uint256)                                  — Compound v2
+///
+/// @dev    LTV enforcement requires both `collateralOracle` and `borrowOracle` to be set.
+///         When either is address(0) the LTV check is skipped and only the per-tx amount cap
+///         applies. Both oracles must use the same denomination and decimals.
+///
+///         Compound v2 path: `ctx.target` is the cToken contract, which also identifies the
+///         borrowed asset. `onBehalfOf` is implicitly the Safe (the Safe executes the call
+///         via its module interface, so msg.sender inside the cToken is the Safe).
+///
+///         Oracle decimal values above 77 are not supported — 10^78 overflows uint256.
+///         The LTV check skips such oracles (treats them as unset).
+/// @custom:security-contact security@sail.money
 contract BoundedBorrowPermission is IPermission {
-    // Aave V3: borrow(address asset, uint256 amount, uint256 interestRateMode,
-    //                 uint16 referralCode, address onBehalfOf)
+    // -------------------------------------------------------------------------
+    // Selectors
+    // -------------------------------------------------------------------------
+
+    /// @dev borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) — Aave v2 / v3.
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
-    // Morpho: borrow(address asset, uint256 amount, address onBehalf, address receiver)
+
+    /// @dev borrow(address asset, uint256 amount, address onBehalf, address receiver) — Morpho.
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
-    // Compound V2: borrow(uint256 borrowAmount)
+
+    /// @dev borrow(uint256 borrowAmount) — Compound v2. Target is the cToken contract.
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
 
-    // selector(4) + 5 slots × 32 = 164
+    // -------------------------------------------------------------------------
+    // Calldata length constants
+    // -------------------------------------------------------------------------
+
+    /// @dev selector(4) + 5 × word(32) = 164 bytes.
     uint256 private constant LEN_AAVE     = 164;
-    // selector(4) + 4 slots × 32 = 132
+
+    /// @dev selector(4) + 4 × word(32) = 132 bytes.
     uint256 private constant LEN_MORPHO   = 132;
-    // selector(4) + 1 slot  × 32 = 36
+
+    /// @dev selector(4) + 1 × word(32) = 36 bytes.
     uint256 private constant LEN_COMPOUND = 36;
 
-    // ── allowlists ────────────────────────────────────────────────────────────
-    mapping(address protocol => bool) public isAllowedProtocol;
-    mapping(address asset    => bool) public isAllowedAsset;
+    // -------------------------------------------------------------------------
+    // Allowlists
+    // -------------------------------------------------------------------------
 
-    // ── tunable parameters ────────────────────────────────────────────────────
+    /// @notice Lending protocol addresses the manager may borrow from.
+    mapping(address protocol => bool) public isAllowedProtocol;
+
+    /// @notice ERC-20 assets the manager may borrow.
+    ///         For Compound v2, the cToken address is used as the asset identifier.
+    mapping(address asset => bool) public isAllowedAsset;
+
+    // -------------------------------------------------------------------------
+    // Mutable parameters
+    // -------------------------------------------------------------------------
+
+    /// @notice Per-transaction cap on the borrow amount (inclusive).
+    ///         Denominated in the borrowed token's native units.
     uint256 public maxAmountPerTx;
-    /// @notice Maximum LTV in basis points. 7500 = 75%. 0 = no borrow allowed via LTV check.
+
+    /// @notice Maximum LTV in basis points (e.g. 7 500 = 75%). 0 means no LTV check.
+    ///         Enforced only when both oracles are set.
     uint256 public maxLtvBps;
-    /// @notice Oracle that returns total collateral value of the Safe.
-    ///         Called as getPrice(account, address(0)); return is (totalColValue, decimals).
+
+    /// @notice Oracle returning the Safe's total collateral value.
+    ///         Called as `getPrice(account, address(0))` → (totalCollateralValue, decimals).
+    ///         Set to address(0) to disable the LTV check.
     address public collateralOracle;
-    /// @notice Oracle that returns price per wei of the borrow asset.
-    ///         Called as getPrice(asset, address(0)); return is (pricePerWei, decimals).
-    ///         Must use the same denomination and decimals as collateralOracle.
+
+    /// @notice Oracle returning the price per unit of the borrow asset.
+    ///         Called as `getPrice(asset, address(0))` → (pricePerUnit, decimals).
+    ///         Must use the same denomination and decimals as `collateralOracle`.
+    ///         Set to address(0) to disable the LTV check.
     address public borrowOracle;
+
+    /// @notice Address authorised to update mutable parameters.
     address public permissionSigner;
 
-    // ── events ────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    /// @notice Emitted when `maxAmountPerTx` is updated.
+    /// @param  oldMax Previous cap value.
+    /// @param  newMax New cap value.
     event MaxAmountUpdated(uint256 oldMax, uint256 newMax);
+
+    /// @notice Emitted when `maxLtvBps` is updated.
+    /// @param  oldBps Previous LTV cap in basis points.
+    /// @param  newBps New LTV cap in basis points.
     event MaxLtvUpdated(uint256 oldBps, uint256 newBps);
 
-    // ── errors ────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Errors
+    // -------------------------------------------------------------------------
+
+    /// @dev Thrown when a caller other than `permissionSigner` invokes a guarded setter.
     error NotPermissionSigner();
+
+    /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
+
+    /// @dev Thrown when a requested `maxLtvBps` exceeds 10 000 (100%).
     error LtvBpsTooLarge(uint256 bps);
 
+    /// @dev Thrown when `collateralOracle` and `borrowOracle` report different decimals.
+    ///      Both must use the same denomination and precision for the LTV ratio to be valid.
+    error OracleDecimalMismatch(uint8 collateralDec, uint8 borrowDec);
+
+    // -------------------------------------------------------------------------
+    // Modifier
+    // -------------------------------------------------------------------------
+
+    /// @dev Reverts with NotPermissionSigner when caller is not `permissionSigner`.
     modifier onlyPermissionSigner() {
         if (msg.sender != permissionSigner) revert NotPermissionSigner();
         _;
     }
 
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    /// @notice Deploy with a set of allowed protocols, assets, caps, optional oracles, and a signer.
+    /// @param  allowedProtocols   Lending protocol addresses to pre-populate the allowlist.
+    /// @param  allowedAssets      ERC-20 / cToken addresses to pre-populate the asset allowlist.
+    /// @param  _maxAmountPerTx    Initial per-transaction borrow amount cap (inclusive).
+    /// @param  _maxLtvBps         Initial LTV cap in basis points. 0 disables LTV enforcement.
+    ///                            Must not exceed 10 000.
+    /// @param  _collateralOracle  Oracle for the Safe's collateral value. address(0) skips LTV.
+    /// @param  _borrowOracle      Oracle for borrow asset price. address(0) skips LTV.
+    /// @param  _permissionSigner  Address permitted to update mutable parameters.
     constructor(
         address[] memory allowedProtocols,
         address[] memory allowedAssets,
@@ -72,6 +161,19 @@ contract BoundedBorrowPermission is IPermission {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         if (_maxLtvBps > 10_000) revert LtvBpsTooLarge(_maxLtvBps);
 
+        // When both oracles are set, verify at construction that they report the same
+        // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
+        // consistent. A mismatch would silently produce an off-by-orders-of-magnitude LTV.
+        if (_collateralOracle != address(0) && _borrowOracle != address(0)) {
+            // Probe decimals. Some oracles reject zero-address inputs — the outer try/catch
+            // degrades gracefully; callers are responsible for supplying matching-decimal oracles.
+            try IOracle(_collateralOracle).getPrice(address(0), address(0)) returns (uint256, uint8 colDec) {
+                try IOracle(_borrowOracle).getPrice(address(0), address(0)) returns (uint256, uint8 borDec) {
+                    if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
+                } catch {}
+            } catch {}
+        }
+
         maxAmountPerTx   = _maxAmountPerTx;
         maxLtvBps        = _maxLtvBps;
         collateralOracle = _collateralOracle;
@@ -82,14 +184,20 @@ contract BoundedBorrowPermission is IPermission {
         for (uint256 i; i < allowedAssets.length;    i++) isAllowedAsset[allowedAssets[i]]        = true;
     }
 
-    // ── setters ───────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Setters
+    // -------------------------------------------------------------------------
 
+    /// @notice Update the per-transaction borrow cap.
+    /// @param  newMax New cap value (inclusive). Setting to 0 blocks all non-zero borrows.
     function setMaxAmountPerTx(uint256 newMax) external onlyPermissionSigner {
         uint256 old = maxAmountPerTx;
         maxAmountPerTx = newMax;
         emit MaxAmountUpdated(old, newMax);
     }
 
+    /// @notice Update the LTV cap.
+    /// @param  newBps New cap in basis points. Must not exceed 10 000. Set to 0 to disable LTV.
     function setMaxLtvBps(uint256 newBps) external onlyPermissionSigner {
         if (newBps > 10_000) revert LtvBpsTooLarge(newBps);
         uint256 old = maxLtvBps;
@@ -97,16 +205,21 @@ contract BoundedBorrowPermission is IPermission {
         emit MaxLtvUpdated(old, newBps);
     }
 
-    // ── IPermission ───────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // IPermission
+    // -------------------------------------------------------------------------
 
     /// @inheritdoc IPermission
+    /// @dev Enforces: allowed protocol, allowed asset, amount <= cap, correct recipient,
+    ///      and (if both oracles set) LTV <= maxLtvBps. Returns false for any unknown
+    ///      selector, malformed calldata, or violated invariant.
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
         if (!isAllowedProtocol[ctx.target]) return false;
 
-        // ── Aave V3 borrow ────────────────────────────────────────────────────
+        // ── Aave v2 / v3 ─────────────────────────────────────────────────────
         if (ctx.selector == AAVE_BORROW) {
             if (txData.length < LEN_AAVE) return false;
-            (address asset, uint256 amount, , , address onBehalfOf) =
+            (address asset, uint256 amount,,,address onBehalfOf) =
                 abi.decode(txData[4:], (address, uint256, uint256, uint16, address));
             if (!isAllowedAsset[asset])    return false;
             if (amount > maxAmountPerTx)   return false;
@@ -114,24 +227,23 @@ contract BoundedBorrowPermission is IPermission {
             return _ltvCheck(asset, amount, ctx.account);
         }
 
-        // ── Morpho borrow ─────────────────────────────────────────────────────
+        // ── Morpho ────────────────────────────────────────────────────────────
         if (ctx.selector == MORPHO_BORROW) {
             if (txData.length < LEN_MORPHO) return false;
             (address asset, uint256 amount, address onBehalf, address receiver) =
                 abi.decode(txData[4:], (address, uint256, address, address));
             if (!isAllowedAsset[asset])    return false;
             if (amount > maxAmountPerTx)   return false;
-            if (onBehalf != ctx.account)   return false;
-            if (receiver != ctx.account)   return false;
+            if (onBehalf  != ctx.account)  return false;
+            if (receiver  != ctx.account)  return false;
             return _ltvCheck(asset, amount, ctx.account);
         }
 
-        // ── Compound V2 borrow ────────────────────────────────────────────────
+        // ── Compound v2 ───────────────────────────────────────────────────────
         if (ctx.selector == COMPOUND_BORROW) {
             if (txData.length < LEN_COMPOUND) return false;
             uint256 amount = abi.decode(txData[4:], (uint256));
-            // For Compound, the cToken contract (ctx.target) identifies the borrowed asset.
-            // onBehalfOf is implicitly the Safe (msg.sender in the Safe-executed call).
+            // ctx.target is the cToken contract, which identifies the borrowed asset.
             if (!isAllowedAsset[ctx.target]) return false;
             if (amount > maxAmountPerTx)     return false;
             return _ltvCheck(ctx.target, amount, ctx.account);
@@ -145,27 +257,25 @@ contract BoundedBorrowPermission is IPermission {
         return keccak256("BoundedBorrowPermission");
     }
 
-    // ── internal ──────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Internal
+    // -------------------------------------------------------------------------
 
-    /// @dev Passes immediately when either oracle is unset (address(0)).
-    ///      collateralOracle.getPrice(account, 0) → total collateral value scaled by 10^dec.
-    ///      borrowOracle.getPrice(asset, 0)        → price per wei of borrow asset, same scale.
-    ///      LTV (bps) = amount × borrowPrice × 10_000 / collateralValue.
-    ///      Both oracles must return values in the same denomination and decimals.
+    /// @dev Returns true immediately when either oracle is address(0).
+    ///      ltvBps = amount × borrowPrice × 10_000 / collateralValue.
+    ///      Uses Math.mulDiv for overflow-safe 512-bit intermediate multiplication.
+    ///      Oracle decimals above 77 are unsupported (10^78 overflows uint256) — skip LTV check.
     function _ltvCheck(address asset, uint256 amount, address account) internal view returns (bool) {
         if (collateralOracle == address(0) || borrowOracle == address(0)) return true;
 
-        (uint256 colValue,) = IOracle(collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice,) = IOracle(borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec) = IOracle(collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec) = IOracle(borrowOracle).getPrice(asset, address(0));
 
+        if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;
-        if (borPrice == 0) return true; // zero borrow asset price → zero borrow value → LTV = 0
+        if (borPrice == 0) return false; // fail-closed: unpriced asset blocks all borrows
 
-        // ltvBps = amount × borPrice × 10_000 / colValue
-        // Math.mulDiv handles 512-bit intermediate mul; borPrice × amount never overflows
-        // in practice (largest realistic price ~1e36; max supply ~1e30; 1e66 << 2^256)
-        uint256 borrowScaled = Math.mulDiv(amount, borPrice, 1);
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
+        uint256 ltvBps = Math.mulDiv(Math.mulDiv(amount, borPrice, 1), 10_000, colValue);
         return ltvBps <= maxLtvBps;
     }
 }

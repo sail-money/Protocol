@@ -3,36 +3,90 @@ pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
 
+/// @title  BoundedWithdrawPermission
 /// @notice Gates ERC-20 withdrawals so the recipient is always the designated Safe,
 ///         the token is on the allowlist, and the amount is within the per-tx cap.
+///
+///         Supported selectors:
+///           transfer(address,uint256)               — direct transfer from the Safe
+///           transferFrom(address,address,uint256)   — pull from a pre-approved address
+///
+/// @dev    The `transferFrom` path does NOT validate the `from` field. A manager can
+///         pull tokens from any address that has previously approved the Safe
+///         (e.g., an integrated DeFi protocol whose approval was set elsewhere).
+///         If only pulling from the Safe's own balance is intended, use the `transfer`
+///         path — or deploy a policy that explicitly restricts `from == ctx.account`.
+/// @custom:security-contact security@sail.money
 contract BoundedWithdrawPermission is IPermission {
-    // transfer(address,uint256)
-    bytes4 private constant TRANSFER_SELECTOR = 0xa9059cbb;
-    // transferFrom(address,address,uint256)
+    // -------------------------------------------------------------------------
+    // Selectors
+    // -------------------------------------------------------------------------
+
+    /// @dev transfer(address to, uint256 amount) — ERC-20 standard transfer.
+    bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
+
+    /// @dev transferFrom(address from, address to, uint256 amount) — ERC-20 approved pull.
     bytes4 private constant TRANSFERFROM_SELECTOR = 0x23b872dd;
 
-    /// @notice The only address that may receive tokens (the owner's Safe).
+    // -------------------------------------------------------------------------
+    // Immutable state
+    // -------------------------------------------------------------------------
+
+    /// @notice The only address permitted to receive tokens (the owner's Safe).
     address public immutable allowedRecipient;
 
-    /// @notice Tokens the manager is permitted to move.
+    // -------------------------------------------------------------------------
+    // Allowlist and parameters
+    // -------------------------------------------------------------------------
+
+    /// @notice ERC-20 tokens the manager is permitted to move.
     mapping(address token => bool) public isAllowedToken;
 
-    /// @notice Per-transaction amount cap (inclusive).
+    /// @notice Per-transaction amount cap (inclusive). 0 blocks all non-zero transfers.
     uint256 public maxAmountPerTx;
 
     /// @notice Address authorised to update mutable settings.
     address public permissionSigner;
 
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    /// @notice Emitted when `maxAmountPerTx` is updated.
+    /// @param  oldMax Previous cap value.
+    /// @param  newMax New cap value.
     event MaxAmountUpdated(uint256 oldMax, uint256 newMax);
 
+    // -------------------------------------------------------------------------
+    // Errors
+    // -------------------------------------------------------------------------
+
+    /// @dev Thrown when a caller other than `permissionSigner` invokes a guarded setter.
     error NotPermissionSigner();
+
+    /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
 
+    // -------------------------------------------------------------------------
+    // Modifier
+    // -------------------------------------------------------------------------
+
+    /// @dev Reverts with NotPermissionSigner when caller is not `permissionSigner`.
     modifier onlyPermissionSigner() {
         if (msg.sender != permissionSigner) revert NotPermissionSigner();
         _;
     }
 
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    /// @notice Deploy with a fixed recipient Safe, token allowlist, cap, and signer.
+    /// @param  safe               The Safe address that must receive all tokens.
+    ///                            Immutable after deployment.
+    /// @param  allowedTokens      ERC-20 addresses to pre-populate the token allowlist.
+    /// @param  _maxAmountPerTx    Initial per-transaction amount cap.
+    /// @param  _permissionSigner  Address permitted to call `setMaxAmountPerTx`.
     constructor(
         address safe,
         address[] memory allowedTokens,
@@ -48,12 +102,21 @@ contract BoundedWithdrawPermission is IPermission {
         }
     }
 
-    /// @notice Update the per-transaction cap. Only permissionSigner may call.
+    // -------------------------------------------------------------------------
+    // Setters
+    // -------------------------------------------------------------------------
+
+    /// @notice Update the per-transaction amount cap.
+    /// @param  newMax New cap value (inclusive). Setting to 0 blocks all non-zero transfers.
     function setMaxAmountPerTx(uint256 newMax) external onlyPermissionSigner {
         uint256 old = maxAmountPerTx;
         maxAmountPerTx = newMax;
         emit MaxAmountUpdated(old, newMax);
     }
+
+    // -------------------------------------------------------------------------
+    // IPermission
+    // -------------------------------------------------------------------------
 
     /// @inheritdoc IPermission
     /// @dev Decodes transfer() and transferFrom() calldata and enforces three invariants:
@@ -77,6 +140,9 @@ contract BoundedWithdrawPermission is IPermission {
             // Encoded: selector(4) + from(32) + to(32) + amount(32) = 100 bytes minimum
             if (txData.length < 100) return false;
             (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // WARNING: the `from` field is not validated. A manager can pull tokens from any
+            // address that has previously approved the Safe (e.g., an integrated DeFi protocol).
+            // Use the `transfer` path if only pulling from the Safe's own balance is intended.
             return to == allowedRecipient && amount <= maxAmountPerTx;
         }
 
