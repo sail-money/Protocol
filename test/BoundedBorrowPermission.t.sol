@@ -711,4 +711,17 @@ contract BoundedBorrowPermissionTest is Test {
         // AAVE is in isAllowedProtocol but NOT added to isAllowedAsset as cToken
         assertFalse(perm.evaluate(data, _ctx(AAVE, SEL_COMPOUND)));
     }
+
+    function test_Oracle_CollateralDecimalsAbove77_Blocked() public {
+        // dec > 77 overflows 10^dec in uint256; guard must fail-closed
+        colOracle.setPrice(SAFE, address(0), COL_VALUE, 78);
+        bytes memory data = _aave(USDC, 50, SAFE);
+        assertFalse(perm.evaluate(data, _ctx(AAVE, SEL_AAVE)));
+    }
+
+    function test_Oracle_BorrowDecimalsAbove77_Blocked() public {
+        borOracle.setPrice(USDC, address(0), BOR_PRICE, 78);
+        bytes memory data = _aave(USDC, 50, SAFE);
+        assertFalse(perm.evaluate(data, _ctx(AAVE, SEL_AAVE)));
+    }
 }
