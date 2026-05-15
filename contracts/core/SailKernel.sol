@@ -37,8 +37,8 @@ interface ISafe {
 ///
 ///         Key design properties:
 ///           • Deny-by-default: accounts with no registered permissions cannot dispatch.
-///           • Permission cap: max MAX_PERMISSIONS_PER_ACCOUNT per account to bound
-///             gas usage in the dispatch loop.
+///           • Permission cap: governance-tunable limit (1–100) per account to bound
+///             gas usage in the dispatch loop; read from SailGovernance at registration time.
 ///           • Salt binding: `createAccount` binds the CREATE2 salt to msg.sender to
 ///             prevent front-running attacks on Safe registration.
 ///           • Two-tier nonces: manager nonces gate dispatch; signer nonces gate
@@ -53,12 +53,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Gas budget allocated to each permission's `evaluate` staticcall.
     ///         A revert or gas exhaustion within a permission is treated as a false return.
-    uint256 public constant PERMISSION_GAS_CAP          = 100_000;
-
-    /// @notice Hard limit on the number of permissions per account.
-    ///         Bounds the gas cost of the dispatch loop and prevents gas-bomb DoS attacks
-    ///         where a malicious permissionSigner registers an unbounded number of permissions.
-    uint256 public constant MAX_PERMISSIONS_PER_ACCOUNT = 20;
+    uint256 public constant PERMISSION_GAS_CAP = 100_000;
 
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
@@ -146,7 +141,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     mapping(address account => bool)                                   public  registered;
 
     /// @dev Ordered list of permission addresses per account. Maintained as a packed array
-    ///      with swap-and-pop removal to keep indices compact. Max length: MAX_PERMISSIONS_PER_ACCOUNT.
+    ///      with swap-and-pop removal to keep indices compact. Max length: governance.maxPermissionsPerAccount().
     mapping(address account => address[])                              private _permissions;
 
     /// @dev Index-plus-one of each permission in `_permissions[account]`.
@@ -314,7 +309,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by operations that require a permission to be registered when it is not.
     error PermissionNotRegistered(address permission);
 
-    /// @dev Thrown when adding permissions would exceed MAX_PERMISSIONS_PER_ACCOUNT.
+    /// @dev Thrown when adding permissions would exceed governance.maxPermissionsPerAccount().
     error TooManyPermissions(address account, uint256 limit);
 
     /// @dev Thrown when the ETH sent with a registration call is below the required fee.
@@ -479,8 +474,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     {
         _requireRegistered(account);
         if (_permissionIndex[account][permission] != 0) revert PermissionAlreadyRegistered(permission);
-        if (_permissions[account].length >= MAX_PERMISSIONS_PER_ACCOUNT)
-            revert TooManyPermissions(account, MAX_PERMISSIONS_PER_ACCOUNT);
+        uint256 limit = governance.maxPermissionsPerAccount();
+        if (_permissions[account].length >= limit)
+            revert TooManyPermissions(account, limit);
 
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -623,8 +619,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
         // Enforce the cap before consuming the nonce to avoid nonce burns on revert.
-        if (_permissions[account].length + permissions.length > MAX_PERMISSIONS_PER_ACCOUNT)
-            revert TooManyPermissions(account, MAX_PERMISSIONS_PER_ACCOUNT);
+        uint256 limit = governance.maxPermissionsPerAccount();
+        if (_permissions[account].length + permissions.length > limit)
+            revert TooManyPermissions(account, limit);
 
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(

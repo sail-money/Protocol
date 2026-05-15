@@ -32,8 +32,8 @@ contract StandardFeePolicy is IFeePolicy {
     // Constants
     // -------------------------------------------------------------------------
 
-    /// @dev Hard cap on the management fee rate (5% per year).
-    uint256 private constant MAX_MANAGEMENT_FEE_BPS  = 500;
+    /// @dev Hard cap on the management fee rate (10% per year).
+    uint256 private constant MAX_MANAGEMENT_FEE_BPS  = 1_000;
     /// @dev Hard cap on the performance fee rate (50%).
     uint256 private constant MAX_PERFORMANCE_FEE_BPS = 5_000;
     /// @dev Hard cap on the distributor's share of the manager's net fee (100%).
@@ -249,7 +249,7 @@ contract StandardFeePolicy is IFeePolicy {
     // -------------------------------------------------------------------------
 
     /// @notice Update the annual management fee rate.
-    /// @param  newBps New rate in basis points. Must not exceed MAX_MANAGEMENT_FEE_BPS (500).
+    /// @param  newBps New rate in basis points. Must not exceed MAX_MANAGEMENT_FEE_BPS (1 000).
     function setManagementFeeBps(uint256 newBps) external onlyFeeManager {
         if (newBps > MAX_MANAGEMENT_FEE_BPS) revert ManagementFeeTooHigh(newBps);
         uint256 old = managementFeeBps;

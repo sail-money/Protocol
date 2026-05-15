@@ -24,6 +24,15 @@ contract SailGovernance {
     ///         Set at deployment; cannot be raised afterwards.
     uint256 public immutable MAX_PERMISSION_FEE_WEI;
 
+    /// @notice Hard ceiling on the number of permissions an account may register.
+    ///         Bounds the maximum gas cost of the kernel's dispatch loop across all future
+    ///         governance decisions. No governance action can raise the live limit above this.
+    ///
+    ///         Gas budget at the cap: 100 × PERMISSION_GAS_CAP (100 000) = 10 000 000 gas.
+    ///         Feasible on all L2s; expensive but not impossible on Ethereum mainnet for
+    ///         large managed positions.
+    uint256 public constant MAX_PERMISSIONS_CAP = 100;
+
     // -------------------------------------------------------------------------
     // Governance-tunable parameters (within the caps above)
     // -------------------------------------------------------------------------
@@ -40,6 +49,13 @@ contract SailGovernance {
     /// @notice Per-byte contribution to the permission registration fee, in wei.
     ///         Final fee = min(baseFee + complexityRate × codeSize, MAX_PERMISSION_FEE_WEI).
     uint256 public complexityRate;
+
+    /// @notice Live limit on the number of permissions per account.
+    ///         Governance may adjust this between 1 and MAX_PERMISSIONS_CAP (100).
+    ///         Increasing the limit raises the maximum gas cost of every future dispatch call
+    ///         by up to PERMISSION_GAS_CAP gas per additional slot — operators should account
+    ///         for this when sizing positions on gas-expensive networks.
+    uint256 public maxPermissionsPerAccount;
 
     /// @notice Address with governance rights (may set parameters and transfer governance).
     address public governance;
@@ -77,6 +93,11 @@ contract SailGovernance {
     /// @param  newRate New value in wei per byte.
     event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
 
+    /// @notice Emitted when `maxPermissionsPerAccount` is updated.
+    /// @param  oldLimit Previous limit.
+    /// @param  newLimit New limit.
+    event MaxPermissionsPerAccountUpdated(uint256 oldLimit, uint256 newLimit);
+
     // -------------------------------------------------------------------------
     // Errors
     // -------------------------------------------------------------------------
@@ -92,6 +113,10 @@ contract SailGovernance {
 
     /// @dev Thrown when a requested `baseFee` or `complexityRate` exceeds `MAX_PERMISSION_FEE_WEI`.
     error ExceedsPermissionFeeCap(uint256 requested, uint256 cap);
+
+    /// @dev Thrown when a requested `maxPermissionsPerAccount` exceeds `MAX_PERMISSIONS_CAP`
+    ///      or is set to zero.
+    error ExceedsPermissionsCap(uint256 requested, uint256 cap);
 
     /// @dev Thrown when a governance-related address argument is the zero address.
     error ZeroAddress();
@@ -120,6 +145,7 @@ contract SailGovernance {
         if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
         governance = initialGovernance;
         MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
+        maxPermissionsPerAccount = 20;
         emit GovernanceTransferred(address(0), initialGovernance);
     }
 
@@ -181,5 +207,22 @@ contract SailGovernance {
         uint256 old = complexityRate;
         complexityRate = newRate;
         emit ComplexityRateUpdated(old, newRate);
+    }
+
+    /// @notice Set the live limit on the number of permissions per account.
+    /// @dev    Raising this limit increases the maximum dispatch gas cost by up to
+    ///         PERMISSION_GAS_CAP gas per additional slot. Operators on gas-expensive
+    ///         networks should account for this before registering up to the new limit.
+    ///         Lowering the limit does NOT retroactively revoke permissions on accounts
+    ///         that are already at or above the new limit — it only prevents further
+    ///         registrations until those accounts fall below the live limit again.
+    /// @param  newLimit New per-account permission limit.
+    ///                  Must be between 1 and MAX_PERMISSIONS_CAP (100) inclusive.
+    function setMaxPermissionsPerAccount(uint256 newLimit) external onlyGovernance {
+        if (newLimit == 0 || newLimit > MAX_PERMISSIONS_CAP)
+            revert ExceedsPermissionsCap(newLimit, MAX_PERMISSIONS_CAP);
+        uint256 old = maxPermissionsPerAccount;
+        maxPermissionsPerAccount = newLimit;
+        emit MaxPermissionsPerAccountUpdated(old, newLimit);
     }
 }

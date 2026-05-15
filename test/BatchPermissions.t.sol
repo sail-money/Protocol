@@ -683,12 +683,12 @@ contract BatchPermissionsTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // MAX_PERMISSIONS_PER_ACCOUNT cap enforcement via batch
+    // maxPermissionsPerAccount cap enforcement via batch
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_RegisterPermissions_RevertsWhenBatchExceedsCap() public {
         // Fill the account to 18 permissions via individual calls
-        uint256 cap = kernel.MAX_PERMISSIONS_PER_ACCOUNT(); // 20
+        uint256 cap = gov.maxPermissionsPerAccount();
         uint256 filledCount = cap - 2;
         for (uint256 i = 0; i < filledCount; i++) {
             BatchMockPermission p = new BatchMockPermission();
@@ -728,7 +728,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_RegisterPermissions_ExactlyFillsCap() public {
-        uint256 cap = kernel.MAX_PERMISSIONS_PER_ACCOUNT();
+        uint256 cap = gov.maxPermissionsPerAccount();
         address[] memory perms = new address[](cap);
         for (uint256 i = 0; i < cap; i++) {
             perms[i] = address(new BatchMockPermission());

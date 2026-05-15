@@ -334,4 +334,78 @@ contract SailGovernanceTest is Test {
         );
         gov.setComplexityRate(requested);
     }
+
+    // ── setMaxPermissionsPerAccount ───────────────────────────────────────────
+
+    function test_MaxPermissionsPerAccount_DefaultIs20() public view {
+        assertEq(gov.maxPermissionsPerAccount(), 20);
+    }
+
+    function test_MaxPermissionsCap_Is100() public view {
+        assertEq(gov.MAX_PERMISSIONS_CAP(), 100);
+    }
+
+    function test_SetMaxPermissionsPerAccount_Succeeds() public {
+        vm.prank(TEAM);
+        gov.setMaxPermissionsPerAccount(50);
+        assertEq(gov.maxPermissionsPerAccount(), 50);
+    }
+
+    function test_SetMaxPermissionsPerAccount_ToOne() public {
+        vm.prank(TEAM);
+        gov.setMaxPermissionsPerAccount(1);
+        assertEq(gov.maxPermissionsPerAccount(), 1);
+    }
+
+    function test_SetMaxPermissionsPerAccount_ToExactCap() public {
+        vm.prank(TEAM);
+        gov.setMaxPermissionsPerAccount(100);
+        assertEq(gov.maxPermissionsPerAccount(), 100);
+    }
+
+    function test_SetMaxPermissionsPerAccount_EmitsEvent() public {
+        vm.expectEmit(false, false, false, true);
+        emit SailGovernance.MaxPermissionsPerAccountUpdated(20, 50);
+        vm.prank(TEAM);
+        gov.setMaxPermissionsPerAccount(50);
+    }
+
+    function test_SetMaxPermissionsPerAccount_RevertsAtZero() public {
+        vm.prank(TEAM);
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsPermissionsCap.selector, 0, 100)
+        );
+        gov.setMaxPermissionsPerAccount(0);
+    }
+
+    function test_SetMaxPermissionsPerAccount_RevertsAboveCap() public {
+        vm.prank(TEAM);
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsPermissionsCap.selector, 101, 100)
+        );
+        gov.setMaxPermissionsPerAccount(101);
+    }
+
+    function test_SetMaxPermissionsPerAccount_RevertsForNonGovernance() public {
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        gov.setMaxPermissionsPerAccount(50);
+    }
+
+    function testFuzz_SetMaxPermissionsPerAccount_WithinBounds(uint256 limit) public {
+        limit = bound(limit, 1, 100);
+        vm.prank(TEAM);
+        gov.setMaxPermissionsPerAccount(limit);
+        assertEq(gov.maxPermissionsPerAccount(), limit);
+    }
+
+    function testFuzz_SetMaxPermissionsPerAccount_AboveCap(uint256 excess) public {
+        excess = bound(excess, 1, type(uint256).max - 100);
+        uint256 requested = 100 + excess;
+        vm.prank(TEAM);
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsPermissionsCap.selector, requested, 100)
+        );
+        gov.setMaxPermissionsPerAccount(requested);
+    }
 }
