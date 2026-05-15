@@ -340,16 +340,15 @@ contract SailKernelTest is Test {
     // 3. Manager dispatch
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Dispatch_SucceedsWithNoPermissions() public {
-        address target = address(0xABCD);
-        bytes memory data = abi.encodeWithSignature("doSomething()");
-        _dispatch(target, 0, data);
+    function test_Dispatch_RevertsWithNoPermissions() public {
+        // Zero registered permissions → deny by default (allowlist semantics).
+        // A manager cannot dispatch until at least one permission is registered.
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce    = kernel.managerNonces(address(safe));
+        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
 
-        assertEq(safe.callCount(), 1);
-        (address to, uint256 v, bytes memory d,) = safe.getCall(0);
-        assertEq(to, target);
-        assertEq(v, 0);
-        assertEq(d, data);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.NoPermissionsRegistered.selector, address(safe)));
+        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_SucceedsWithPassingPermission() public {
@@ -421,6 +420,7 @@ contract SailKernelTest is Test {
     }
 
     function test_Dispatch_NonceIncrements() public {
+        _registerPermission(address(perm));
         assertEq(kernel.managerNonces(address(safe)), 0);
         _dispatch(address(0xABCD), 0, "");
         assertEq(kernel.managerNonces(address(safe)), 1);
@@ -429,6 +429,7 @@ contract SailKernelTest is Test {
     }
 
     function test_Dispatch_RevertsOnReplay() public {
+        _registerPermission(address(perm));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
@@ -442,6 +443,7 @@ contract SailKernelTest is Test {
     }
 
     function test_Dispatch_RevertsIfSafeReturnsFalse() public {
+        _registerPermission(address(perm));
         safe.setSuccess(false);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));

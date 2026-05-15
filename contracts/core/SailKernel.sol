@@ -121,6 +121,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error NotPermissionSigner();
     error ZeroAddress();
     error DistributorBpsTooLarge(uint256 bps);
+    error NoPermissionsRegistered(address account);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -314,9 +315,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         )));
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
 
-        // Walk permissions — each evaluated via staticcall with gas cap
+        // Walk permissions — each evaluated via staticcall with gas cap.
+        // Zero registered permissions means deny by default (allowlist semantics).
         address[] storage perms = _permissions[account];
         uint256 len = perms.length;
+        if (len == 0) revert NoPermissionsRegistered(account);
         Context memory ctx = Context({
             account:  account,
             manager:  cfg.manager,
