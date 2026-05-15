@@ -1029,7 +1029,7 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_RegisterPermission_RevertsBeyondCap() public {
-        uint256 cap = kernel.MAX_PERMISSIONS_PER_ACCOUNT();
+        uint256 cap = gov.maxPermissionsPerAccount();
 
         // Register up to the cap
         for (uint256 i = 0; i < cap; i++) {
@@ -1048,7 +1048,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_AfterRevokeAllowsNew() public {
-        uint256 cap = kernel.MAX_PERMISSIONS_PER_ACCOUNT();
+        uint256 cap = gov.maxPermissionsPerAccount();
 
         // Fill to cap
         MockPermission[] memory perms = new MockPermission[](cap);

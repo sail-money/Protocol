@@ -61,8 +61,8 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_Constructor_RevertsManagementFeeAboveCap() public {
-        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 501));
-        new StandardFeePolicy(501, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 1001));
+        new StandardFeePolicy(1001, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
     }
 
     function test_Constructor_RevertsPerformanceFeeAboveCap() public {
@@ -71,8 +71,8 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_Constructor_AtExactMaxManagementFee() public {
-        StandardFeePolicy p = new StandardFeePolicy(500, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
-        assertEq(p.managementFeeBps(), 500);
+        StandardFeePolicy p = new StandardFeePolicy(1_000, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        assertEq(p.managementFeeBps(), 1_000);
     }
 
     function test_Constructor_AtExactMaxPerformanceFee() public {
@@ -457,14 +457,14 @@ contract StandardFeePolicyTest is Test {
 
     function test_SetManagementFeeBps_AtExactMax() public {
         vm.prank(FEE_MANAGER);
-        policy.setManagementFeeBps(500);
-        assertEq(policy.managementFeeBps(), 500);
+        policy.setManagementFeeBps(1_000);
+        assertEq(policy.managementFeeBps(), 1_000);
     }
 
     function test_SetManagementFeeBps_RevertsAboveCap() public {
         vm.prank(FEE_MANAGER);
-        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 501));
-        policy.setManagementFeeBps(501);
+        vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, 1001));
+        policy.setManagementFeeBps(1001);
     }
 
     function test_SetManagementFeeBps_RevertsNotFeeManager() public {
@@ -748,7 +748,7 @@ contract StandardFeePolicyTest is Test {
     }
 
     function testFuzz_SetManagementFeeBps_AboveCap(uint256 bps) public {
-        bps = bound(bps, 501, type(uint256).max);
+        bps = bound(bps, 1001, type(uint256).max);
         vm.prank(FEE_MANAGER);
         vm.expectRevert(abi.encodeWithSelector(StandardFeePolicy.ManagementFeeTooHigh.selector, bps));
         policy.setManagementFeeBps(bps);
