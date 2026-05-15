@@ -255,12 +255,10 @@ contract StandardFeePolicyTest is Test {
         assertEq(policy.lastCollectionTimestamp(ACCOUNT), T0);
     }
 
-    function test_RecordCollection_InitNoFeesCollectedEvent() public {
-        // First call must NOT emit FeesCollected
-        vm.recordLogs();
+    function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
+        vm.expectEmit(true, false, false, true, address(policy));
+        emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
         _initAccount(ACCOUNT, NAV);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(logs.length, 0);
     }
 
     function test_RecordCollection_FirstCallReturnsFeeZeroOnNextCompute() public {

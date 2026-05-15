@@ -268,12 +268,15 @@ contract SailGovernance {
     /// @param  newGov Address to grant PROPOSER_ROLE and EXECUTOR_ROLE to.
     function rotateTimelockRoles(address oldGov, address newGov) external onlyTimelock {
         if (newGov == address(0)) revert ZeroAddress();
-        bytes32 proposer = timelock.PROPOSER_ROLE();
-        bytes32 executor = timelock.EXECUTOR_ROLE();
-        timelock.grantRole(proposer, newGov);
-        timelock.grantRole(executor, newGov);
-        timelock.revokeRole(proposer, oldGov);
-        timelock.revokeRole(executor, oldGov);
+        bytes32 proposer  = timelock.PROPOSER_ROLE();
+        bytes32 executor  = timelock.EXECUTOR_ROLE();
+        bytes32 canceller = timelock.CANCELLER_ROLE();
+        timelock.grantRole(proposer,  newGov);
+        timelock.grantRole(executor,  newGov);
+        timelock.grantRole(canceller, newGov);
+        timelock.revokeRole(proposer,  oldGov);
+        timelock.revokeRole(executor,  oldGov);
+        timelock.revokeRole(canceller, oldGov);
     }
 
     // -------------------------------------------------------------------------
