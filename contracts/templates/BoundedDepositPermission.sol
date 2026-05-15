@@ -92,7 +92,10 @@ contract BoundedDepositPermission is IPermission {
         if (ctx.selector == MINT) {
             if (txData.length < LEN_2ARG) return false;
             (uint256 shares, address receiver) = abi.decode(txData[4:], (uint256, address));
-            // Asset not in calldata — token check delegated to allowedTargets trust
+            // WARNING: `maxAmountPerTx` is denominated in SHARES, not underlying assets.
+            // At high share prices (e.g., 1 share = 1000 USDC), the effective asset cap
+            // is maxAmountPerTx × sharePrice. Operators must set this value accordingly.
+            // Asset not in calldata — token check delegated to allowedTargets trust.
             return receiver == ctx.account && shares <= maxAmountPerTx;
         }
 

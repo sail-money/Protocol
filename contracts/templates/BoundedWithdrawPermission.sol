@@ -77,6 +77,9 @@ contract BoundedWithdrawPermission is IPermission {
             // Encoded: selector(4) + from(32) + to(32) + amount(32) = 100 bytes minimum
             if (txData.length < 100) return false;
             (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // WARNING: the `from` field is not validated. A manager can pull tokens from any
+            // address that has previously approved the Safe (e.g., an integrated DeFi protocol).
+            // Use the `transfer` path if only pulling from the Safe's own balance is intended.
             return to == allowedRecipient && amount <= maxAmountPerTx;
         }
 
