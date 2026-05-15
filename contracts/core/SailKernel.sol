@@ -46,6 +46,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     bytes32 public constant REVOKE_SESSION_TYPEHASH = keccak256(
         "RevokeSession(address account,uint256 nonce)"
     );
+    bytes32 public constant REGISTER_PERMISSIONS_TYPEHASH = keccak256(
+        "RegisterPermissions(address account,address[] permissions,uint256 nonce,uint256 deadline)"
+    );
+    bytes32 public constant REVOKE_PERMISSIONS_TYPEHASH = keccak256(
+        "RevokePermissions(address account,address[] permissions,uint256 nonce,uint256 deadline)"
+    );
 
     // -------------------------------------------------------------------------
     // Account state
@@ -275,6 +281,78 @@ contract SailKernel is EIP712, ReentrancyGuard {
         emit SessionRevoked(account);
     }
 
+    /// @notice Register multiple permissions atomically. One nonce consumed; total fee = sum of
+    ///         individual fees, same cap and refund logic as registerPermission.
+    function registerPermissions(
+        address account,
+        address[] calldata permissions,
+        uint256 deadline,
+        bytes calldata sig
+    ) external payable nonReentrant {
+        _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+
+        uint256 nonce = signerNonces[account]++;
+        _verifySignerSig(
+            account,
+            keccak256(abi.encode(
+                REGISTER_PERMISSIONS_TYPEHASH,
+                account,
+                _hashAddressArray(permissions),
+                nonce,
+                deadline
+            )),
+            sig
+        );
+
+        // Compute total fee before any state changes
+        uint256 totalFee;
+        for (uint256 i; i < permissions.length; i++) {
+            totalFee += _calcPermissionFee(permissions[i]);
+        }
+        if (msg.value < totalFee) revert InsufficientFee(totalFee, msg.value);
+
+        // Add all permissions atomically — reverts if any duplicate found
+        for (uint256 i; i < permissions.length; i++) {
+            address perm = permissions[i];
+            if (_permissionIndex[account][perm] != 0) revert PermissionAlreadyRegistered(perm);
+            _permissions[account].push(perm);
+            _permissionIndex[account][perm] = _permissions[account].length;
+            emit PermissionRegistered(account, perm);
+        }
+
+        _collectRegistrationFee(totalFee);
+    }
+
+    /// @notice Revoke multiple permissions atomically. One nonce consumed; no fee.
+    function revokePermissions(
+        address account,
+        address[] calldata permissions,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+
+        uint256 nonce = signerNonces[account]++;
+        _verifySignerSig(
+            account,
+            keccak256(abi.encode(
+                REVOKE_PERMISSIONS_TYPEHASH,
+                account,
+                _hashAddressArray(permissions),
+                nonce,
+                deadline
+            )),
+            sig
+        );
+
+        for (uint256 i; i < permissions.length; i++) {
+            _removePermission(account, permissions[i]);
+            emit PermissionRevoked(account, permissions[i]);
+        }
+    }
+
     function getPermissions(address account) external view returns (address[] memory) {
         return _permissions[account];
     }
@@ -470,6 +548,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
         }
         perms.pop();
         delete _permissionIndex[account][permission];
+    }
+
+    /// @dev EIP-712-compliant hash of address[]: each address zero-padded to 32 bytes then keccak256'd.
+    function _hashAddressArray(address[] calldata arr) internal pure returns (bytes32) {
+        bytes32[] memory buf = new bytes32[](arr.length);
+        for (uint256 i; i < arr.length; i++) {
+            buf[i] = bytes32(uint256(uint160(arr[i])));
+        }
+        return keccak256(abi.encodePacked(buf));
     }
 
     function _verifySignerSig(address account, bytes32 structHash, bytes memory sig) internal view {
