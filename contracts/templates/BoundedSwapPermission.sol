@@ -5,52 +5,133 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @title  BoundedSwapPermission
 /// @notice Gates DEX swaps so the manager can only trade through approved routers,
 ///         with approved tokens, within an amount cap, and — when an oracle is
 ///         configured — within a slippage band derived from the on-chain price.
 ///
 ///         Supported selectors:
-///           0x414bf389  exactInputSingle  (Uniswap V3 SwapRouter)
-///           0x38ed1739  swapExactTokensForTokens  (Uniswap V2 Router)
+///           0x414bf389  exactInputSingle(ExactInputSingleParams)  — Uniswap V3 SwapRouter
+///           0x38ed1739  swapExactTokensForTokens(...)            — Uniswap V2 Router
+///
+/// @dev    Oracle check behaviour:
+///           • `priceOracle == address(0)` OR `maxSlippageBps == 0` → oracle disabled,
+///             no minimum output is enforced beyond the router's own slippage param.
+///           • Setting `maxSlippageBps = 0` is an explicit opt-out, not "0% tolerance".
+///             Use it only when you intend to remove slippage protection entirely.
+///
+///         Intermediate tokens in V2 multi-hop paths are NOT validated against
+///         `isAllowedTokenIn`/`isAllowedTokenOut` — only path[0] and path[last] are
+///         checked. Operators must ensure the full path is acceptable.
+/// @custom:security-contact security@sail.money
 contract BoundedSwapPermission is IPermission {
-    // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))
+    // -------------------------------------------------------------------------
+    // Selectors
+    // -------------------------------------------------------------------------
+
+    /// @dev exactInputSingle((tokenIn,tokenOut,fee,recipient,deadline,amountIn,amountOutMinimum,sqrtPriceLimitX96))
     bytes4 private constant EXACT_INPUT_SINGLE = 0x414bf389;
-    // swapExactTokensForTokens(uint256,uint256,address[],address,uint256)
+
+    /// @dev swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
     bytes4 private constant SWAP_EXACT_TOKENS  = 0x38ed1739;
 
-    // selector(4) + 8 static slots × 32 = 260
+    // -------------------------------------------------------------------------
+    // Calldata length constants
+    // -------------------------------------------------------------------------
+
+    /// @dev Minimum calldata length for V3 exactInputSingle:
+    ///      selector(4) + 8 struct words × 32 = 260 bytes.
     uint256 private constant LEN_V3 = 260;
-    // selector(4) + 5 head slots × 32 (amountIn, amountOutMin, pathOffset, to, deadline)
-    //             + 1 tail slot  × 32 (path.length)  = 196  (minimum; path.length checked after decode)
+
+    /// @dev Minimum calldata length for V2 swapExactTokensForTokens structural check:
+    ///      selector(4) + 5 head words × 32 (amountIn, amountOutMin, pathOffset, to, deadline)
+    ///      + 1 path-length word × 32 = 196 bytes.
+    ///      The actual minimum for a valid 2-element path is larger; path.length < 2 is checked
+    ///      after decode.
     uint256 private constant LEN_V2_MIN = 196;
 
-    // ── allowlists ────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Allowlists
+    // -------------------------------------------------------------------------
+
+    /// @notice DEX router addresses the manager may route swaps through.
     mapping(address router => bool) public isAllowedRouter;
+
+    /// @notice ERC-20 tokens the manager may sell (input token / path[0]).
     mapping(address token  => bool) public isAllowedTokenIn;
+
+    /// @notice ERC-20 tokens the manager may buy (output token / path[last]).
     mapping(address token  => bool) public isAllowedTokenOut;
 
-    // ── tunable parameters ────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Mutable parameters
+    // -------------------------------------------------------------------------
+
+    /// @notice Per-transaction cap on `amountIn` (inclusive).
     uint256 public maxAmountPerTx;
-    /// @notice Slippage tolerance in basis points. 0 = oracle check disabled.
+
+    /// @notice Slippage tolerance in basis points (max 9 999).
+    ///         0 = oracle check disabled entirely.
+    /// @dev    Values up to 9 999 are accepted; 10 000 would compute oracleMinOut = 0
+    ///         for any price, effectively disabling the floor. Use 0 to explicitly
+    ///         opt out rather than setting 10 000.
     uint256 public maxSlippageBps;
-    /// @notice Oracle address. address(0) = oracle check disabled.
+
+    /// @notice Price oracle used for slippage validation. address(0) = oracle disabled.
     address public priceOracle;
+
+    /// @notice Address authorised to update mutable settings.
     address public permissionSigner;
 
-    // ── events ────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    /// @notice Emitted when `maxAmountPerTx` is updated.
+    /// @param  oldMax Previous cap value.
+    /// @param  newMax New cap value.
     event MaxAmountUpdated(uint256 oldMax, uint256 newMax);
+
+    /// @notice Emitted when `maxSlippageBps` is updated.
+    /// @param  oldBps Previous slippage tolerance in basis points.
+    /// @param  newBps New slippage tolerance in basis points.
     event MaxSlippageUpdated(uint256 oldBps, uint256 newBps);
 
-    // ── errors ────────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Errors
+    // -------------------------------------------------------------------------
+
+    /// @dev Thrown when a caller other than `permissionSigner` invokes a guarded setter.
     error NotPermissionSigner();
+
+    /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
+
+    /// @dev Thrown when a requested slippage value exceeds 9 999 basis points.
     error SlippageBpsTooLarge(uint256 bps);
 
+    // -------------------------------------------------------------------------
+    // Modifier
+    // -------------------------------------------------------------------------
+
+    /// @dev Reverts with NotPermissionSigner when caller is not `permissionSigner`.
     modifier onlyPermissionSigner() {
         if (msg.sender != permissionSigner) revert NotPermissionSigner();
         _;
     }
 
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    /// @notice Deploy with allowlists, swap cap, optional oracle config, and signer.
+    /// @param  allowedRouters     DEX router addresses to pre-populate the router allowlist.
+    /// @param  allowedTokensIn    Input token addresses to pre-populate `isAllowedTokenIn`.
+    /// @param  allowedTokensOut   Output token addresses to pre-populate `isAllowedTokenOut`.
+    /// @param  _maxAmountPerTx    Initial per-transaction amountIn cap.
+    /// @param  _maxSlippageBps    Initial slippage tolerance (0–9 999 bps). 0 = oracle disabled.
+    /// @param  _priceOracle       Oracle address; address(0) = oracle disabled.
+    /// @param  _permissionSigner  Address permitted to update mutable settings.
     constructor(
         address[] memory allowedRouters,
         address[] memory allowedTokensIn,
@@ -75,14 +156,20 @@ contract BoundedSwapPermission is IPermission {
         for (uint256 i; i < allowedTokensOut.length; i++) isAllowedTokenOut[allowedTokensOut[i]] = true;
     }
 
-    // ── setters ───────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Setters
+    // -------------------------------------------------------------------------
 
+    /// @notice Update the per-transaction amountIn cap.
+    /// @param  newMax New cap value (inclusive). Setting to 0 blocks all swaps.
     function setMaxAmountPerTx(uint256 newMax) external onlyPermissionSigner {
         uint256 old = maxAmountPerTx;
         maxAmountPerTx = newMax;
         emit MaxAmountUpdated(old, newMax);
     }
 
+    /// @notice Update the oracle slippage tolerance.
+    /// @param  newBps New tolerance in basis points. Must be ≤ 9 999. 0 = disable oracle check.
     function setMaxSlippageBps(uint256 newBps) external onlyPermissionSigner {
         if (newBps > 9_999) revert SlippageBpsTooLarge(newBps);
         uint256 old = maxSlippageBps;
@@ -90,7 +177,9 @@ contract BoundedSwapPermission is IPermission {
         emit MaxSlippageUpdated(old, newBps);
     }
 
-    // ── IPermission ───────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // IPermission
+    // -------------------------------------------------------------------------
 
     /// @inheritdoc IPermission
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
@@ -151,10 +240,19 @@ contract BoundedSwapPermission is IPermission {
         return keccak256("BoundedSwapPermission");
     }
 
-    // ── internal ──────────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Internal
+    // -------------------------------------------------------------------------
 
-    /// @dev Passes immediately when oracle is disabled (address(0) or slippage = 0).
-    ///      Otherwise checks amountOutMin >= oracle_price * amountIn * (1 - slippage).
+    /// @dev Passes immediately when the oracle is disabled (address(0) or slippage = 0).
+    ///      Otherwise checks amountOutMin >= oracle_price × amountIn × (1 − slippage).
+    ///      Returns false (deny) when the oracle returns price = 0 or decimals > 77
+    ///      (decimals > 77 would overflow 10^decimals beyond uint256 max).
+    /// @param  tokenIn      ERC-20 address of the token being sold.
+    /// @param  tokenOut     ERC-20 address of the token being bought.
+    /// @param  amountIn     Amount of tokenIn being sold.
+    /// @param  amountOutMin Minimum output specified in the swap calldata.
+    /// @return              True if the slippage check passes or the oracle is disabled.
     function _oracleCheck(
         address tokenIn,
         address tokenOut,
@@ -165,6 +263,8 @@ contract BoundedSwapPermission is IPermission {
 
         (uint256 price, uint8 dec) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
+        // 10^78 overflows uint256; treat as unsupported oracle configuration → deny.
+        if (dec > 77) return false;
 
         // expectedOut = amountIn × price / 10^dec   (overflow-safe via mulDiv)
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));

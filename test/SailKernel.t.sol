@@ -772,6 +772,13 @@ contract SailKernelTest is Test {
         kernel.collectFees(address(safe), 1_000, 0, address(0), manager);
     }
 
+    function test_CollectFees_RevertsOnZeroRecipient() public {
+        feePolicy.setFee(1_000, address(0), 0);
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.ZeroAddress.selector);
+        kernel.collectFees(address(safe), 1_000, 1e18, address(0), address(0));
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 5. Principal tracking
     // ─────────────────────────────────────────────────────────────────────────
@@ -926,6 +933,38 @@ contract SailKernelTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
         kernel.activateSession(address(safe), abi.encodePacked(r, s, v));
+    }
+
+    function test_ActivateSession_IdempotentOnAlreadyActiveSession() public {
+        // Session is active by default — activating again should succeed and consume a nonce
+        (,,, bool activeBefore) = kernel.configs(address(safe));
+        assertTrue(activeBefore);
+        uint256 nonceBefore = kernel.signerNonces(address(safe));
+
+        bytes32 sh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), nonceBefore));
+        kernel.activateSession(address(safe), _signerSig(sh));
+
+        (,,, bool activeAfter) = kernel.configs(address(safe));
+        assertTrue(activeAfter, "session should remain active");
+        assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "nonce consumed");
+    }
+
+    function test_RevokeSession_IdempotentOnAlreadyInactiveSession() public {
+        // Revoke once
+        bytes32 sh1 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
+        kernel.revokeSession(address(safe), _signerSig(sh1));
+
+        (,,, bool activeAfterFirst) = kernel.configs(address(safe));
+        assertFalse(activeAfterFirst);
+
+        // Revoke again — should succeed and consume another nonce
+        uint256 nonceBefore = kernel.signerNonces(address(safe));
+        bytes32 sh2 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonceBefore));
+        kernel.revokeSession(address(safe), _signerSig(sh2));
+
+        (,,, bool activeAfterSecond) = kernel.configs(address(safe));
+        assertFalse(activeAfterSecond, "session should remain inactive");
+        assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "nonce consumed");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
