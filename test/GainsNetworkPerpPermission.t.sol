@@ -101,7 +101,16 @@ contract GainsNetworkPerpPermissionTest is Test {
     function _ctx(bytes memory data) internal view returns (Context memory) {
         bytes4 sel;
         if (data.length >= 4) assembly { sel := mload(add(data, 32)) }
-        return Context({account: SAFE, manager: address(0), submitter: address(0), target: GTRADE_ROUTER, selector: sel, value: 0, blockTimestamp: block.timestamp, blockNumber: block.number});
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         GTRADE_ROUTER,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -165,7 +174,7 @@ contract GainsNetworkPerpPermissionTest is Test {
             account:        SAFE,
             manager:        address(0),
             submitter:      address(0),
-            target:         STRANGER,     // wrong target
+            target:         STRANGER,
             selector:       OPEN_TRADE_SELECTOR,
             value:          0,
             blockTimestamp: block.timestamp,

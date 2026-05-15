@@ -75,12 +75,11 @@ abstract contract FactoryTestBase is Test {
 
         // Deploy governance with this test contract as governance + emergencyAdmin
         gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this));
-
-        // Set tunable parameters via timelock
-        TimelockController tl = gov.timelock();
-        _timelockExec(tl, abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
-        _timelockExec(tl, abi.encodeCall(gov.setBaseFee, (BASE_FEE)));
-        _timelockExec(tl, abi.encodeCall(gov.setComplexityRate, (COMPLEXITY_RATE)));
+        vm.startPrank(address(gov.timelock()));
+        gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
+        gov.setBaseFee(BASE_FEE);
+        gov.setComplexityRate(COMPLEXITY_RATE);
+        vm.stopPrank();
 
         kernel  = new SailKernel(address(gov), TREASURY);
         factory = new PermissionFactory(address(kernel));
@@ -91,19 +90,6 @@ abstract contract FactoryTestBase is Test {
         // registerAccount is called by the Safe itself (msg.sender == account)
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
-    }
-
-    function _timelockSchedule(TimelockController tl, bytes memory data) internal returns (bytes32 salt) {
-        salt = bytes32(uint256(keccak256(abi.encode(data, block.timestamp))));
-        vm.prank(address(this));
-        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
-        vm.warp(block.timestamp + 48 hours + 1);
-    }
-
-    function _timelockExec(TimelockController tl, bytes memory data) internal {
-        bytes32 salt = _timelockSchedule(tl, data);
-        vm.prank(address(this));
-        tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
     receive() external payable {}

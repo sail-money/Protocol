@@ -96,14 +96,24 @@ contract PermissionFactory {
 
         uint256 preBalance = address(this).balance - msg.value;
 
-        for (uint256 i; i < n; i++) {
+        _batchConfigure(account, templates, params, configureDeadlines, configureSigs);
+        kernel.registerPermissions{value: msg.value}(account, templates, kernelDeadline, kernelBatchSig);
+        _refundExcess(preBalance);
+        emit BatchAttached(account, templates);
+    }
+
+    function _batchConfigure(
+        address account,
+        address[] calldata templates,
+        bytes[] calldata params,
+        uint256[] memory configureDeadlines,
+        bytes[] calldata configureSigs
+    ) private {
+        for (uint256 i; i < templates.length; i++) {
             IConfigurablePermission(templates[i]).configure(
                 account, params[i], configureDeadlines[i], configureSigs[i]
             );
         }
-        kernel.registerPermissions{value: msg.value}(account, templates, kernelDeadline, kernelBatchSig);
-        _refundExcess(preBalance);
-        emit BatchAttached(account, templates);
     }
 
     // -------------------------------------------------------------------------
