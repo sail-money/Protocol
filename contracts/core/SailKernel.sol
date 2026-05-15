@@ -2,12 +2,14 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {IFeePolicy} from "../interfaces/IFeePolicy.sol";
-import {SailGovernance} from "../governance/SailGovernance.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IFeePolicy}            from "../interfaces/IFeePolicy.sol";
+import {SailGovernance}        from "../governance/SailGovernance.sol";
+import {ECDSA}                 from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712}                from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ReentrancyGuard}       from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC1271}              from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC20}                from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math}                  from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface ISafeFactory {
     function createProxyWithNonce(address singleton, bytes calldata initializer, uint256 saltNonce)
@@ -25,8 +27,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
-    uint256 public constant PERMISSION_GAS_CAP = 100_000;
-    bytes4  private constant ERC1271_MAGIC     = 0x1626ba7e;
+    uint256 public constant PERMISSION_GAS_CAP        = 100_000;
+    uint256 public constant MAX_PERMISSIONS_PER_ACCOUNT = 20;
+    bytes4  private constant ERC1271_MAGIC            = 0x1626ba7e;
 
     // -------------------------------------------------------------------------
     // EIP-712 type hashes
@@ -46,6 +49,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     bytes32 public constant REVOKE_SESSION_TYPEHASH = keccak256(
         "RevokeSession(address account,uint256 nonce)"
     );
+    bytes32 public constant ACTIVATE_SESSION_TYPEHASH = keccak256(
+        "ActivateSession(address account,uint256 nonce)"
+    );
+    bytes32 public constant SET_FEE_POLICY_TYPEHASH = keccak256(
+        "SetFeePolicy(address account,address newFeePolicy,uint256 nonce)"
+    );
 
     // -------------------------------------------------------------------------
     // Account state
@@ -57,18 +66,17 @@ contract SailKernel is EIP712, ReentrancyGuard {
         bool    sessionActive;
     }
 
-    mapping(address account => AccountConfig)                              public  configs;
-    mapping(address account => bool)                                       public  registered;
-    mapping(address account => address[])                                  private _permissions;
-    // value is index+1; 0 means not registered
-    mapping(address account => mapping(address permission => uint256))     private _permissionIndex;
+    mapping(address account => AccountConfig)                          public  configs;
+    mapping(address account => bool)                                   public  registered;
+    mapping(address account => address[])                              private _permissions;
+    mapping(address account => mapping(address permission => uint256)) private _permissionIndex;
 
-    // Separate nonces for manager dispatch and permission-signer operations
+    // Separate nonces: manager nonces for dispatch, signer nonces for registry ops.
     mapping(address account => uint256) public managerNonces;
     mapping(address account => uint256) public signerNonces;
 
     // -------------------------------------------------------------------------
-    // 5. Principal tracking
+    // Principal tracking
     // -------------------------------------------------------------------------
     mapping(address account => uint256) public cumulativeDeposits;
     mapping(address account => uint256) public cumulativeWithdrawals;
@@ -77,7 +85,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // Protocol references
     // -------------------------------------------------------------------------
     SailGovernance public immutable governance;
-    address public treasury;
+    address        public treasury;
+
+    // -------------------------------------------------------------------------
+    // Emergency pause
+    // -------------------------------------------------------------------------
+    bool public paused;
 
     // -------------------------------------------------------------------------
     // Events
@@ -87,9 +100,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     event PermissionRevoked(address indexed account, address indexed permission);
     event PermissionReplaced(address indexed account, address indexed oldPermission, address indexed newPermission);
     event SessionRevoked(address indexed account);
-    event Dispatched(address indexed account, address indexed target, uint256 value, bytes data);
+    event SessionActivated(address indexed account);
+    event FeePolicyUpdated(address indexed account, address indexed newFeePolicy);
+    /// @dev `dataHash` is keccak256(calldata) — the raw bytes are recoverable from the tx itself.
+    event Dispatched(address indexed account, address indexed target, uint256 value, bytes32 dataHash);
     event FeesCollected(
         address indexed account,
+        address indexed feeToken,
         uint256 grossFee,
         uint256 protocolCut,
         uint256 distributorCut,
@@ -98,6 +115,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     event DepositRecorded(address indexed account, uint256 amount, uint256 cumulative);
     event WithdrawalRecorded(address indexed account, uint256 amount, uint256 cumulative);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
 
     // -------------------------------------------------------------------------
     // Errors
@@ -112,6 +131,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error SafeExecutionFailed();
     error PermissionAlreadyRegistered(address permission);
     error PermissionNotRegistered(address permission);
+    error TooManyPermissions(address account, uint256 limit);
     error InsufficientFee(uint256 required, uint256 provided);
     error FeePolicyNotSet();
     error FeeTooLarge(uint256 requested, uint256 maxAllowed);
@@ -122,6 +142,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error ZeroAddress();
     error DistributorBpsTooLarge(uint256 bps);
     error NoPermissionsRegistered(address account);
+    error ProtocolPaused();
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -133,13 +154,21 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Governance
+    // Modifiers
     // -------------------------------------------------------------------------
     modifier onlyGovernance() {
         if (msg.sender != governance.governance()) revert NotGovernance();
         _;
     }
 
+    modifier whenNotPaused() {
+        if (paused) revert ProtocolPaused();
+        _;
+    }
+
+    // -------------------------------------------------------------------------
+    // Governance
+    // -------------------------------------------------------------------------
     function setTreasury(address newTreasury) external onlyGovernance {
         if (newTreasury == address(0)) revert ZeroAddress();
         address old = treasury;
@@ -147,11 +176,28 @@ contract SailKernel is EIP712, ReentrancyGuard {
         emit TreasuryUpdated(old, newTreasury);
     }
 
+    /// @notice Halt all dispatches and fee collections.
+    function pause() external onlyGovernance {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Resume normal protocol operation.
+    function unpause() external onlyGovernance {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
     // -------------------------------------------------------------------------
     // 1. Account instantiation
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy a new Safe via factory and register it with the kernel in one tx.
+    /// @notice Deploy a new Safe via factory and register it with the kernel in one transaction.
+    /// @dev    The salt passed to the factory is derived from `keccak256(saltNonce, msg.sender)`
+    ///         to bind the CREATE2 address to the caller and prevent front-running attacks where
+    ///         an observer could claim registration of a Safe they did not deploy.
+    ///         Callers wishing to pre-compute the Safe address must use the same binding:
+    ///         `boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)))`.
     function createAccount(
         address safeFactory,
         address safeSingleton,
@@ -161,15 +207,17 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address manager,
         address feePolicy
     ) external returns (address account) {
-        account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, saltNonce);
+        uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)));
+        account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);
         _registerAccount(account, permissionSigner, manager, feePolicy);
     }
 
     /// @notice Register an existing Safe that has already added this kernel as a module.
-    function registerAccount(address account, address permissionSigner, address manager, address feePolicy)
-        external
-    {
-        _registerAccount(account, permissionSigner, manager, feePolicy);
+    /// @dev    MUST be called by the Safe itself via a Safe transaction (msg.sender == Safe).
+    ///         This prevents front-running: only the Safe's own signers can authorise registration
+    ///         by executing a transaction through the Safe's own threshold mechanism.
+    function registerAccount(address permissionSigner, address manager, address feePolicy) external {
+        _registerAccount(msg.sender, permissionSigner, manager, feePolicy);
     }
 
     function _registerAccount(address account, address permissionSigner, address manager, address feePolicy)
@@ -191,7 +239,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // 2. Permission registry
     // -------------------------------------------------------------------------
 
-    /// @notice Register a permission for an account. Requires permission-signer sig and ETH fee.
+    /// @notice Register a permission for an account. Requires a permission-signer signature and ETH fee.
     function registerPermission(address account, address permission, bytes calldata sig)
         external
         payable
@@ -199,6 +247,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     {
         _requireRegistered(account);
         if (_permissionIndex[account][permission] != 0) revert PermissionAlreadyRegistered(permission);
+        if (_permissions[account].length >= MAX_PERMISSIONS_PER_ACCOUNT)
+            revert TooManyPermissions(account, MAX_PERMISSIONS_PER_ACCOUNT);
 
         uint256 nonce = signerNonces[account]++;
         _verifySignerSig(
@@ -211,13 +261,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
         _permissions[account].push(permission);
-        _permissionIndex[account][permission] = _permissions[account].length; // index+1
+        _permissionIndex[account][permission] = _permissions[account].length; // stored as index + 1
 
         _collectRegistrationFee(fee);
         emit PermissionRegistered(account, permission);
     }
 
-    /// @notice Revoke a single permission. Requires permission-signer sig.
+    /// @notice Revoke a single permission. Requires a permission-signer signature.
     function revokePermission(address account, address permission, bytes calldata sig) external {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
@@ -230,7 +280,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         emit PermissionRevoked(account, permission);
     }
 
-    /// @notice Atomically replace one permission with another. Requires permission-signer sig and ETH fee.
+    /// @notice Atomically replace one permission with another. Requires a permission-signer signature and ETH fee.
     function replacePermission(
         address account,
         address oldPermission,
@@ -253,7 +303,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 fee = _calcPermissionFee(newPermission);
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
-        // Replace in-place — preserves list ordering at that slot
         _permissions[account][idx - 1] = newPermission;
         delete _permissionIndex[account][oldPermission];
         _permissionIndex[account][newPermission] = idx;
@@ -262,7 +311,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         emit PermissionReplaced(account, oldPermission, newPermission);
     }
 
-    /// @notice Revoke the entire manager session. Requires permission-signer sig.
+    /// @notice Revoke the entire manager session. Dispatch is blocked until activateSession is called.
     function revokeSession(address account, bytes calldata sig) external {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account]++;
@@ -273,6 +322,32 @@ contract SailKernel is EIP712, ReentrancyGuard {
         );
         configs[account].sessionActive = false;
         emit SessionRevoked(account);
+    }
+
+    /// @notice Re-activate a previously revoked session. Requires a fresh permissionSigner signature.
+    function activateSession(address account, bytes calldata sig) external {
+        _requireRegistered(account);
+        uint256 nonce = signerNonces[account]++;
+        _verifySignerSig(
+            account,
+            keccak256(abi.encode(ACTIVATE_SESSION_TYPEHASH, account, nonce)),
+            sig
+        );
+        configs[account].sessionActive = true;
+        emit SessionActivated(account);
+    }
+
+    /// @notice Replace the fee policy for an account. Requires a permissionSigner signature.
+    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external {
+        _requireRegistered(account);
+        uint256 nonce = signerNonces[account]++;
+        _verifySignerSig(
+            account,
+            keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, nonce)),
+            sig
+        );
+        configs[account].feePolicy = newFeePolicy;
+        emit FeePolicyUpdated(account, newFeePolicy);
     }
 
     function getPermissions(address account) external view returns (address[] memory) {
@@ -287,7 +362,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // 3. Manager dispatch
     // -------------------------------------------------------------------------
 
-    /// @notice Verify manager sig, evaluate all permissions, execute via Safe.
+    /// @notice Verify manager signature, evaluate all permissions, execute via Safe.
+    /// @dev    Nonce is consumed before any external interaction to prevent replay even if the
+    ///         Safe call reverts. Permissions are evaluated via staticcall with a per-permission
+    ///         gas cap; a revert or gas exhaustion inside a permission is treated as denial.
     function dispatch(
         address account,
         address target,
@@ -295,14 +373,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         bytes calldata data,
         bytes calldata managerSig,
         uint256 deadline
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
 
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
-        // Consume nonce before any external interaction
         uint256 nonce = managerNonces[account]++;
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
             DISPATCH_TYPEHASH,
@@ -321,20 +398,22 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 len = perms.length;
         if (len == 0) revert NoPermissionsRegistered(account);
         Context memory ctx = Context({
-            account:  account,
-            manager:  cfg.manager,
-            target:   target,
-            selector: data.length >= 4 ? bytes4(data[:4]) : bytes4(0),
-            value:    value
+            account:        account,
+            manager:        cfg.manager,
+            submitter:      msg.sender,
+            target:         target,
+            selector:       data.length >= 4 ? bytes4(data[:4]) : bytes4(0),
+            value:          value,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         for (uint256 i = 0; i < len; i++) {
             if (!_evaluatePermission(perms[i], data, ctx)) revert PermissionDenied(perms[i]);
         }
 
-        // Execute via Safe module interface
         if (!ISafe(account).execTransactionFromModule(target, value, data, 0)) revert SafeExecutionFailed();
 
-        emit Dispatched(account, target, value, data);
+        emit Dispatched(account, target, value, keccak256(data));
     }
 
     function _evaluatePermission(address permission, bytes calldata data, Context memory ctx)
@@ -352,46 +431,48 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // 4. Fee accounting
     // -------------------------------------------------------------------------
 
-    /// @notice Manager calls this to collect fees. Kernel validates legitimacy and enforces the split.
-    /// @param feeToken ERC-20 token address, or address(0) for native ETH.
-    /// @param recipient Address that receives the manager's share of the fee.
+    /// @notice Manager calls this to collect earned fees. The kernel validates the amount
+    ///         against the registered fee policy and enforces the protocol/distributor split.
+    /// @dev    TRUST ASSUMPTION: `currentNav` is provided by the manager. The fee policy is
+    ///         the sole on-chain guard against inflated NAV inputs. Deployers must use a fee
+    ///         policy that validates NAV independently (e.g., via an oracle) if the manager
+    ///         is not trusted to report NAV accurately.
+    /// @param feeToken  ERC-20 token address, or address(0) for native ETH.
+    /// @param recipient Address that receives the manager's net share.
     function collectFees(
         address account,
         uint256 grossFee,
         uint256 currentNav,
         address feeToken,
         address recipient
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
         if (cfg.feePolicy == address(0)) revert FeePolicyNotSet();
 
-        // Validate fee amount against policy
         (uint256 maxFee, address distributor, uint256 distributorBps) =
             IFeePolicy(cfg.feePolicy).computeFee(account, currentNav);
         if (grossFee > maxFee) revert FeeTooLarge(grossFee, maxFee);
         if (distributorBps > 10_000) revert DistributorBpsTooLarge(distributorBps);
 
-        // Compute constitutional split
-        uint256 protocolCut    = (grossFee * governance.CURRENT_PROTOCOL_CUT_BPS()) / 10_000;
+        uint256 protocolCut    = Math.mulDiv(grossFee, governance.currentProtocolCutBps(), 10_000);
         uint256 remainder      = grossFee - protocolCut;
-        uint256 distributorCut = (remainder * distributorBps) / 10_000;
+        uint256 distributorCut = Math.mulDiv(remainder, distributorBps, 10_000);
         uint256 managerTake    = remainder - distributorCut;
 
-        // Execute transfers from the Safe
         if (feeToken == address(0)) {
-            if (protocolCut > 0)                              _safeTransferETH(account, treasury,     protocolCut);
-            if (distributorCut > 0 && distributor != address(0)) _safeTransferETH(account, distributor,  distributorCut);
-            if (managerTake > 0)                              _safeTransferETH(account, recipient,    managerTake);
+            if (protocolCut    > 0)                              _safeTransferETH(account, treasury,    protocolCut);
+            if (distributorCut > 0 && distributor != address(0)) _safeTransferETH(account, distributor, distributorCut);
+            if (managerTake    > 0)                              _safeTransferETH(account, recipient,   managerTake);
         } else {
-            if (protocolCut > 0)                              _safeTransferERC20(account, feeToken, treasury,     protocolCut);
-            if (distributorCut > 0 && distributor != address(0)) _safeTransferERC20(account, feeToken, distributor,  distributorCut);
-            if (managerTake > 0)                              _safeTransferERC20(account, feeToken, recipient,    managerTake);
+            if (protocolCut    > 0)                              _safeTransferERC20(account, feeToken, treasury,    protocolCut);
+            if (distributorCut > 0 && distributor != address(0)) _safeTransferERC20(account, feeToken, distributor, distributorCut);
+            if (managerTake    > 0)                              _safeTransferERC20(account, feeToken, recipient,   managerTake);
         }
 
         IFeePolicy(cfg.feePolicy).recordCollection(account, grossFee, currentNav);
-        emit FeesCollected(account, grossFee, protocolCut, distributorCut, managerTake);
+        emit FeesCollected(account, feeToken, grossFee, protocolCut, distributorCut, managerTake);
     }
 
     function _safeTransferETH(address account, address to, uint256 value) internal {
@@ -399,7 +480,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     function _safeTransferERC20(address account, address token, address to, uint256 amount) internal {
-        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", to, amount);
+        bytes memory data = abi.encodeCall(IERC20.transfer, (to, amount));
         if (!ISafe(account).execTransactionFromModule(token, 0, data, 0)) revert FeeTransferFailed();
     }
 
@@ -407,6 +488,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // 5. Principal tracking
     // -------------------------------------------------------------------------
 
+    /// @notice Record a deposit into the account. Only the permission signer may call.
     function recordDeposit(address account, uint256 amount) external {
         _requireRegistered(account);
         if (msg.sender != configs[account].permissionSigner) revert NotPermissionSigner();
@@ -414,6 +496,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         emit DepositRecorded(account, amount, cumulativeDeposits[account]);
     }
 
+    /// @notice Record a withdrawal from the account. Only the permission signer may call.
     function recordWithdrawal(address account, uint256 amount) external {
         _requireRegistered(account);
         if (msg.sender != configs[account].permissionSigner) revert NotPermissionSigner();
@@ -425,7 +508,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // Public helpers
     // -------------------------------------------------------------------------
 
-    /// @notice Exposed for frontend/test use — computes EIP-712 digest.
+    /// @notice Exposed for frontend and test use — computes the EIP-712 digest for a struct hash.
     function hashTypedDataV4(bytes32 structHash) external view returns (bytes32) {
         return _hashTypedDataV4(structHash);
     }
@@ -439,19 +522,19 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     function _calcPermissionFee(address permission) internal view returns (uint256) {
-        uint256 size;
-        assembly { size := extcodesize(permission) }
-        uint256 fee = governance.BASE_FEE() + size * governance.COMPLEXITY_RATE();
-        uint256 cap = governance.MAX_PERMISSION_FEE_WEI();
-        return fee > cap ? cap : fee;
+        uint256 cap  = governance.MAX_PERMISSION_FEE_WEI();
+        // Cap each component before summing to prevent overflow when both are near cap.
+        uint256 base        = Math.min(governance.baseFee(), cap);
+        uint256 sizeContrib = Math.min(Math.mulDiv(permission.code.length, governance.complexityRate(), 1), cap);
+        return Math.min(base + sizeContrib, cap);
     }
 
     function _collectRegistrationFee(uint256 fee) internal {
-        uint256 excess = msg.value - fee;
         if (fee > 0) {
             (bool ok,) = treasury.call{value: fee}("");
             if (!ok) revert FeeTransferFailed();
         }
+        uint256 excess = msg.value - fee;
         if (excess > 0) {
             (bool ok,) = msg.sender.call{value: excess}("");
             if (!ok) revert FeeTransferFailed();

@@ -61,7 +61,9 @@ contract BoundedSwapPermission is IPermission {
         address _permissionSigner
     ) {
         if (_permissionSigner == address(0)) revert ZeroAddress();
-        if (_maxSlippageBps > 10_000) revert SlippageBpsTooLarge(_maxSlippageBps);
+        // 9_999 max: 10_000 would compute oracleMinOut = 0 when oracle is set,
+        // silently bypassing the oracle floor. Use slippage = 0 to explicitly disable.
+        if (_maxSlippageBps > 9_999) revert SlippageBpsTooLarge(_maxSlippageBps);
 
         maxAmountPerTx   = _maxAmountPerTx;
         maxSlippageBps   = _maxSlippageBps;
@@ -82,7 +84,7 @@ contract BoundedSwapPermission is IPermission {
     }
 
     function setMaxSlippageBps(uint256 newBps) external onlyPermissionSigner {
-        if (newBps > 10_000) revert SlippageBpsTooLarge(newBps);
+        if (newBps > 9_999) revert SlippageBpsTooLarge(newBps);
         uint256 old = maxSlippageBps;
         maxSlippageBps = newBps;
         emit MaxSlippageUpdated(old, newBps);

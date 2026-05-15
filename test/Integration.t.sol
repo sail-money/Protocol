@@ -123,8 +123,9 @@ contract IntegrationTest is Test {
             MGMT_BPS, PERF_BPS, DEAD, DIST_BPS, address(kernel), FEE_MANAGER
         );
 
-        // 6. Register MockSafe with the kernel
-        kernel.registerAccount(address(mockSafe), permSigner, manager, address(feePolicy));
+        // 6. Register MockSafe with the kernel (must be called by the Safe itself)
+        vm.prank(address(mockSafe));
+        kernel.registerAccount(permSigner, manager, address(feePolicy));
 
         // 7. Register BoundedSwapPermission (pays exact fee)
         uint256 fee = _calcFee(address(swap));
@@ -155,7 +156,8 @@ contract IntegrationTest is Test {
     function test_Fee_ExactPaymentSucceeds() public {
         // Fresh account for a clean signerNonce
         MockSafe safe2 = new MockSafe();
-        kernel.registerAccount(address(safe2), permSigner, manager, address(feePolicy));
+        vm.prank(address(safe2));
+        kernel.registerAccount(permSigner, manager, address(feePolicy));
 
         uint256 fee = _calcFee(address(swap));
         uint256 treasuryBefore = TREASURY.balance;
@@ -171,7 +173,8 @@ contract IntegrationTest is Test {
 
     function test_Fee_InsufficientFeeReverts() public {
         MockSafe safe2 = new MockSafe();
-        kernel.registerAccount(address(safe2), permSigner, manager, address(feePolicy));
+        vm.prank(address(safe2));
+        kernel.registerAccount(permSigner, manager, address(feePolicy));
 
         uint256 fee = _calcFee(address(swap));
         bytes memory sig = _signRegisterPermission(address(safe2), address(swap), 0);
@@ -182,7 +185,8 @@ contract IntegrationTest is Test {
 
     function test_Fee_ExcessRefundedToCaller() public {
         MockSafe safe2 = new MockSafe();
-        kernel.registerAccount(address(safe2), permSigner, manager, address(feePolicy));
+        vm.prank(address(safe2));
+        kernel.registerAccount(permSigner, manager, address(feePolicy));
 
         uint256 fee = _calcFee(address(swap));
         uint256 overpay = fee + 1 ether;
@@ -462,7 +466,7 @@ contract IntegrationTest is Test {
 
     function _calcFee(address perm) internal view returns (uint256) {
         uint256 size = perm.code.length;
-        uint256 fee  = gov.BASE_FEE() + size * gov.COMPLEXITY_RATE();
+        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
         uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
         return fee > cap ? cap : fee;
     }

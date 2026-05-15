@@ -13,6 +13,7 @@ contract SailGovernanceTest is Test {
     uint256 constant MAX_FEE = 1 ether;
 
     event GovernanceTransferred(address indexed previousGovernance, address indexed newGovernance);
+    event GovernanceProposed(address indexed currentGovernance, address indexed proposedGovernance);
     event ProtocolCutUpdated(uint256 oldBps, uint256 newBps);
     event BaseFeeUpdated(uint256 oldFee, uint256 newFee);
     event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
@@ -35,9 +36,9 @@ contract SailGovernanceTest is Test {
     }
 
     function test_Constructor_DefaultTunablesAreZero() public view {
-        assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), 0);
-        assertEq(gov.BASE_FEE(), 0);
-        assertEq(gov.COMPLEXITY_RATE(), 0);
+        assertEq(gov.currentProtocolCutBps(), 0);
+        assertEq(gov.baseFee(), 0);
+        assertEq(gov.complexityRate(), 0);
     }
 
     function test_Constructor_EmitsGovernanceTransferred() public {
@@ -62,7 +63,7 @@ contract SailGovernanceTest is Test {
     function test_SetProtocolCutBps_AtExactCap() public {
         vm.prank(TEAM);
         gov.setProtocolCutBps(2_500);
-        assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), 2_500);
+        assertEq(gov.currentProtocolCutBps(), 2_500);
     }
 
     function test_SetProtocolCutBps_RevertsAboveCap() public {
@@ -87,13 +88,13 @@ contract SailGovernanceTest is Test {
         bps = bound(bps, 0, 2_500);
         vm.prank(TEAM);
         gov.setProtocolCutBps(bps);
-        assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), bps);
+        assertEq(gov.currentProtocolCutBps(), bps);
     }
 
     function test_SetBaseFee_AtExactCap() public {
         vm.prank(TEAM);
         gov.setBaseFee(MAX_FEE);
-        assertEq(gov.BASE_FEE(), MAX_FEE);
+        assertEq(gov.baseFee(), MAX_FEE);
     }
 
     function test_SetBaseFee_RevertsAboveCap() public {
@@ -118,56 +119,110 @@ contract SailGovernanceTest is Test {
         fee = bound(fee, 0, MAX_FEE);
         vm.prank(TEAM);
         gov.setBaseFee(fee);
-        assertEq(gov.BASE_FEE(), fee);
+        assertEq(gov.baseFee(), fee);
     }
 
     // -------------------------------------------------------------------------
-    // Governance transfer
+    // Governance transfer — two-step propose → accept
     // -------------------------------------------------------------------------
 
-    function test_TransferGovernance_UpdatesAddress() public {
+    function test_ProposeGovernance_SetsPending() public {
         vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
-        assertEq(gov.governance(), ALICE);
+        gov.proposeGovernance(ALICE);
+        assertEq(gov.pendingGovernance(), ALICE);
+        assertEq(gov.governance(), TEAM); // not yet transferred
     }
 
-    function test_TransferGovernance_EmitsEvent() public {
+    function test_ProposeGovernance_EmitsEvent() public {
+        vm.expectEmit(true, true, false, false);
+        emit GovernanceProposed(TEAM, ALICE);
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+    }
+
+    function test_AcceptGovernance_CompletesTransfer() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        assertEq(gov.governance(), ALICE);
+        assertEq(gov.pendingGovernance(), address(0));
+    }
+
+    function test_AcceptGovernance_EmitsGovernanceTransferred() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(TEAM, ALICE);
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
     }
 
-    function test_TransferGovernance_NewGovernanceCanAct() public {
+    function test_AcceptGovernance_NewGovernanceCanAct() public {
         vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
 
         vm.prank(ALICE);
         gov.setProtocolCutBps(1_000);
-        assertEq(gov.CURRENT_PROTOCOL_CUT_BPS(), 1_000);
+        assertEq(gov.currentProtocolCutBps(), 1_000);
     }
 
-    function test_TransferGovernance_OldGovernanceCanNoLongerAct() public {
+    function test_AcceptGovernance_OldGovernanceCanNoLongerAct() public {
         vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
 
         vm.prank(TEAM);
         vm.expectRevert(SailGovernance.NotGovernance.selector);
         gov.setProtocolCutBps(1_000);
     }
 
-    function test_TransferGovernance_RevertsOnZeroAddress() public {
+    function test_AcceptGovernance_RevertsForNonPending() public {
         vm.prank(TEAM);
-        vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        gov.transferGovernance(address(0));
+        gov.proposeGovernance(ALICE);
+
+        vm.prank(BOB);
+        vm.expectRevert(SailGovernance.NotPendingGovernance.selector);
+        gov.acceptGovernance();
     }
 
-    function test_TransferGovernance_ChainedTransfer() public {
-        vm.prank(TEAM);
-        gov.transferGovernance(ALICE);
+    function test_AcceptGovernance_RevertsIfNoPendingProposal() public {
         vm.prank(ALICE);
-        gov.transferGovernance(BOB);
+        vm.expectRevert(SailGovernance.NotPendingGovernance.selector);
+        gov.acceptGovernance();
+    }
+
+    function test_ProposeGovernance_RevertsOnZeroAddress() public {
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        gov.proposeGovernance(address(0));
+    }
+
+    function test_ProposeGovernance_ChainedTransfer() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(ALICE);
+        gov.acceptGovernance();
+        vm.prank(ALICE);
+        gov.proposeGovernance(BOB);
+        vm.prank(BOB);
+        gov.acceptGovernance();
         assertEq(gov.governance(), BOB);
+    }
+
+    function test_ProposeGovernance_CanOverwritePendingBeforeAccept() public {
+        vm.prank(TEAM);
+        gov.proposeGovernance(ALICE);
+        vm.prank(TEAM);
+        gov.proposeGovernance(BOB); // overwrite — ALICE can no longer accept
+        assertEq(gov.pendingGovernance(), BOB);
+
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.NotPendingGovernance.selector);
+        gov.acceptGovernance();
     }
 
     // -------------------------------------------------------------------------
@@ -192,10 +247,10 @@ contract SailGovernanceTest is Test {
         gov.setComplexityRate(42);
     }
 
-    function test_Unauthorized_TransferGovernance() public {
+    function test_Unauthorized_ProposeGovernance() public {
         vm.prank(ALICE);
         vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.transferGovernance(ALICE);
+        gov.proposeGovernance(ALICE);
     }
 
     function testFuzz_Unauthorized_AllSetters(address caller) public {
@@ -212,7 +267,7 @@ contract SailGovernanceTest is Test {
         gov.setComplexityRate(1);
 
         vm.expectRevert(SailGovernance.NotGovernance.selector);
-        gov.transferGovernance(caller);
+        gov.proposeGovernance(caller);
 
         vm.stopPrank();
     }
@@ -246,12 +301,37 @@ contract SailGovernanceTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // COMPLEXITY_RATE has no cap (no upper bound in the spec)
+    // COMPLEXITY_RATE — capped at MAX_PERMISSION_FEE_WEI for consistency
     // -------------------------------------------------------------------------
 
-    function testFuzz_SetComplexityRate_AnyValue(uint256 rate) public {
+    function test_SetComplexityRate_AtExactCap() public {
+        vm.prank(TEAM);
+        gov.setComplexityRate(MAX_FEE);
+        assertEq(gov.complexityRate(), MAX_FEE);
+    }
+
+    function test_SetComplexityRate_RevertsAboveCap() public {
+        vm.prank(TEAM);
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE)
+        );
+        gov.setComplexityRate(MAX_FEE + 1);
+    }
+
+    function testFuzz_SetComplexityRate_WithinCap(uint256 rate) public {
+        rate = bound(rate, 0, MAX_FEE);
         vm.prank(TEAM);
         gov.setComplexityRate(rate);
-        assertEq(gov.COMPLEXITY_RATE(), rate);
+        assertEq(gov.complexityRate(), rate);
+    }
+
+    function testFuzz_SetComplexityRate_AboveCap(uint256 excess) public {
+        excess = bound(excess, 1, type(uint256).max - MAX_FEE);
+        uint256 requested = MAX_FEE + excess;
+        vm.prank(TEAM);
+        vm.expectRevert(
+            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, requested, MAX_FEE)
+        );
+        gov.setComplexityRate(requested);
     }
 }

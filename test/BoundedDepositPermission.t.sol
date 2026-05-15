@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test}                    from "forge-std/Test.sol";
 import {BoundedDepositPermission} from "../contracts/templates/BoundedDepositPermission.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Context}                 from "../contracts/interfaces/IPermission.sol";
 
 contract BoundedDepositPermissionTest is Test {
     BoundedDepositPermission perm;
 
-    address constant SAFE      = address(0x5AFE);
-    address constant PROTOCOL  = address(0xA11E); // e.g., Aave pool
-    address constant VAULT     = address(0xBA17); // e.g., ERC-4626 vault
-    address constant TOKEN_A   = address(0xAAAA);
-    address constant TOKEN_B   = address(0xBBBB);
-    address constant SIGNER    = address(0x5161);
-    address constant STRANGER  = address(0x9999);
+    address constant SAFE     = address(0x5AFE);
+    address constant PROTOCOL = address(0xA11E);
+    address constant VAULT    = address(0xBA17);
+    address constant TOKEN_A  = address(0xAAAA);
+    address constant TOKEN_B  = address(0xBBBB);
+    address constant SIGNER   = address(0x5161);
+    address constant STRANGER = address(0x9999);
 
     uint256 constant MAX_AMOUNT = 1_000e18;
 
@@ -34,22 +34,23 @@ contract BoundedDepositPermissionTest is Test {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    /// Extracts the leading 4-byte selector from a memory bytes array.
     function _sel(bytes memory data) internal pure returns (bytes4 s) {
         assembly { s := mload(add(data, 32)) }
     }
 
-    function _ctx(address target, bytes memory data) internal pure returns (Context memory) {
+    function _ctx(address target, bytes memory data) internal view returns (Context memory) {
         return Context({
-            account:  SAFE,
-            manager:  address(0),
-            target:   target,
-            selector: _sel(data),
-            value:    0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         target,
+            selector:       _sel(data),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
     }
 
-    // Calldata builders
     function _depositSimple(uint256 amount, address receiver) internal pure returns (bytes memory) {
         return abi.encodeWithSignature("deposit(uint256,address)", amount, receiver);
     }
@@ -108,8 +109,6 @@ contract BoundedDepositPermissionTest is Test {
     // Golden paths — one per supported selector
     // ═════════════════════════════════════════════════════════════════════════
 
-    // ── deposit(uint256,address) ──────────────────────────────────────────────
-
     function test_DepositSimple_GoldenPath() public view {
         bytes memory data = _depositSimple(100e18, SAFE);
         assertTrue(perm.evaluate(data, _ctx(VAULT, data)));
@@ -131,8 +130,6 @@ contract BoundedDepositPermissionTest is Test {
         assertTrue(perm.evaluate(data, _ctx(VAULT,    data)));
     }
 
-    // ── deposit(address,uint256,address,uint16) ───────────────────────────────
-
     function test_DepositAave_GoldenPath() public view {
         bytes memory data = _depositAave(TOKEN_A, 500e18, SAFE);
         assertTrue(perm.evaluate(data, _ctx(PROTOCOL, data)));
@@ -149,7 +146,6 @@ contract BoundedDepositPermissionTest is Test {
     }
 
     function test_DepositAave_AnyReferralCode() public view {
-        // Referral code should have no effect on the outcome
         bytes memory data0 = abi.encodeWithSignature(
             "deposit(address,uint256,address,uint16)", TOKEN_A, 1e18, SAFE, uint16(0)
         );
@@ -159,8 +155,6 @@ contract BoundedDepositPermissionTest is Test {
         assertTrue(perm.evaluate(data0, _ctx(PROTOCOL, data0)));
         assertTrue(perm.evaluate(data1, _ctx(PROTOCOL, data1)));
     }
-
-    // ── mint(uint256,address) ─────────────────────────────────────────────────
 
     function test_Mint_GoldenPath() public view {
         bytes memory data = _mint(300e18, SAFE);
@@ -176,8 +170,6 @@ contract BoundedDepositPermissionTest is Test {
         bytes memory data = _mint(0, SAFE);
         assertTrue(perm.evaluate(data, _ctx(VAULT, data)));
     }
-
-    // ── supply(address,uint256,address,uint16) ────────────────────────────────
 
     function test_Supply_GoldenPath() public view {
         bytes memory data = _supply(TOKEN_A, 750e18, SAFE);
@@ -251,10 +243,7 @@ contract BoundedDepositPermissionTest is Test {
         assertFalse(perm.evaluate(data, _ctx(PROTOCOL, data)));
     }
 
-    // ── no token check for asset-less selectors ───────────────────────────────
-
     function test_DepositSimple_NoTokenCheckNeeded() public view {
-        // The vault's underlying is implicit; only allowedTargets gating applies
         bytes memory data = _depositSimple(1e18, SAFE);
         assertTrue(perm.evaluate(data, _ctx(VAULT, data)));
     }
@@ -347,8 +336,14 @@ contract BoundedDepositPermissionTest is Test {
 
     function test_EmptyCalldata() public view {
         Context memory ctx = Context({
-            account: SAFE, manager: address(0),
-            target: VAULT, selector: bytes4(0), value: 0
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         VAULT,
+            selector:       bytes4(0),
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
         });
         assertFalse(perm.evaluate("", ctx));
     }
@@ -415,10 +410,8 @@ contract BoundedDepositPermissionTest is Test {
             sel != bytes4(keccak256("mint(uint256,address)")) &&
             sel != bytes4(keccak256("supply(address,uint256,address,uint16)"))
         );
-        // Build 132-byte payload so length checks pass
         bytes memory data = abi.encodePacked(sel, abi.encode(TOKEN_A, MAX_AMOUNT, SAFE, uint256(0)));
-        Context memory ctx = _ctx(PROTOCOL, data);
-        assertFalse(perm.evaluate(data, ctx));
+        assertFalse(perm.evaluate(data, _ctx(PROTOCOL, data)));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -475,10 +468,10 @@ contract BoundedDepositPermissionTest is Test {
         vm.prank(SIGNER);
         perm.setMaxAmountPerTx(0);
 
-        assertFalse(perm.evaluate(_depositSimple(1, SAFE),           _ctx(VAULT,     _depositSimple(1, SAFE))));
-        assertFalse(perm.evaluate(_depositAave(TOKEN_A, 1, SAFE),    _ctx(PROTOCOL,  _depositAave(TOKEN_A, 1, SAFE))));
-        assertFalse(perm.evaluate(_mint(1, SAFE),                    _ctx(VAULT,     _mint(1, SAFE))));
-        assertFalse(perm.evaluate(_supply(TOKEN_A, 1, SAFE),         _ctx(PROTOCOL,  _supply(TOKEN_A, 1, SAFE))));
+        assertFalse(perm.evaluate(_depositSimple(1, SAFE),        _ctx(VAULT,    _depositSimple(1, SAFE))));
+        assertFalse(perm.evaluate(_depositAave(TOKEN_A, 1, SAFE), _ctx(PROTOCOL, _depositAave(TOKEN_A, 1, SAFE))));
+        assertFalse(perm.evaluate(_mint(1, SAFE),                 _ctx(VAULT,    _mint(1, SAFE))));
+        assertFalse(perm.evaluate(_supply(TOKEN_A, 1, SAFE),      _ctx(PROTOCOL, _supply(TOKEN_A, 1, SAFE))));
     }
 
     function test_SetMaxAmountPerTx_ToZero_AllowsZeroAmount() public {
@@ -490,7 +483,7 @@ contract BoundedDepositPermissionTest is Test {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // Combined failures — multiple invariants violated simultaneously
+    // Combined failures
     // ═════════════════════════════════════════════════════════════════════════
 
     function test_AllViolated_DepositAave() public view {
@@ -506,5 +499,27 @@ contract BoundedDepositPermissionTest is Test {
     function test_CorrectTarget_CorrectToken_WrongReceiver_DepositAave() public view {
         bytes memory data = _depositAave(TOKEN_A, 1e18, STRANGER);
         assertFalse(perm.evaluate(data, _ctx(PROTOCOL, data)));
+    }
+
+    // ── mint: cap is on shares, not underlying assets (documented behaviour) ──
+    // This demonstrates that at a high share price, the effective asset cap is
+    // maxAmountPerTx × sharePrice, not maxAmountPerTx tokens.
+
+    function test_Mint_CapIsOnSharesNotAssets() public view {
+        // Cap = MAX_AMOUNT shares. If 1 share = 1000 underlying tokens, then
+        // this permission allows depositing up to MAX_AMOUNT × 1000 underlying tokens.
+        // The permission evaluates `shares <= maxAmountPerTx` — share price not checked.
+        bytes memory dataAtCap   = _mint(MAX_AMOUNT, SAFE);
+        bytes memory dataOverCap = _mint(MAX_AMOUNT + 1, SAFE);
+
+        assertTrue(perm.evaluate(dataAtCap,   _ctx(PROTOCOL, dataAtCap)));
+        assertFalse(perm.evaluate(dataOverCap, _ctx(PROTOCOL, dataOverCap)));
+    }
+
+    function testFuzz_Mint_ShareCapEnforced(uint256 shares) public view {
+        // Regardless of underlying share price, the cap is strictly on the shares value.
+        bool expected = shares <= MAX_AMOUNT;
+        bytes memory data = _mint(shares, SAFE);
+        assertEq(perm.evaluate(data, _ctx(PROTOCOL, data)), expected);
     }
 }
