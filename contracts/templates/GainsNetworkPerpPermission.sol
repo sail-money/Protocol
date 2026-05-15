@@ -136,6 +136,10 @@ contract GainsNetworkPerpPermission is IPermission {
         // ── closeTrade ────────────────────────────────────────────────────────
         if (txData.length < LEN_CLOSE) return false;
 
+        // @dev The second decoded field is the position index (slot identifier in Gains storage).
+        // Ownership is enforced by gTrade itself: closeTrade reverts if msg.sender != trade.trader.
+        // Since the Safe is the trader (it executes through its module interface), only the
+        // Safe's own positions can be closed. No additional on-chain check is required here.
         (uint256 pairIndex,) = abi.decode(txData[4:], (uint256, uint256));
 
         if (!isAllowedPair[pairIndex]) return false;

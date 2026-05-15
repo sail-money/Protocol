@@ -160,6 +160,9 @@ contract SailGovernance {
     /// @dev Thrown when a governance-related address argument is the zero address.
     error ZeroAddress();
 
+    /// @dev Thrown by `proposeGovernance` when the candidate is the current governance address.
+    error SameAddress();
+
     // -------------------------------------------------------------------------
     // Modifiers
     // -------------------------------------------------------------------------
@@ -237,8 +240,11 @@ contract SailGovernance {
     ///           4. Candidate calls `acceptGovernance()` to finalise the transfer.
     ///
     /// @param  candidate Address being nominated as the next governance.
-    function proposeGovernance(address candidate) external onlyGovernance {
+    /// @dev    Must be called via the 48-hour timelock (`onlyTimelock`). Schedule via
+    ///         `governance.timelock()` with the standard 48-hour delay.
+    function proposeGovernance(address candidate) external onlyTimelock {
         if (candidate == address(0)) revert ZeroAddress();
+        if (candidate == governance) revert SameAddress();
         pendingGovernance = candidate;
         emit GovernanceProposed(governance, candidate);
     }

@@ -78,7 +78,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
             address priceOracle
         ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address));
 
-        if (maxSlippageBps > 10_000) revert SlippageBpsTooLarge(maxSlippageBps);
+        if (maxSlippageBps > 9_999) revert SlippageBpsTooLarge(maxSlippageBps);
 
         // Clear previous allowlists for this account
         Slot storage s = _slots[account];

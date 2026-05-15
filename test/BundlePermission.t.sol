@@ -347,7 +347,8 @@ contract BundlePermissionTest is FactoryTestBase {
     ) internal pure returns (SharedDeFiBundlePermission.TransferConfig memory) {
         return SharedDeFiBundlePermission.TransferConfig({
             recipients: recipients,
-            tokens: tokens
+            tokens: tokens,
+            maxAmountPerTx: type(uint256).max
         });
     }
 

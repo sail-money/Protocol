@@ -49,7 +49,8 @@ contract SynthetixPerpPermissionTest is Test {
             true,  // allowLong
             true,  // allowShort
             synths,
-            SIGNER
+            SIGNER,
+            type(uint256).max  // maxWithdrawalPerTx — no cap for existing tests
         );
     }
 
@@ -121,21 +122,21 @@ contract SynthetixPerpPermissionTest is Test {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(address(0), markets, MAX_SIZE, true, true, synths, SIGNER);
+        new SynthetixPerpPermission(address(0), markets, MAX_SIZE, true, true, synths, SIGNER, type(uint256).max);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0));
+        new SynthetixPerpPermission(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0), type(uint256).max);
     }
 
     function test_Constructor_RevertsOnNegativeMaxSize() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
         vm.expectRevert(SynthetixPerpPermission.NegativeMaxSizeDelta.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER);
+        new SynthetixPerpPermission(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER, type(uint256).max);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

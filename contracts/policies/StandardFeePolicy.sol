@@ -70,6 +70,9 @@ contract StandardFeePolicy is IFeePolicy {
     /// @notice Address authorised to update fee parameters and transfer management.
     address public feeManager;
 
+    /// @notice Pending successor nominated by `proposeFeeManager`. Zero = no transfer in flight.
+    address public pendingFeeManager;
+
     // -------------------------------------------------------------------------
     // Per-account state
     // -------------------------------------------------------------------------
@@ -106,7 +109,12 @@ contract StandardFeePolicy is IFeePolicy {
     /// @param  newBps New share in basis points.
     event DistributorBpsUpdated(uint256 oldBps, uint256 newBps);
 
-    /// @notice Emitted when fee manager control is transferred.
+    /// @notice Emitted when a fee manager transfer is proposed (step 1).
+    /// @param  currentFeeManager  The current fee manager who proposed the transfer.
+    /// @param  proposedFeeManager The address nominated as successor.
+    event FeeManagerProposed(address indexed currentFeeManager, address indexed proposedFeeManager);
+
+    /// @notice Emitted when fee manager control is finalised (step 2 — accepted by pending).
     /// @param  oldFeeManager Previous fee manager address.
     /// @param  newFeeManager New fee manager address.
     event FeeManagerTransferred(address oldFeeManager, address newFeeManager);
@@ -130,6 +138,9 @@ contract StandardFeePolicy is IFeePolicy {
 
     /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
+
+    /// @dev Thrown by `acceptFeeManager` when caller is not `pendingFeeManager`.
+    error NotPendingFeeManager();
 
     /// @dev Thrown when `recordCollection` is called for the first time with `currentNav == 0`.
     ///      A zero initial NAV would allow the manager to claim a performance fee on the
@@ -285,14 +296,23 @@ contract StandardFeePolicy is IFeePolicy {
         emit DistributorBpsUpdated(old, newBps);
     }
 
-    /// @notice Transfer fee manager rights to a new address. Single-step — use with care.
-    /// @dev    Unlike the kernel's two-step governance transfer, this is single-step.
-    ///         A mistyped address permanently loses fee manager control for this policy.
-    /// @param  newFeeManager New fee manager address. Must not be the zero address.
-    function transferFeeManager(address newFeeManager) external onlyFeeManager {
+    /// @notice Step 1: propose a new fee manager. Only the current fee manager may call.
+    /// @dev    The transfer is only finalised when the candidate calls `acceptFeeManager`.
+    ///         Calling again before acceptance overwrites `pendingFeeManager`.
+    /// @param  newFeeManager Address being nominated as the next fee manager. Must not be zero.
+    function proposeFeeManager(address newFeeManager) external onlyFeeManager {
         if (newFeeManager == address(0)) revert ZeroAddress();
+        pendingFeeManager = newFeeManager;
+        emit FeeManagerProposed(feeManager, newFeeManager);
+    }
+
+    /// @notice Step 2: pending fee manager accepts, completing the transfer.
+    /// @dev    Only callable by `pendingFeeManager`. Clears `pendingFeeManager` after transfer.
+    function acceptFeeManager() external {
+        if (msg.sender != pendingFeeManager) revert NotPendingFeeManager();
         address old = feeManager;
-        feeManager = newFeeManager;
-        emit FeeManagerTransferred(old, newFeeManager);
+        feeManager = pendingFeeManager;
+        pendingFeeManager = address(0);
+        emit FeeManagerTransferred(old, feeManager);
     }
 }
