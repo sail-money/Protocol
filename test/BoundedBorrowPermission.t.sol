@@ -120,8 +120,17 @@ contract BoundedBorrowPermissionTest is Test {
         return abi.encodeWithSelector(SEL_COMPOUND, amount);
     }
 
-    function _ctx(address target, bytes4 sel) internal pure returns (Context memory) {
-        return Context({account: SAFE, manager: address(0), target: target, selector: sel, value: 0});
+    function _ctx(address target, bytes4 sel) internal view returns (Context memory) {
+        return Context({
+            account:        SAFE,
+            manager:        address(0),
+            submitter:      address(0),
+            target:         target,
+            selector:       sel,
+            value:          0,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
