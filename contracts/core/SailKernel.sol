@@ -128,6 +128,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error ZeroAddress();
     error DistributorBpsTooLarge(uint256 bps);
     error NoPermissionsRegistered(address account);
+    error ProtocolPaused();
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -143,6 +144,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
     modifier onlyGovernance() {
         if (msg.sender != governance.governance()) revert NotGovernance();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (governance.isPaused()) revert ProtocolPaused();
         _;
     }
 
@@ -202,6 +208,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         external
         payable
         nonReentrant
+        whenNotPaused
     {
         _requireRegistered(account);
         if (_permissionIndex[account][permission] != 0) revert PermissionAlreadyRegistered(permission);
@@ -373,7 +380,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         bytes calldata data,
         bytes calldata managerSig,
         uint256 deadline
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
 
         AccountConfig storage cfg = configs[account];
@@ -439,7 +446,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 currentNav,
         address feeToken,
         address recipient
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);

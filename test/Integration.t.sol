@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import "../contracts/core/SailKernel.sol";
 import "../contracts/governance/SailGovernance.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import "../contracts/templates/BoundedSwapPermission.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
 
@@ -63,6 +64,7 @@ contract IntegrationTest is Test {
     address constant USDC              = address(0xCC03);
     address constant WBTC              = address(0xCC04);   // not on allowlist
     address constant FEE_MANAGER       = address(0xDD01);
+    address constant EMERGENCY_ADMIN   = address(0xEEEE);
 
     // ── governance / fee parameters ───────────────────────────────────────────
     uint256 constant BASE_FEE           = 0.001 ether;
@@ -97,10 +99,11 @@ contract IntegrationTest is Test {
         vm.deal(address(this), 10 ether); // enough to pay registration fees
 
         // 1. Governance (test contract is initial governance)
-        gov = new SailGovernance(address(this), MAX_PERM_FEE);
-        gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
-        gov.setBaseFee(BASE_FEE);
-        gov.setComplexityRate(COMPLEXITY_RATE);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN);
+        _govExec(abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
+        _govExec(abi.encodeCall(gov.setBaseFee, (BASE_FEE)));
+        _govExec(abi.encodeCall(gov.setComplexityRate, (COMPLEXITY_RATE)));
+        vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0
 
         // 2. Kernel
         kernel = new SailKernel(address(gov), TREASURY);
@@ -139,6 +142,16 @@ contract IntegrationTest is Test {
     }
 
     receive() external payable {} // accept refunds from registerPermission
+
+    uint256 private _saltNonce;
+
+    function _govExec(bytes memory data) internal {
+        TimelockController tl = gov.timelock();
+        bytes32 salt = bytes32(_saltNonce++);
+        tl.schedule(address(gov), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Test 1 — Per-permission deployment fee against real bytecode
