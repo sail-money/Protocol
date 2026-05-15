@@ -154,7 +154,7 @@ contract PermissionFactoryTest is FactoryTestBase {
         bytes memory swapParams =
             _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 0, address(0));
         bytes memory transferParams =
-            abi.encode(_one(RECIPIENT), _one(USDC));
+            abi.encode(_one(RECIPIENT), _one(USDC), type(uint256).max);
 
         uint256 deadline = block.timestamp + 1 hours;
 

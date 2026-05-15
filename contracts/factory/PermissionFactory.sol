@@ -69,9 +69,10 @@ contract PermissionFactory {
         bytes calldata configureSig,
         bytes calldata kernelSig
     ) external payable {
+        uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(template).configure(account, params, configureDeadline, configureSig);
         kernel.registerPermission{value: msg.value}(account, template, kernelSig);
-        _refundExcess();
+        _refundExcess(preBalance);
         emit Attached(account, template, keccak256(params));
     }
 
@@ -93,9 +94,11 @@ contract PermissionFactory {
         if (n != configureDeadlines.length) revert LengthMismatch();
         if (n != configureSigs.length)      revert LengthMismatch();
 
+        uint256 preBalance = address(this).balance - msg.value;
+
         _batchConfigure(account, templates, params, configureDeadlines, configureSigs);
         kernel.registerPermissions{value: msg.value}(account, templates, kernelDeadline, kernelBatchSig);
-        _refundExcess();
+        _refundExcess(preBalance);
         emit BatchAttached(account, templates);
     }
 
@@ -141,11 +144,12 @@ contract PermissionFactory {
         bytes calldata configureSig,
         bytes calldata kernelReplaceSig
     ) external payable {
+        uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(newTemplate).configure(
             account, newParams, configureDeadline, configureSig
         );
         kernel.replacePermission{value: msg.value}(account, oldTemplate, newTemplate, kernelReplaceSig);
-        _refundExcess();
+        _refundExcess(preBalance);
         emit Replaced(account, oldTemplate, newTemplate);
     }
 
@@ -170,10 +174,10 @@ contract PermissionFactory {
     // internal
     // -------------------------------------------------------------------------
 
-    function _refundExcess() internal {
-        uint256 bal = address(this).balance;
-        if (bal == 0) return;
-        (bool ok,) = msg.sender.call{value: bal}("");
+    function _refundExcess(uint256 preBalance) internal {
+        uint256 excess = address(this).balance - preBalance;
+        if (excess == 0) return;
+        (bool ok,) = msg.sender.call{value: excess}("");
         if (!ok) revert RefundFailed();
     }
 }

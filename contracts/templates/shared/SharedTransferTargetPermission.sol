@@ -10,7 +10,8 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///         Config blob:
 ///             abi.encode(
 ///                 address[] allowedRecipients,
-///                 address[] allowedTokens
+///                 address[] allowedTokens,
+///                 uint256   maxAmountPerTx
 ///             )
 contract SharedTransferTargetPermission is BaseSharedPermission {
     bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
@@ -22,6 +23,7 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
     struct Slot {
         address[] recipients;
         address[] tokens;
+        uint256   maxAmountPerTx;
     }
 
     mapping(address account => Slot) private _slots;
@@ -35,15 +37,15 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
     function getConfig(address account)
         external
         view
-        returns (address[] memory recipients, address[] memory tokens)
+        returns (address[] memory recipients, address[] memory tokens, uint256 maxAmountPerTx)
     {
         Slot storage s = _slots[account];
-        return (s.recipients, s.tokens);
+        return (s.recipients, s.tokens, s.maxAmountPerTx);
     }
 
     function _applyConfig(address account, bytes calldata params) internal override {
-        (address[] memory recipients, address[] memory tokens) =
-            abi.decode(params, (address[], address[]));
+        (address[] memory recipients, address[] memory tokens, uint256 maxAmountPerTx) =
+            abi.decode(params, (address[], address[], uint256));
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.recipients.length; i++) isAllowedRecipient[account][s.recipients[i]] = false;
@@ -52,23 +54,27 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
         for (uint256 i; i < recipients.length; i++) isAllowedRecipient[account][recipients[i]] = true;
         for (uint256 i; i < tokens.length; i++)     isAllowedToken[account][tokens[i]]         = true;
 
-        s.recipients = recipients;
-        s.tokens     = tokens;
+        s.recipients     = recipients;
+        s.tokens         = tokens;
+        s.maxAmountPerTx = maxAmountPerTx;
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
         if (ctx.value != 0) return false;
         if (!isAllowedToken[ctx.account][ctx.target]) return false;
+        Slot storage s = _slots[ctx.account];
 
         if (ctx.selector == TRANSFER_SELECTOR) {
             if (txData.length < LEN_TRANSFER) return false;
-            (address to,) = abi.decode(txData[4:], (address, uint256));
+            (address to, uint256 amount) = abi.decode(txData[4:], (address, uint256));
+            if (amount > s.maxAmountPerTx) return false;
             return isAllowedRecipient[ctx.account][to];
         }
 
         if (ctx.selector == TRANSFERFROM_SELECTOR) {
             if (txData.length < LEN_TRANSFERFROM) return false;
-            (, address to,) = abi.decode(txData[4:], (address, address, uint256));
+            (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            if (amount > s.maxAmountPerTx) return false;
             return isAllowedRecipient[ctx.account][to];
         }
 

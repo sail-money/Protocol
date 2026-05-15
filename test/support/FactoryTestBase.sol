@@ -6,6 +6,7 @@ import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/PermissionFactory.sol";
 import "../../contracts/templates/shared/BaseSharedPermission.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 /// @notice Records every execTransactionFromModule call and forwards plain-ETH transfers
 ///         so fee splits land in real balances.
@@ -72,7 +73,8 @@ abstract contract FactoryTestBase is Test {
 
         vm.deal(address(this), 100 ether);
 
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(0xEEEE));
+        // Deploy governance with this test contract as governance + emergencyAdmin
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this));
         vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
         gov.setBaseFee(BASE_FEE);
@@ -85,6 +87,7 @@ abstract contract FactoryTestBase is Test {
         safe = new MockSafe();
         vm.deal(address(safe), 100 ether);
 
+        // registerAccount is called by the Safe itself (msg.sender == account)
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
     }

@@ -625,39 +625,45 @@ contract StandardFeePolicyTest is Test {
         policy.setDistributorBps(bps);
     }
 
-    // ── setters: transferFeeManager ───────────────────────────────────────────
+    // ── setters: proposeFeeManager / acceptFeeManager (two-step) ─────────────
 
     function test_TransferFeeManager_Succeeds() public {
         address newFM = address(0xF1);
         vm.prank(FEE_MANAGER);
-        policy.transferFeeManager(newFM);
+        policy.proposeFeeManager(newFM);
+        vm.prank(newFM);
+        policy.acceptFeeManager();
         assertEq(policy.feeManager(), newFM);
     }
 
     function test_TransferFeeManager_EmitsEvent() public {
         address newFM = address(0xF1);
         vm.prank(FEE_MANAGER);
+        policy.proposeFeeManager(newFM);
         vm.expectEmit();
         emit StandardFeePolicy.FeeManagerTransferred(FEE_MANAGER, newFM);
-        policy.transferFeeManager(newFM);
+        vm.prank(newFM);
+        policy.acceptFeeManager();
     }
 
     function test_TransferFeeManager_RevertsOnZeroAddress() public {
         vm.prank(FEE_MANAGER);
         vm.expectRevert(StandardFeePolicy.ZeroAddress.selector);
-        policy.transferFeeManager(address(0));
+        policy.proposeFeeManager(address(0));
     }
 
     function test_TransferFeeManager_RevertsNotFeeManager() public {
         vm.prank(STRANGER);
         vm.expectRevert(StandardFeePolicy.NotFeeManager.selector);
-        policy.transferFeeManager(address(0xF1));
+        policy.proposeFeeManager(address(0xF1));
     }
 
     function test_TransferFeeManager_OldManagerLosesAccess() public {
         address newFM = address(0xF1);
         vm.prank(FEE_MANAGER);
-        policy.transferFeeManager(newFM);
+        policy.proposeFeeManager(newFM);
+        vm.prank(newFM);
+        policy.acceptFeeManager();
 
         vm.prank(FEE_MANAGER);
         vm.expectRevert(StandardFeePolicy.NotFeeManager.selector);
@@ -667,7 +673,9 @@ contract StandardFeePolicyTest is Test {
     function test_TransferFeeManager_NewManagerGainsAccess() public {
         address newFM = address(0xF1);
         vm.prank(FEE_MANAGER);
-        policy.transferFeeManager(newFM);
+        policy.proposeFeeManager(newFM);
+        vm.prank(newFM);
+        policy.acceptFeeManager();
 
         vm.prank(newFM);
         policy.setManagementFeeBps(100);
