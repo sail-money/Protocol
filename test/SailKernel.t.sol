@@ -702,6 +702,28 @@ contract SailKernelTest is Test {
         assertEq(to1, manager);
     }
 
+    function test_CollectFees_ZeroDistributorWithNonZeroBps_FoldsIntoManagerTake() public {
+        // When distributor == address(0) but distributorBps > 0, the distributor share
+        // must NOT be silently lost — it must be added to managerTake.
+        uint256 grossFee       = 10_000;
+        uint256 distributorBps = 2_000; // 20%
+        // No protocol cut for simplicity
+        vm.prank(TEAM); gov.setProtocolCutBps(0);
+
+        // distributor = address(0), but bps = 20%
+        feePolicy.setFee(grossFee, address(0), distributorBps);
+
+        vm.prank(manager);
+        kernel.collectFees(address(safe), grossFee, 0, address(0), manager);
+
+        // Only 1 transfer should happen (to manager — no protocol cut, no distributor)
+        assertEq(safe.callCount(), 1);
+        (address to, uint256 val,,) = safe.getCall(0);
+        assertEq(to, manager);
+        // Manager must receive the full grossFee (distributor share folded in)
+        assertEq(val, grossFee);
+    }
+
     function test_CollectFees_ERC20Path() public {
         address token    = address(0x1234567890123456789012345678901234567890);
         uint256 grossFee = 500;
