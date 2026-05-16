@@ -135,7 +135,9 @@ contract IntegrationTest is Test {
             _signRegisterPermission(address(mockSafe), address(swap), 0)
         );
 
-        // 8. Initialise fee policy: first collectFees seeds HWM = 100 ether at T0
+        // 8. Initialise fee policy: feeManager seeds HWM first (H-5 fix), then first collectFees
+        vm.prank(FEE_MANAGER);
+        feePolicy.seedHighWaterMark(address(mockSafe), 100 ether);
         vm.prank(manager);
         kernel.collectFees(address(mockSafe), 0, 100 ether, address(0));
     }
@@ -361,17 +363,16 @@ contract IntegrationTest is Test {
     function test_FeeCollection_SplitsLandInCorrectWallets() public {
         vm.warp(T0 + 365 days);
 
-        uint256 treasuryBefore  = TREASURY.balance;
-        uint256 deadBefore      = DEAD.balance;
-        // recipient now comes from feePolicy.feeRecipient() = FEE_MANAGER
-        uint256 recipientBefore = FEE_MANAGER.balance;
+        uint256 treasuryBefore   = TREASURY.balance;
+        uint256 deadBefore       = DEAD.balance;
+        uint256 feeManagerBefore = FEE_MANAGER.balance;
 
         vm.prank(manager);
         kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
-        assertEq(TREASURY.balance    - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
-        assertEq(DEAD.balance        - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
-        assertEq(FEE_MANAGER.balance - recipientBefore,  MANAGER_TAKE_AMT, "manager take mismatch");
+        assertEq(TREASURY.balance   - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
+        assertEq(DEAD.balance       - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
+        assertEq(FEE_MANAGER.balance - feeManagerBefore, MANAGER_TAKE_AMT, "manager take mismatch");
     }
 
     function test_FeeCollection_HWMRatchetsUp() public {

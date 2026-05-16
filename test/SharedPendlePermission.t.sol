@@ -522,9 +522,17 @@ contract SharedPendlePermissionTest is FactoryTestBase {
 
     /// 19. pendleRouter = address(0) → deny everything
     function test_ZeroRouter_Denied() public {
-        _configure(address(safe), address(0), _arr1(MARKET), MAX_AMOUNT, true, true, true, true, true);
-        bytes memory data = _encodeAddLiquidityDualSyAndPt(address(safe), MARKET, 1 ether);
-        assertFalse(perm.evaluate(data, _ctx(address(safe), address(router), SEL_ADD_DUAL_SY_PT)));
+        // L-9 fix: ZeroRouter now reverts at configure time, not silently at evaluate time.
+        bytes memory params = abi.encode(address(0), _arr1(MARKET), MAX_AMOUNT, true, true, true, true, true);
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = perm.configNonces(address(safe));
+        bytes32 paramsHash = keccak256(params);
+        bytes32 structHash = keccak256(abi.encode(perm.CONFIGURE_TYPEHASH(), address(safe), paramsHash, nonce, deadline));
+        bytes32 digest = perm.hashTypedDataV4(structHash);
+        (uint8 v, bytes32 r, bytes32 s_) = vm.sign(PERM_SIGNER_KEY, digest);
+        bytes memory sig = abi.encodePacked(r, s_, v);
+        vm.expectRevert(SharedPendlePermission.ZeroRouter.selector);
+        perm.configure(address(safe), params, deadline, sig);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

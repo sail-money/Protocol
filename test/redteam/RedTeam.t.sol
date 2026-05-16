@@ -903,12 +903,10 @@ contract FeeAccountingTests is RedTeamBase {
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
         kernel.setFeePolicy(address(safe), address(sfp), fpSig);
 
-        // First collectFees call with currentNav = 0 — should revert
+        // First collectFees call without seeding HWM first — should revert with HWMNotSeeded.
+        // H-5 fix: feeManager must call seedHighWaterMark before the manager can collect.
         vm.prank(manager);
-        // computeFee returns 0 when lastCollectionTimestamp == 0, so grossFee = 0.
-        // We pass grossFee = 0 and currentNav = 0.
-        // recordCollection will revert with ZeroInitialNav.
-        vm.expectRevert(StandardFeePolicy.ZeroInitialNav.selector);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
         kernel.collectFees(address(safe), 0, 0, address(0));
     }
 
@@ -925,7 +923,11 @@ contract FeeAccountingTests is RedTeamBase {
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
         kernel.setFeePolicy(address(safe), address(sfp), fpSig);
 
-        // First collection: initialises state at NAV = 1_000_000e18, grossFee = 0
+        // H-5 fix: feeManager must seed HWM before manager can collect.
+        vm.prank(permSigner); // permSigner acts as feeManager in this test's sfp
+        sfp.seedHighWaterMark(address(safe), 1_000_000e18);
+
+        // First collection: HWM already seeded, grossFee = 0
         vm.prank(manager);
         kernel.collectFees(address(safe), 0, 1_000_000e18, address(0));
 

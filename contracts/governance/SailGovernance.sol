@@ -86,6 +86,12 @@ contract SailGovernance {
     /// @notice Timestamp at which the current pause expires. 0 = not paused.
     uint256 public pauseExpiry;
 
+    /// @notice Timestamp of the last pause call. Used to enforce PAUSE_COOLDOWN.
+    uint256 public lastPauseTimestamp;
+
+    /// @notice Minimum time between consecutive pause() calls (72 hours).
+    uint256 public constant PAUSE_COOLDOWN = 72 hours;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -121,10 +127,6 @@ contract SailGovernance {
 
     /// @notice Emitted when the emergency admin manually lifts a pause.
     event Unpaused();
-
-    /// @notice Emitted when the emergency admin address is rotated via timelock.
-    /// @param  oldAdmin Previous emergency admin address.
-    /// @param  newAdmin New emergency admin address.
     event EmergencyAdminRotated(address indexed oldAdmin, address indexed newAdmin);
 
     // -------------------------------------------------------------------------
@@ -158,6 +160,9 @@ contract SailGovernance {
 
     /// @dev Thrown by `proposeGovernance` when the candidate is the current governance address.
     error SameAddress();
+
+    /// @dev Thrown by `pause()` when called before the cooldown period has elapsed.
+    error PauseCooldown(uint256 availableAt);
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -279,16 +284,6 @@ contract SailGovernance {
         timelock.revokeRole(canceller, oldGov);
     }
 
-    /// @notice Rotate the emergency admin address. Requires a timelock vote.
-    /// @dev    Prevents a compromised emergency admin from being permanently entrenched.
-    ///         Must be called via the 48-hour timelock.
-    /// @param  newAdmin New emergency admin address. Must not be the zero address.
-    function rotateEmergencyAdmin(address newAdmin) external onlyTimelock {
-        if (newAdmin == address(0)) revert ZeroAddress();
-        emit EmergencyAdminRotated(emergencyAdmin, newAdmin);
-        emergencyAdmin = newAdmin;
-    }
-
     // -------------------------------------------------------------------------
     // Parameter setters — only callable via the 48-hour timelock
     // -------------------------------------------------------------------------
@@ -333,7 +328,12 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Pause the kernel for up to 72 hours. Can be called without a timelock delay.
+    ///         Enforces a 72-hour cooldown between consecutive pause() calls to prevent
+    ///         the emergency admin from keeping the protocol permanently paused.
     function pause() external onlyEmergencyAdmin {
+        if (lastPauseTimestamp != 0 && block.timestamp < lastPauseTimestamp + PAUSE_COOLDOWN)
+            revert PauseCooldown(lastPauseTimestamp + PAUSE_COOLDOWN);
+        lastPauseTimestamp = block.timestamp;
         pauseExpiry = block.timestamp + 72 hours;
         emit Paused(pauseExpiry);
     }
@@ -342,6 +342,14 @@ contract SailGovernance {
     function unpause() external onlyEmergencyAdmin {
         pauseExpiry = 0;
         emit Unpaused();
+    }
+
+    /// @notice Rotate the emergency admin. Requires a timelock vote so a
+    ///         compromised admin cannot block their own replacement.
+    function rotateEmergencyAdmin(address newAdmin) external onlyTimelock {
+        if (newAdmin == address(0)) revert ZeroAddress();
+        emit EmergencyAdminRotated(emergencyAdmin, newAdmin);
+        emergencyAdmin = newAdmin;
     }
 
     /// @notice Returns true if the kernel is currently paused.

@@ -93,9 +93,14 @@ contract SharedPendlePermission is BaseSharedPermission {
     mapping(address account => Slot) private _slots;
     mapping(address account => mapping(address => bool)) public isAllowedMarket;
 
+    // ── constants ─────────────────────────────────────────────────────────────
+
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     // ── errors ────────────────────────────────────────────────────────────────
 
     error ZeroRouter();
+    error AllowlistTooLong();
 
     // ── constructor ───────────────────────────────────────────────────────────
 
@@ -122,6 +127,9 @@ contract SharedPendlePermission is BaseSharedPermission {
             bool allowMintRedeem,
             bool allowClaimYield
         ) = abi.decode(params, (address, address[], uint128, bool, bool, bool, bool, bool));
+
+        if (pendleRouter == address(0)) revert ZeroRouter();
+        if (allowedMarkets.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
 
         // Clear previous market allowlist for this account
         Slot storage s = _slots[account];

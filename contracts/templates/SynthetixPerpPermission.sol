@@ -142,6 +142,8 @@ contract SynthetixPerpPermission is IPermission {
 
             if (!isAllowedMarket[marketId]) return false;
 
+            if (sizeDelta == 0) return false;
+
             if (sizeDelta > 0 && !allowLong)  return false;
             if (sizeDelta < 0 && !allowShort) return false;
 
@@ -166,7 +168,7 @@ contract SynthetixPerpPermission is IPermission {
         ) = abi.decode(txData[4:], (uint128, uint128, int256));
 
         if (!isAllowedSynthMarket[synthMarketId]) return false;
-        if (amountDelta < 0 && maxWithdrawalPerTx != 0 && uint256(-amountDelta) > maxWithdrawalPerTx) return false;
+        if (amountDelta < 0 && uint256(-amountDelta) > maxWithdrawalPerTx) return false;
 
         return true;
     }
