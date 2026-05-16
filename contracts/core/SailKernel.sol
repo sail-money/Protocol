@@ -476,7 +476,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         );
         signerNonces[account] = nonce + 1;
 
-        uint256 fee = _calcPermissionFee(permission);
+        uint256 fee = _calcPermissionFee();
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
         _permissions[account].push(permission);
@@ -530,7 +530,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 idx = _permissionIndex[account][oldPermission];
         if (idx == 0) revert PermissionNotRegistered(oldPermission);
 
-        uint256 fee = _calcPermissionFee(newPermission);
+        uint256 fee = _calcPermissionFee();
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
         _permissions[account][idx - 1] = newPermission;
@@ -634,10 +634,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         signerNonces[account] = nonce + 1;
 
         // Compute total fee before any state changes
-        uint256 totalFee;
-        for (uint256 i; i < permissions.length; i++) {
-            totalFee += _calcPermissionFee(permissions[i]);
-        }
+        uint256 totalFee = _calcPermissionFee() * permissions.length;
         if (msg.value < totalFee) revert InsufficientFee(totalFee, msg.value);
 
         // Add all permissions atomically — reverts if any duplicate found
@@ -908,14 +905,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!registered[account]) revert AccountNotRegistered(account);
     }
 
-    /// @dev Compute the registration fee for a permission based on its bytecode size.
-    ///      Each component is individually capped at MAX_PERMISSION_FEE_WEI before summing
-    ///      to prevent overflow when both components are near the cap.
-    function _calcPermissionFee(address permission) internal view returns (uint256) {
-        uint256 cap  = governance.MAX_PERMISSION_FEE_WEI();
-        uint256 base        = Math.min(governance.baseFee(), cap);
-        uint256 sizeContrib = Math.min(permission.code.length * governance.complexityRate(), cap);
-        return Math.min(base + sizeContrib, cap);
+    /// @dev Return the flat registration fee for a permission.
+    function _calcPermissionFee() internal view returns (uint256) {
+        return governance.permissionRegistrationFee();
     }
 
     /// @dev Forward `fee` to the treasury and refund any ETH overpayment to msg.sender.

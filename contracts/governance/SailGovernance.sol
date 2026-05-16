@@ -47,13 +47,9 @@ contract SailGovernance {
     /// @dev    Lowercase name signals mutable storage, not a constant.
     uint256 public currentProtocolCutBps;
 
-    /// @notice Flat component of the permission registration fee, in wei.
-    ///         Applied regardless of permission bytecode size.
-    uint256 public baseFee;
-
-    /// @notice Per-byte contribution to the permission registration fee, in wei.
-    ///         Final fee = min(baseFee + complexityRate × codeSize, MAX_PERMISSION_FEE_WEI).
-    uint256 public complexityRate;
+    /// @notice Flat fee charged per permission registration, in wei.
+    ///         Bounded by MAX_PERMISSION_FEE_WEI.
+    uint256 public permissionRegistrationFee;
 
     /// @notice Live limit on the number of permissions per account.
     ///         Governance may adjust this between 1 and MAX_PERMISSIONS_CAP (100).
@@ -109,15 +105,10 @@ contract SailGovernance {
     /// @param  newBps New value.
     event ProtocolCutUpdated(uint256 oldBps, uint256 newBps);
 
-    /// @notice Emitted when `baseFee` is updated.
+    /// @notice Emitted when `permissionRegistrationFee` is updated.
     /// @param  oldFee Previous value in wei.
     /// @param  newFee New value in wei.
-    event BaseFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    /// @notice Emitted when `complexityRate` is updated.
-    /// @param  oldRate Previous value in wei per byte.
-    /// @param  newRate New value in wei per byte.
-    event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
+    event PermissionRegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
 
     /// @notice Emitted when `maxPermissionsPerAccount` is updated.
     /// @param  oldLimit Previous limit.
@@ -150,8 +141,8 @@ contract SailGovernance {
     /// @dev Thrown when a requested `currentProtocolCutBps` exceeds `MAX_PROTOCOL_CUT_BPS`.
     error ExceedsProtocolCutCap(uint256 requested, uint256 cap);
 
-    /// @dev Thrown when a requested `baseFee` or `complexityRate` exceeds `MAX_PERMISSION_FEE_WEI`.
-    error ExceedsPermissionFeeCap(uint256 requested, uint256 cap);
+    /// @dev Thrown when a requested `permissionRegistrationFee` exceeds `MAX_PERMISSION_FEE_WEI`.
+    error FeeExceedsCap(uint256 requested, uint256 cap);
 
     /// @dev Thrown when a requested `maxPermissionsPerAccount` exceeds `MAX_PERMISSIONS_CAP`
     ///      or is set to zero.
@@ -195,9 +186,7 @@ contract SailGovernance {
     /// @param  _emergencyAdmin     Address that can pause the kernel without a timelock delay.
     constructor(address initialGovernance, uint256 maxPermissionFeeWei, address _emergencyAdmin) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
-        // Cap at 1e36 wei (~1e18 ETH). Values above this would allow base + sizeContrib
-        // to overflow uint256 in _calcPermissionFee (sum of two values each <= cap).
-        if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
+        if (maxPermissionFeeWei > 1e36) revert FeeExceedsCap(maxPermissionFeeWei, 1e36);
 
         governance     = initialGovernance;
         emergencyAdmin = _emergencyAdmin;
@@ -298,26 +287,13 @@ contract SailGovernance {
         emit ProtocolCutUpdated(old, newBps);
     }
 
-    /// @notice Set the flat component of the permission registration fee.
+    /// @notice Set the flat fee charged per permission registration.
     /// @param  newFee New fee in wei. Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setBaseFee(uint256 newFee) external onlyTimelock {
-        if (newFee > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newFee, MAX_PERMISSION_FEE_WEI);
-        uint256 old = baseFee;
-        baseFee = newFee;
-        emit BaseFeeUpdated(old, newFee);
-    }
-
-    /// @notice Set the per-byte complexity contribution to the permission registration fee.
-    /// @dev    The actual per-permission fee is always capped at MAX_PERMISSION_FEE_WEI by the
-    ///         kernel, so an extreme rate cannot cause fees to exceed the constitutional cap.
-    ///         Rate is bounded at MAX_PERMISSION_FEE_WEI for consistency with setBaseFee.
-    /// @param  newRate New rate in wei per byte of permission bytecode.
-    ///                 Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setComplexityRate(uint256 newRate) external onlyTimelock {
-        if (newRate > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newRate, MAX_PERMISSION_FEE_WEI);
-        uint256 old = complexityRate;
-        complexityRate = newRate;
-        emit ComplexityRateUpdated(old, newRate);
+    function setPermissionRegistrationFee(uint256 newFee) external onlyTimelock {
+        if (newFee > MAX_PERMISSION_FEE_WEI) revert FeeExceedsCap(newFee, MAX_PERMISSION_FEE_WEI);
+        uint256 oldFee = permissionRegistrationFee;
+        permissionRegistrationFee = newFee;
+        emit PermissionRegistrationFeeUpdated(oldFee, newFee);
     }
 
     /// @notice Set the live limit on the number of permissions per account.

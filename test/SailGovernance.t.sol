@@ -19,8 +19,7 @@ contract SailGovernanceTest is Test {
     event GovernanceTransferred(address indexed previousGovernance, address indexed newGovernance);
     event GovernanceProposed(address indexed currentGovernance, address indexed proposedGovernance);
     event ProtocolCutUpdated(uint256 oldBps, uint256 newBps);
-    event BaseFeeUpdated(uint256 oldFee, uint256 newFee);
-    event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
+    event PermissionRegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
     event MaxPermissionsPerAccountUpdated(uint256 oldLimit, uint256 newLimit);
     event Paused(uint256 expiry);
     event Unpaused();
@@ -72,8 +71,7 @@ contract SailGovernanceTest is Test {
 
     function test_Constructor_DefaultTunablesAreZero() public view {
         assertEq(gov.currentProtocolCutBps(), 0);
-        assertEq(gov.baseFee(), 0);
-        assertEq(gov.complexityRate(), 0);
+        assertEq(gov.permissionRegistrationFee(), 0);
     }
 
     function test_Constructor_DefaultMaxPermissionsIs20() public view {
@@ -147,76 +145,39 @@ contract SailGovernanceTest is Test {
         assertEq(gov.currentProtocolCutBps(), bps);
     }
 
-    function test_SetBaseFee_AtExactCap() public {
-        _timelockExec(abi.encodeCall(gov.setBaseFee, (MAX_FEE)));
-        assertEq(gov.baseFee(), MAX_FEE);
+    function test_SetPermissionRegistrationFee_AtExactCap() public {
+        _timelockExec(abi.encodeCall(gov.setPermissionRegistrationFee, (MAX_FEE)));
+        assertEq(gov.permissionRegistrationFee(), MAX_FEE);
     }
 
-    function test_SetBaseFee_RevertsAboveCap() public {
-        bytes memory data = abi.encodeCall(gov.setBaseFee, (MAX_FEE + 1));
+    function test_SetPermissionRegistrationFee_RevertsAboveCap() public {
+        bytes memory data = abi.encodeCall(gov.setPermissionRegistrationFee, (MAX_FEE + 1));
         bytes32 salt = _timelockSchedule(data);
         TimelockController tl = gov.timelock();
         vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE)
+            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, MAX_FEE + 1, MAX_FEE)
         );
         vm.prank(TEAM);
         tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
-    function testFuzz_SetBaseFee_RevertsAboveCap(uint256 excess) public {
+    function testFuzz_SetPermissionRegistrationFee_RevertsAboveCap(uint256 excess) public {
         excess = bound(excess, 1, type(uint256).max - MAX_FEE);
         uint256 requested = MAX_FEE + excess;
-        bytes memory data = abi.encodeCall(gov.setBaseFee, (requested));
+        bytes memory data = abi.encodeCall(gov.setPermissionRegistrationFee, (requested));
         bytes32 salt = _timelockSchedule(data);
         TimelockController tl = gov.timelock();
         vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, requested, MAX_FEE)
+            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, requested, MAX_FEE)
         );
         vm.prank(TEAM);
         tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
 
-    function testFuzz_SetBaseFee_WithinCap(uint256 fee) public {
+    function testFuzz_SetPermissionRegistrationFee_WithinCap(uint256 fee) public {
         fee = bound(fee, 0, MAX_FEE);
-        _timelockExec(abi.encodeCall(gov.setBaseFee, (fee)));
-        assertEq(gov.baseFee(), fee);
-    }
-
-    // setComplexityRate — capped at MAX_PERMISSION_FEE_WEI for overflow safety
-
-    function test_SetComplexityRate_AtExactCap() public {
-        _timelockExec(abi.encodeCall(gov.setComplexityRate, (MAX_FEE)));
-        assertEq(gov.complexityRate(), MAX_FEE);
-    }
-
-    function test_SetComplexityRate_RevertsAboveCap() public {
-        bytes memory data = abi.encodeCall(gov.setComplexityRate, (MAX_FEE + 1));
-        bytes32 salt = _timelockSchedule(data);
-        TimelockController tl = gov.timelock();
-        vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE)
-        );
-        vm.prank(TEAM);
-        tl.execute(address(gov), 0, data, bytes32(0), salt);
-    }
-
-    function testFuzz_SetComplexityRate_WithinCap(uint256 rate) public {
-        rate = bound(rate, 0, MAX_FEE);
-        _timelockExec(abi.encodeCall(gov.setComplexityRate, (rate)));
-        assertEq(gov.complexityRate(), rate);
-    }
-
-    function testFuzz_SetComplexityRate_AboveCap(uint256 excess) public {
-        excess = bound(excess, 1, type(uint256).max - MAX_FEE);
-        uint256 requested = MAX_FEE + excess;
-        bytes memory data = abi.encodeCall(gov.setComplexityRate, (requested));
-        bytes32 salt = _timelockSchedule(data);
-        TimelockController tl = gov.timelock();
-        vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.ExceedsPermissionFeeCap.selector, requested, MAX_FEE)
-        );
-        vm.prank(TEAM);
-        tl.execute(address(gov), 0, data, bytes32(0), salt);
+        _timelockExec(abi.encodeCall(gov.setPermissionRegistrationFee, (fee)));
+        assertEq(gov.permissionRegistrationFee(), fee);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -296,9 +257,7 @@ contract SailGovernanceTest is Test {
         vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setProtocolCutBps(100);
         vm.expectRevert(SailGovernance.NotTimelock.selector);
-        gov.setBaseFee(0.01 ether);
-        vm.expectRevert(SailGovernance.NotTimelock.selector);
-        gov.setComplexityRate(1);
+        gov.setPermissionRegistrationFee(0.01 ether);
         vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setMaxPermissionsPerAccount(50);
         vm.stopPrank();
@@ -310,9 +269,7 @@ contract SailGovernanceTest is Test {
         vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setProtocolCutBps(100);
         vm.expectRevert(SailGovernance.NotTimelock.selector);
-        gov.setBaseFee(0.01 ether);
-        vm.expectRevert(SailGovernance.NotTimelock.selector);
-        gov.setComplexityRate(1);
+        gov.setPermissionRegistrationFee(0.01 ether);
         vm.expectRevert(SailGovernance.NotTimelock.selector);
         gov.setMaxPermissionsPerAccount(50);
         vm.stopPrank();
@@ -508,19 +465,11 @@ contract SailGovernanceTest is Test {
         _timelockExecute(data, salt);
     }
 
-    function test_SetBaseFee_EmitsEvent() public {
-        bytes memory data = abi.encodeCall(gov.setBaseFee, (0.1 ether));
+    function test_SetPermissionRegistrationFee_EmitsEvent() public {
+        bytes memory data = abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether));
         bytes32 salt = _timelockSchedule(data);
         vm.expectEmit(false, false, false, true);
-        emit BaseFeeUpdated(0, 0.1 ether);
-        _timelockExecute(data, salt);
-    }
-
-    function test_SetComplexityRate_EmitsEvent() public {
-        bytes memory data = abi.encodeCall(gov.setComplexityRate, (7));
-        bytes32 salt = _timelockSchedule(data);
-        vm.expectEmit(false, false, false, true);
-        emit ComplexityRateUpdated(0, 7);
+        emit PermissionRegistrationFeeUpdated(0, 0.1 ether);
         _timelockExecute(data, salt);
     }
 }

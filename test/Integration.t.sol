@@ -68,7 +68,6 @@ contract IntegrationTest is Test {
 
     // ── governance / fee parameters ───────────────────────────────────────────
     uint256 constant BASE_FEE           = 0.001 ether;
-    uint256 constant COMPLEXITY_RATE    = 1;          // 1 wei per bytecode byte
     uint256 constant MAX_PERM_FEE       = 0.1 ether;
     uint256 constant PROTOCOL_CUT_BPS   = 1_000;     // 10%
     uint256 constant MGMT_BPS           = 200;        // 2% annual
@@ -101,8 +100,7 @@ contract IntegrationTest is Test {
         // 1. Governance (test contract is initial governance)
         gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN);
         _govExec(abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
-        _govExec(abi.encodeCall(gov.setBaseFee, (BASE_FEE)));
-        _govExec(abi.encodeCall(gov.setComplexityRate, (COMPLEXITY_RATE)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (BASE_FEE)));
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0
 
         // 2. Kernel
@@ -158,12 +156,8 @@ contract IntegrationTest is Test {
     // Test 1 — Per-permission deployment fee against real bytecode
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Fee_CalculationMatchesBytecodeSize() public view {
-        uint256 size = address(swap).code.length;
-        uint256 expected = BASE_FEE + size * COMPLEXITY_RATE;
-        // Under the cap for any reasonably sized contract
-        assertLt(expected, MAX_PERM_FEE, "test assumption: fee under cap");
-        assertEq(_calcFee(address(swap)), expected);
+    function test_Fee_CalculationIsFlatFee() public view {
+        assertEq(_calcFee(address(swap)), BASE_FEE);
     }
 
     function test_Fee_ExactPaymentSucceeds() public {
@@ -477,11 +471,8 @@ contract IntegrationTest is Test {
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _calcFee(address perm) internal view returns (uint256) {
-        uint256 size = perm.code.length;
-        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
-        uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
-        return fee > cap ? cap : fee;
+    function _calcFee(address) internal view returns (uint256) {
+        return gov.permissionRegistrationFee();
     }
 
     function _signRegisterPermission(address account, address permission, uint256 nonce)

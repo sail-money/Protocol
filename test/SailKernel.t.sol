@@ -372,7 +372,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_ChargesFee() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -384,7 +384,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_RefundsExcess() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -399,7 +399,7 @@ contract SailKernelTest is Test {
     }
 
     function test_RegisterPermission_RevertsOnInsufficientFee() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
@@ -443,7 +443,7 @@ contract SailKernelTest is Test {
 
     function test_ReplacePermission_ChargesFee() public {
         _registerPermission(address(perm));
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.1 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether)));
 
         MockPermission perm2 = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
