@@ -153,6 +153,7 @@ contract GMXPerpPermission is IPermission {
         if (params.addresses.receiver != ctx.account)              return false;
         if (!isAllowedMarket[params.addresses.market])             return false;
         if (!isAllowedCollateral[params.addresses.initialCollateralToken]) return false;
+        if (maxPositionSizeUsd == 0) return false;
         if (params.numbers.sizeDeltaUsd > maxPositionSizeUsd)      return false;
         if (params.isLong  && !allowLong)                          return false;
         if (!params.isLong && !allowShort)                         return false;

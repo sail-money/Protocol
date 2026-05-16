@@ -30,6 +30,9 @@ contract StandardFeePolicyTest is Test {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     function _initAccount(address acct, uint256 nav) internal {
+        // feeManager must seed HWM first (H-5 fix)
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(acct, nav);
         vm.prank(KERNEL);
         policy.recordCollection(acct, 0, nav);
     }
@@ -148,6 +151,7 @@ contract StandardFeePolicyTest is Test {
 
     function test_ComputeFee_ManagementFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
         vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         (uint256 grossFee,,) = p.computeFee(ACCOUNT, NAV);
@@ -208,6 +212,7 @@ contract StandardFeePolicyTest is Test {
 
     function test_ComputeFee_PerfFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(MGMT_BPS, 0, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
         vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         uint256 higherNav = NAV * 2;
@@ -232,9 +237,46 @@ contract StandardFeePolicyTest is Test {
 
     // ── recordCollection: initialisation ─────────────────────────────────────
 
-    function test_RecordCollection_RevertsOnZeroInitialNav() public {
+    function test_RecordCollection_RevertsWhenHWMNotSeeded() public {
+        // Must call seedHighWaterMark before recordCollection on a new account
         vm.prank(KERNEL);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
+        policy.recordCollection(ACCOUNT, 0, NAV);
+    }
+
+    function test_SeedHighWaterMark_RevertsOnZeroInitialNav() public {
+        vm.prank(FEE_MANAGER);
         vm.expectRevert(StandardFeePolicy.ZeroInitialNav.selector);
+        policy.seedHighWaterMark(ACCOUNT, 0);
+    }
+
+    function test_SeedHighWaterMark_RevertsIfAlreadySeeded() public {
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+        vm.prank(FEE_MANAGER);
+        vm.expectRevert(StandardFeePolicy.AlreadySeeded.selector);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+    }
+
+    function test_SeedHighWaterMark_RevertsNotFeeManager() public {
+        vm.prank(KERNEL);
+        vm.expectRevert(StandardFeePolicy.NotFeeManager.selector);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+    }
+
+    function test_SeedHighWaterMark_EmitsEvent() public {
+        vm.prank(FEE_MANAGER);
+        vm.expectEmit(true, false, false, true, address(policy));
+        emit StandardFeePolicy.HWMSeeded(ACCOUNT, NAV);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+    }
+
+    // Keep backward-compat test name pointing to new error
+    function test_RecordCollection_RevertsOnZeroInitialNav() public {
+        // With H-5 fix: zero nav is now rejected in seedHighWaterMark, not recordCollection.
+        // Trying recordCollection without seeding gives HWMNotSeeded.
+        vm.prank(KERNEL);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
         policy.recordCollection(ACCOUNT, 0, 0);
     }
 
@@ -256,9 +298,13 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
+        // Seed first (emits HWMSeeded), then check that recordCollection emits FeesCollected
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
         vm.expectEmit(true, false, false, true, address(policy));
         emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
-        _initAccount(ACCOUNT, NAV);
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, 0, NAV);
     }
 
     function test_RecordCollection_FirstCallReturnsFeeZeroOnNextCompute() public {

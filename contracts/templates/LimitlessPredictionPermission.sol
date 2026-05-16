@@ -153,6 +153,8 @@ contract LimitlessPredictionPermission is IPermission {
         // direction check: BUY = long (buying YES tokens), SELL = short
         if (order.side == SIDE_BUY  && !allowLong)  return false;
         if (order.side == SIDE_SELL && !allowShort) return false;
+        // Reject any side value other than BUY or SELL (prevents bypass via unknown values)
+        if (order.side != SIDE_BUY && order.side != SIDE_SELL) return false;
 
         return true;
     }

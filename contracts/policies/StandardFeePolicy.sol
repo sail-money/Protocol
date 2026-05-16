@@ -85,6 +85,10 @@ contract StandardFeePolicy is IFeePolicy {
     ///         Zero means the account has not been initialised yet.
     mapping(address account => uint256) public lastCollectionTimestamp;
 
+    /// @notice Tracks whether the feeManager has explicitly seeded the HWM for an account.
+    ///         Prevents a manager from auto-seeding HWM at an arbitrary NAV via a zero-fee call.
+    mapping(address account => bool) public hwmSeeded;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -126,6 +130,11 @@ contract StandardFeePolicy is IFeePolicy {
     /// @param  newHighWaterMark Updated HWM after this collection.
     event FeesCollected(address indexed account, uint256 grossFee, uint256 currentNav, uint256 newHighWaterMark);
 
+    /// @notice Emitted when the feeManager seeds the initial HWM for an account.
+    /// @param  account    The account whose HWM was seeded.
+    /// @param  initialNav The initial NAV (and HWM) set by the feeManager.
+    event HWMSeeded(address indexed account, uint256 initialNav);
+
     // -------------------------------------------------------------------------
     // Errors
     // -------------------------------------------------------------------------
@@ -146,6 +155,14 @@ contract StandardFeePolicy is IFeePolicy {
     ///      A zero initial NAV would allow the manager to claim a performance fee on the
     ///      entire portfolio value immediately after the first real deposit.
     error ZeroInitialNav();
+
+    /// @dev Thrown when `recordCollection` is called for a new account whose HWM has not
+    ///      been seeded by the feeManager via `seedHighWaterMark`. Prevents a manager from
+    ///      seeding HWM at an arbitrary value by passing grossFee=0 on the first call.
+    error HWMNotSeeded();
+
+    /// @dev Thrown when `seedHighWaterMark` is called for an account that has already been seeded.
+    error AlreadySeeded();
 
     /// @dev Thrown when a requested `managementFeeBps` exceeds MAX_MANAGEMENT_FEE_BPS.
     error ManagementFeeTooHigh(uint256 bps);
@@ -206,13 +223,26 @@ contract StandardFeePolicy is IFeePolicy {
     }
 
     // -------------------------------------------------------------------------
-    // IFeePolicy
+    // HWM seeding — feeManager must call this before the manager's first collectFees
     // -------------------------------------------------------------------------
 
-    /// @inheritdoc IFeePolicy
-    function feeRecipient() external view returns (address) {
-        return feeManager;
+    /// @notice Seed the high-water mark for a new account. Must be called by the feeManager
+    ///         before the first `recordCollection` for that account. This prevents a manager
+    ///         from seeding HWM at an arbitrary value by passing grossFee=0 on the first call.
+    /// @param  account    The account to initialise.
+    /// @param  initialNav The initial NAV to use as the starting HWM. Must be non-zero.
+    function seedHighWaterMark(address account, uint256 initialNav) external onlyFeeManager {
+        if (hwmSeeded[account]) revert AlreadySeeded();
+        if (initialNav == 0) revert ZeroInitialNav();
+        hwmSeeded[account]                   = true;
+        highWaterMark[account]               = initialNav;
+        lastCollectionTimestamp[account]     = block.timestamp;
+        emit HWMSeeded(account, initialNav);
     }
+
+    // -------------------------------------------------------------------------
+    // IFeePolicy
+    // -------------------------------------------------------------------------
 
     /// @inheritdoc IFeePolicy
     function computeFee(address account, uint256 currentNav)
@@ -245,14 +275,16 @@ contract StandardFeePolicy is IFeePolicy {
 
     /// @inheritdoc IFeePolicy
     function recordCollection(address account, uint256 grossFee, uint256 currentNav) external onlyKernel {
-        // First call: seed state. Require non-zero NAV to prevent a manager from
-        // initialising HWM at 0 and subsequently claiming a performance fee on the
-        // full portfolio value as if it were entirely profit.
+        // First call: require that the feeManager has already seeded the HWM via
+        // seedHighWaterMark. This prevents a manager from calling with grossFee=0
+        // to set an arbitrary HWM and then claiming a massive performance fee.
         if (lastCollectionTimestamp[account] == 0) {
-            if (currentNav == 0) revert ZeroInitialNav();
-            highWaterMark[account]           = currentNav;
+            if (!hwmSeeded[account]) revert HWMNotSeeded();
+            // seedHighWaterMark already wrote highWaterMark and lastCollectionTimestamp.
+            // Update timestamp to now and ratchet HWM if NAV is higher.
             lastCollectionTimestamp[account] = block.timestamp;
-            emit FeesCollected(account, grossFee, currentNav, currentNav);
+            if (currentNav > highWaterMark[account]) highWaterMark[account] = currentNav;
+            emit FeesCollected(account, grossFee, currentNav, highWaterMark[account]);
             return;
         }
 
@@ -319,5 +351,10 @@ contract StandardFeePolicy is IFeePolicy {
         feeManager = pendingFeeManager;
         pendingFeeManager = address(0);
         emit FeeManagerTransferred(old, feeManager);
+    }
+
+    /// @inheritdoc IFeePolicy
+    function feeRecipient() external view returns (address) {
+        return feeManager;
     }
 }
