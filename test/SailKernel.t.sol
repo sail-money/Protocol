@@ -945,6 +945,23 @@ contract SailKernelTest is Test {
         assertEq(safe.callCount(), 1);
     }
 
+    function test_ReplacePermission_RevertsWhenPaused() public {
+        _registerPermission(address(perm));
+
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+
+        MockPermission perm2 = new MockPermission();
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce
+        ));
+        bytes memory sig = _signerSig(sh);
+
+        vm.expectRevert(SailKernel.ProtocolPaused.selector);
+        kernel.replacePermission(address(safe), address(perm), address(perm2), sig);
+    }
+
     function test_Unpause_AllowsDispatch() public {
         _registerPermission(address(perm));
         perm.setResult(true);
