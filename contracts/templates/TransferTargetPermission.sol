@@ -153,7 +153,9 @@ contract TransferTargetPermission is IPermission {
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
         // ── plain ETH send (no function selector) ────────────────────────────
         // ctx.target is the ETH recipient; ctx.value is the amount being sent.
-        if (txData.length < 4) {
+        // Require exactly zero calldata — 1–3 byte inputs fall through to the selector
+        // check below, which will fail to match any valid selector, returning false.
+        if (txData.length == 0) {
             return isAllowedRecipient[ctx.target] && ctx.value <= maxAmountPerTx;
         }
 

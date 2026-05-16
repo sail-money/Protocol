@@ -198,12 +198,21 @@ contract TransferTargetPermissionTest is Test {
         assertTrue(perm.evaluate("", _ctxEth(PARTNER, 0)));
     }
 
-    function test_EthSend_ShortCalldataIsStillEthPath() public view {
-        // Any calldata shorter than 4 bytes routes to the ETH path
+    function test_EthSend_ShortCalldataReturnsFalse() public view {
+        // 1-3 byte calldata no longer routes to the ETH path (L-6 fix).
+        // Plain ETH sends require txData.length == 0. Short non-empty calldata
+        // falls through to the selector check, which finds no match → false.
         bytes memory tiny = new bytes(2);
         Context memory ctx = _ctxEth(PARTNER, 0.1 ether);
         ctx.selector = bytes4(0);
-        assertTrue(perm.evaluate(tiny, ctx));
+        assertFalse(perm.evaluate(tiny, ctx));
+    }
+
+    function test_EthSend_EmptyCalldataIsEthPath() public view {
+        // Zero-length calldata is the plain ETH path.
+        Context memory ctx = _ctxEth(PARTNER, 0.1 ether);
+        ctx.selector = bytes4(0);
+        assertTrue(perm.evaluate("", ctx));
     }
 
     function test_EthSend_BlockedForUnknownRecipient() public view {

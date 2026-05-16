@@ -20,6 +20,10 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
     uint256 private constant LEN_TRANSFER     = 68;
     uint256 private constant LEN_TRANSFERFROM = 100;
 
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
+    error AllowlistTooLong();
+
     struct Slot {
         address[] recipients;
         address[] tokens;
@@ -46,6 +50,9 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
     function _applyConfig(address account, bytes calldata params) internal override {
         (address[] memory recipients, address[] memory tokens, uint256 maxAmountPerTx) =
             abi.decode(params, (address[], address[], uint256));
+
+        if (recipients.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (tokens.length     > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.recipients.length; i++) isAllowedRecipient[account][s.recipients[i]] = false;

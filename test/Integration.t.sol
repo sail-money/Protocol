@@ -137,7 +137,7 @@ contract IntegrationTest is Test {
 
         // 8. Initialise fee policy: first collectFees seeds HWM = 100 ether at T0
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), 0, 100 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), 0, 100 ether, address(0));
     }
 
     receive() external payable {} // accept refunds from registerPermission
@@ -363,20 +363,21 @@ contract IntegrationTest is Test {
 
         uint256 treasuryBefore  = TREASURY.balance;
         uint256 deadBefore      = DEAD.balance;
-        uint256 recipientBefore = MANAGER_RECIPIENT.balance;
+        // recipient now comes from feePolicy.feeRecipient() = FEE_MANAGER
+        uint256 recipientBefore = FEE_MANAGER.balance;
 
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
-        assertEq(TREASURY.balance          - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
-        assertEq(DEAD.balance              - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
-        assertEq(MANAGER_RECIPIENT.balance - recipientBefore,  MANAGER_TAKE_AMT, "manager take mismatch");
+        assertEq(TREASURY.balance    - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
+        assertEq(DEAD.balance        - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
+        assertEq(FEE_MANAGER.balance - recipientBefore,  MANAGER_TAKE_AMT, "manager take mismatch");
     }
 
     function test_FeeCollection_HWMRatchetsUp() public {
         vm.warp(T0 + 365 days);
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
         assertEq(feePolicy.highWaterMark(address(mockSafe)), 120 ether);
         assertEq(feePolicy.lastCollectionTimestamp(address(mockSafe)), T0 + 365 days);
@@ -386,7 +387,7 @@ contract IntegrationTest is Test {
         // First collection: grossFee = 6.4 ether, HWM → 120 ether
         vm.warp(T0 + 365 days);
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
         // Second year: currentNav still 120 ether (at the new HWM)
         vm.warp(T0 + 730 days);
@@ -406,7 +407,7 @@ contract IntegrationTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.FeeTooLarge.selector, tooBig, GROSS_FEE));
-        kernel.collectFees(address(mockSafe), tooBig, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), tooBig, 120 ether, address(0));
     }
 
     function test_FeeCollection_RecordDepositAccumulatesPrincipal() public {

@@ -42,7 +42,10 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
     mapping(address account => mapping(address => bool)) public isAllowedTokenIn;
     mapping(address account => mapping(address => bool)) public isAllowedTokenOut;
 
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     error SlippageBpsTooLarge(uint256 bps);
+    error AllowlistTooLong();
 
     constructor(address _kernel)
         BaseSharedPermission(_kernel, "SharedBoundedSwapPermission", "1")
@@ -79,6 +82,10 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
         ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address));
 
         if (maxSlippageBps > 9_999) revert SlippageBpsTooLarge(maxSlippageBps);
+
+        if (routers.length   > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (tokensIn.length  > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
 
         // Clear previous allowlists for this account
         Slot storage s = _slots[account];
@@ -161,6 +168,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
         (uint256 price, uint8 dec) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
+        if (dec > 77) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
         return amountOutMin >= oracleMinOut;

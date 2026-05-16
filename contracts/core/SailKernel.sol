@@ -521,6 +521,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _requireRegistered(account);
         if (_permissionIndex[account][newPermission] != 0) revert PermissionAlreadyRegistered(newPermission);
 
+        // Validate oldPermission exists FIRST (before nonce write)
+        uint256 idx = _permissionIndex[account][oldPermission];
+        if (idx == 0) revert PermissionNotRegistered(oldPermission);
+
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
@@ -528,9 +532,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
             sig
         );
         signerNonces[account] = nonce + 1;
-
-        uint256 idx = _permissionIndex[account][oldPermission];
-        if (idx == 0) revert PermissionNotRegistered(oldPermission);
 
         uint256 fee = _calcPermissionFee();
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
@@ -799,25 +800,28 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         but a dishonest manager could inflate `currentNav` to unlock a larger `maxFee`
     ///         ceiling and then pass a correspondingly large `grossFee`. Deployers must use a
     ///         fee policy that validates NAV independently if the manager is not trusted.
+    ///
+    ///         The recipient for the manager's net share is pulled from the fee policy via
+    ///         `IFeePolicy.feeRecipient()` — the caller cannot supply an arbitrary address.
     /// @param  account    The registered Safe account from which fees are collected.
     /// @param  grossFee   Requested fee amount. Must not exceed the policy's computed maximum.
     /// @param  currentNav Current net asset value reported by the manager.
     /// @param  feeToken   ERC-20 token for fee payment; address(0) = native ETH.
-    /// @param  recipient  Address that receives the manager's net share after splits.
-    ///                    Must not be the zero address.
     function collectFees(
         address account,
         uint256 grossFee,
         uint256 currentNav,
-        address feeToken,
-        address recipient
+        address feeToken
     ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
-        if (recipient == address(0)) revert ZeroAddress();
         AccountConfig storage cfg = configs[account];
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
         address feePolicy = cfg.feePolicy;
         if (feePolicy == address(0)) revert FeePolicyNotSet();
+
+        // Pull recipient from policy — prevents manager from redirecting fees arbitrarily.
+        address recipient = IFeePolicy(feePolicy).feeRecipient();
+        if (recipient == address(0)) revert ZeroAddress();
 
         (uint256 maxFee, address distributor, uint256 distributorBps) =
             IFeePolicy(feePolicy).computeFee(account, currentNav);
