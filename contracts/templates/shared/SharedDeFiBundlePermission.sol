@@ -85,8 +85,11 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     mapping(address account => mapping(address => bool)) public isTransferRecipient;
     mapping(address account => mapping(address => bool)) public isTransferToken;
 
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     error SlippageBpsTooLarge(uint256 bps);
     error LtvBpsTooLarge(uint256 bps);
+    error AllowlistTooLong();
 
     constructor(address _kernel)
         BaseSharedPermission(_kernel, "SharedDeFiBundlePermission", "1")
@@ -120,18 +123,25 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
 
     function _applyConfigSwap(address account, bytes calldata params) private {
         (SwapConfig memory swap,,) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
-        if (swap.maxSlippageBps > 10_000) revert SlippageBpsTooLarge(swap.maxSlippageBps);
+        if (swap.maxSlippageBps > 9_999) revert SlippageBpsTooLarge(swap.maxSlippageBps); // 9_999 max: 10_000 makes oracleMinOut = 0, disabling oracle floor
+        if (swap.routers.length > MAX_ALLOWLIST_LENGTH)  revert AllowlistTooLong();
+        if (swap.tokensIn.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (swap.tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         _applySwap(account, swap);
     }
 
     function _applyConfigBorrow(address account, bytes calldata params) private {
         (, BorrowConfig memory borrow,) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
         if (borrow.maxLtvBps > 10_000) revert LtvBpsTooLarge(borrow.maxLtvBps);
+        if (borrow.protocols.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (borrow.assets.length > MAX_ALLOWLIST_LENGTH)    revert AllowlistTooLong();
         _applyBorrow(account, borrow);
     }
 
     function _applyConfigTransfer(address account, bytes calldata params) private {
         (,, TransferConfig memory transfer) = abi.decode(params, (SwapConfig, BorrowConfig, TransferConfig));
+        if (transfer.recipients.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (transfer.tokens.length > MAX_ALLOWLIST_LENGTH)     revert AllowlistTooLong();
         _applyTransfer(account, transfer);
     }
 
@@ -254,6 +264,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
         (uint256 price, uint8 dec) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
+        if (dec > 77) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
         return amountOutMin >= oracleMinOut;
@@ -303,11 +314,13 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
         (uint256 borPrice, uint8 borDec) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 
         if (colDec > 77 || borDec > 77) return false;
-        if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
+        uint256 colNorm = colValue / (10 ** uint256(colDec));
+        if (colNorm == 0) return false;
+
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
+        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
         return ltvBps <= s.maxLtvBps;
     }
 

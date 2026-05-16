@@ -89,11 +89,20 @@ contract MockFeePolicy is IFeePolicy {
     address public distributorReturn;
     uint256 public distributorBpsReturn;
     bool    public recordCalled;
+    address public feeRecipientReturn;
 
     function setFee(uint256 gross, address dist, uint256 distBps) external {
         grossFeeReturn       = gross;
         distributorReturn    = dist;
         distributorBpsReturn = distBps;
+    }
+
+    function setFeeRecipient(address recipient) external {
+        feeRecipientReturn = recipient;
+    }
+
+    function feeRecipient() external view returns (address) {
+        return feeRecipientReturn;
     }
 
     function computeFee(address, uint256) external view returns (uint256, address, uint256) {
@@ -171,6 +180,7 @@ contract SailKernelTest is Test {
         safe     = new MockSafe();
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
+        feePolicy.setFeeRecipient(manager); // default recipient for fee tests
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
@@ -691,7 +701,7 @@ contract SailKernelTest is Test {
         feePolicy.setFee(grossFee, DIST, 2_000);
 
         vm.prank(manager);
-        kernel.collectFees(address(safe), grossFee, 0, address(0), manager);
+        kernel.collectFees(address(safe), grossFee, 0, address(0));
 
         assertEq(safe.callCount(), 3);
         (address to0, uint256 v0,,) = safe.getCall(0);
@@ -708,7 +718,7 @@ contract SailKernelTest is Test {
         feePolicy.setFee(grossFee, address(0), 0);
 
         vm.prank(manager);
-        kernel.collectFees(address(safe), grossFee, 0, address(0), manager);
+        kernel.collectFees(address(safe), grossFee, 0, address(0));
 
         assertEq(safe.callCount(), 1);
         (address to, uint256 v,,) = safe.getCall(0);
@@ -722,7 +732,7 @@ contract SailKernelTest is Test {
         feePolicy.setFee(1_000_000, address(0), 1_000);
 
         vm.prank(manager);
-        kernel.collectFees(address(safe), 1_000_000, 0, address(0), manager);
+        kernel.collectFees(address(safe), 1_000_000, 0, address(0));
 
         assertEq(safe.callCount(), 2);
         (address to0,,,) = safe.getCall(0);
@@ -743,7 +753,7 @@ contract SailKernelTest is Test {
         feePolicy.setFee(grossFee, address(0), distributorBps);
 
         vm.prank(manager);
-        kernel.collectFees(address(safe), grossFee, 0, address(0), manager);
+        kernel.collectFees(address(safe), grossFee, 0, address(0));
 
         // Only 1 transfer should happen (to manager — no protocol cut, no distributor)
         assertEq(safe.callCount(), 1);
@@ -759,7 +769,7 @@ contract SailKernelTest is Test {
         feePolicy.setFee(grossFee, address(0), 0);
 
         vm.prank(manager);
-        kernel.collectFees(address(safe), grossFee, 0, token, manager);
+        kernel.collectFees(address(safe), grossFee, 0, token);
 
         assertEq(safe.callCount(), 1);
         (address to, uint256 v, bytes memory d,) = safe.getCall(0);
@@ -775,14 +785,14 @@ contract SailKernelTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.FeeTooLarge.selector, 2_000, 1_000));
-        kernel.collectFees(address(safe), 2_000, 0, address(0), manager);
+        kernel.collectFees(address(safe), 2_000, 0, address(0));
     }
 
     function test_CollectFees_RevertsIfNotManager() public {
         feePolicy.setFee(1_000, address(0), 0);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.NotManager.selector, address(this), manager));
-        kernel.collectFees(address(safe), 1_000, 0, address(0), manager);
+        kernel.collectFees(address(safe), 1_000, 0, address(0));
     }
 
     function test_CollectFees_RevertsIfNoPolicySet() public {
@@ -792,7 +802,7 @@ contract SailKernelTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.FeePolicyNotSet.selector);
-        kernel.collectFees(address(safe2), 1_000, 0, address(0), manager);
+        kernel.collectFees(address(safe2), 1_000, 0, address(0));
     }
 
     function test_CollectFees_ProtocolCutCannotExceedCap() public {
@@ -811,7 +821,7 @@ contract SailKernelTest is Test {
 
         feePolicy.setFee(10_000, address(0), 0);
         vm.prank(manager);
-        kernel.collectFees(address(safe), 10_000, 0, address(0), manager);
+        kernel.collectFees(address(safe), 10_000, 0, address(0));
 
         (, uint256 protocolV,,) = safe.getCall(0);
         assertEq(protocolV, 2_500);
@@ -821,10 +831,12 @@ contract SailKernelTest is Test {
 
 
     function test_CollectFees_RevertsOnZeroRecipient() public {
+        // Recipient is now pulled from policy — set it to zero to trigger ZeroAddress revert
+        feePolicy.setFeeRecipient(address(0));
         feePolicy.setFee(1_000, address(0), 0);
         vm.prank(manager);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.collectFees(address(safe), 1_000, 1e18, address(0), address(0));
+        kernel.collectFees(address(safe), 1_000, 1e18, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -915,7 +927,7 @@ contract SailKernelTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.collectFees(address(safe), 1_000, 0, address(0), manager);
+        kernel.collectFees(address(safe), 1_000, 0, address(0));
     }
 
     function test_RegisterPermission_RevertsWhenPaused() public {

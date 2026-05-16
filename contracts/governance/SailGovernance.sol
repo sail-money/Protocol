@@ -70,7 +70,7 @@ contract SailGovernance {
     address public pendingGovernance;
 
     /// @notice Address that can pause the kernel in an emergency (no timelock).
-    address public immutable emergencyAdmin;
+    address public emergencyAdmin;
 
     // -------------------------------------------------------------------------
     // Timelock — 48-hour delay on all parameter changes
@@ -121,6 +121,11 @@ contract SailGovernance {
 
     /// @notice Emitted when the emergency admin manually lifts a pause.
     event Unpaused();
+
+    /// @notice Emitted when the emergency admin address is rotated via timelock.
+    /// @param  oldAdmin Previous emergency admin address.
+    /// @param  newAdmin New emergency admin address.
+    event EmergencyAdminRotated(address indexed oldAdmin, address indexed newAdmin);
 
     // -------------------------------------------------------------------------
     // Errors
@@ -186,7 +191,7 @@ contract SailGovernance {
     /// @param  _emergencyAdmin     Address that can pause the kernel without a timelock delay.
     constructor(address initialGovernance, uint256 maxPermissionFeeWei, address _emergencyAdmin) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
-        if (maxPermissionFeeWei > 1e36) revert FeeExceedsCap(maxPermissionFeeWei, 1e36);
+        if (maxPermissionFeeWei > 1 ether) revert FeeExceedsCap(maxPermissionFeeWei, 1 ether);
 
         governance     = initialGovernance;
         emergencyAdmin = _emergencyAdmin;
@@ -272,6 +277,16 @@ contract SailGovernance {
         timelock.revokeRole(proposer,  oldGov);
         timelock.revokeRole(executor,  oldGov);
         timelock.revokeRole(canceller, oldGov);
+    }
+
+    /// @notice Rotate the emergency admin address. Requires a timelock vote.
+    /// @dev    Prevents a compromised emergency admin from being permanently entrenched.
+    ///         Must be called via the 48-hour timelock.
+    /// @param  newAdmin New emergency admin address. Must not be the zero address.
+    function rotateEmergencyAdmin(address newAdmin) external onlyTimelock {
+        if (newAdmin == address(0)) revert ZeroAddress();
+        emit EmergencyAdminRotated(emergencyAdmin, newAdmin);
+        emergencyAdmin = newAdmin;
     }
 
     // -------------------------------------------------------------------------

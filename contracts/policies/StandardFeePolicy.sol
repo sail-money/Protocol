@@ -210,6 +210,11 @@ contract StandardFeePolicy is IFeePolicy {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IFeePolicy
+    function feeRecipient() external view returns (address) {
+        return feeManager;
+    }
+
+    /// @inheritdoc IFeePolicy
     function computeFee(address account, uint256 currentNav)
         external view
         returns (uint256 grossFee, address _distributor, uint256 _distributorBps)
