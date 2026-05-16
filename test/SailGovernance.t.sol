@@ -26,7 +26,7 @@ contract SailGovernanceTest is Test {
     event Unpaused();
 
     function setUp() public {
-        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
+        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -87,17 +87,37 @@ contract SailGovernanceTest is Test {
     function test_Constructor_EmitsGovernanceTransferred() public {
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(address(0), TEAM);
-        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, 0);
     }
 
     function test_Constructor_RevertsOnZeroGovernance() public {
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN);
+        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN, 0, 0);
     }
 
     function test_Constructor_RevertsOnZeroEmergencyAdmin() public {
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(TEAM, MAX_FEE, address(0));
+        new SailGovernance(TEAM, MAX_FEE, address(0), 0, 0);
+    }
+
+    function test_Constructor_RevertsOnBaseFeeAboveCap() public {
+        vm.expectRevert(abi.encodeWithSelector(
+            SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE
+        ));
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, MAX_FEE + 1, 0);
+    }
+
+    function test_Constructor_RevertsOnComplexityRateAboveCap() public {
+        vm.expectRevert(abi.encodeWithSelector(
+            SailGovernance.ExceedsPermissionFeeCap.selector, MAX_FEE + 1, MAX_FEE
+        ));
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, MAX_FEE + 1);
+    }
+
+    function test_Constructor_SeedsBaseFeeAndComplexityRate() public {
+        SailGovernance g = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0.001 ether, 7);
+        assertEq(g.baseFee(), 0.001 ether);
+        assertEq(g.complexityRate(), 7);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

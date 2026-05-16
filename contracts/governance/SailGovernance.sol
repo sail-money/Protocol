@@ -190,18 +190,34 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Deploy the governance contract.
-    /// @param  initialGovernance   Address to hold initial governance rights.
-    /// @param  maxPermissionFeeWei Constitutional ceiling for the per-permission registration fee.
-    /// @param  _emergencyAdmin     Address that can pause the kernel without a timelock delay.
-    constructor(address initialGovernance, uint256 maxPermissionFeeWei, address _emergencyAdmin) {
+    /// @param  initialGovernance    Address to hold initial governance rights.
+    /// @param  maxPermissionFeeWei  Constitutional ceiling for the per-permission registration fee.
+    /// @param  _emergencyAdmin      Address that can pause the kernel without a timelock delay.
+    /// @param  initialBaseFee       Initial flat component of the permission registration fee, in wei.
+    ///                              Must not exceed maxPermissionFeeWei. Pass 0 to leave registration
+    ///                              free until governance raises it via the timelock.
+    /// @param  initialComplexityRate Initial per-byte contribution to the registration fee, in wei.
+    ///                               Must not exceed maxPermissionFeeWei. Pass 0 to disable the
+    ///                               size component until governance raises it via the timelock.
+    constructor(
+        address initialGovernance,
+        uint256 maxPermissionFeeWei,
+        address _emergencyAdmin,
+        uint256 initialBaseFee,
+        uint256 initialComplexityRate
+    ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
         // Cap at 1e36 wei (~1e18 ETH). Values above this would allow base + sizeContrib
         // to overflow uint256 in _calcPermissionFee (sum of two values each <= cap).
         if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
+        if (initialBaseFee        > maxPermissionFeeWei) revert ExceedsPermissionFeeCap(initialBaseFee, maxPermissionFeeWei);
+        if (initialComplexityRate > maxPermissionFeeWei) revert ExceedsPermissionFeeCap(initialComplexityRate, maxPermissionFeeWei);
 
         governance     = initialGovernance;
         emergencyAdmin = _emergencyAdmin;
         MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
+        baseFee        = initialBaseFee;
+        complexityRate = initialComplexityRate;
         maxPermissionsPerAccount = 20;
 
         // Governance is the sole proposer and executor; no admin (self-governing timelock).

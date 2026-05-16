@@ -9,7 +9,28 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
 ]
+
+[rpc_endpoints]
+mainnet       = "${ETH_MAINNET_RPC_URL}"
+sepolia       = "${SEPOLIA_RPC_URL}"
+base          = "${BASE_MAINNET_RPC_URL}"
+base_sepolia  = "${BASE_SEPOLIA_RPC_URL}"
+arbitrum      = "${ARBITRUM_MAINNET_RPC_URL}"
+optimism      = "${OP_RPC_URL}"
+plasma        = "${PLASMA_RPC_URL}"
+hyperliquid   = "${HYPERLIQUID_RPC_URL}"
+unichain      = "${UNICHAIN_RPC_URL}"
+
+[etherscan]
+# Etherscan V2 unified endpoint — one ETHERSCAN_API_KEY works across all supported chains.
+mainnet       = { key = "${ETHERSCAN_API_KEY}", chain = 1,        url = "https://api.etherscan.io/v2/api?chainid=1" }
+sepolia       = { key = "${ETHERSCAN_API_KEY}", chain = 11155111, url = "https://api.etherscan.io/v2/api?chainid=11155111" }
+base          = { key = "${ETHERSCAN_API_KEY}", chain = 8453,     url = "https://api.etherscan.io/v2/api?chainid=8453" }
+base_sepolia  = { key = "${ETHERSCAN_API_KEY}", chain = 84532,    url = "https://api.etherscan.io/v2/api?chainid=84532" }
+arbitrum      = { key = "${ETHERSCAN_API_KEY}", chain = 42161,    url = "https://api.etherscan.io/v2/api?chainid=42161" }
+optimism      = { key = "${ETHERSCAN_API_KEY}", chain = 10,       url = "https://api.etherscan.io/v2/api?chainid=10" }
