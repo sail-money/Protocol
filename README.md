@@ -353,7 +353,7 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 
 ## License
 
-[License placeholder]
+GPL-2.0-or-later — see [LICENSE](./LICENSE)
 
 ---
 
