@@ -1,6 +1,6 @@
 # Sail Protocol
 
-> A minimal account-abstraction primitive for onchain Separately Managed Accounts run by agents.
+> A protocol for onchain Separately Managed Accounts run by agents.
 
 Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an account where capital sits under the LP's custody and a designated manager — typically an autonomous agent, but optionally a human, multisig, or MPC wallet — executes transactions within bounds approved by the account's permission signer. Sail provides the kernel that mediates this relationship: it instantiates the account, registers permissions, gates manager dispatch through those permissions, accounts for fees, and tracks principal.
 
