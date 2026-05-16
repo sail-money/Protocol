@@ -488,6 +488,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Revoke a single permission from an account.
     ///         Requires a permissionSigner EIP-712 signature.
+    /// @dev    Intentionally exempt from whenNotPaused — users must be able to revoke
+    ///         permissions even during a protocol pause to reduce their exposure.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to revoke.
     /// @param  sig        EIP-712 signature over RevokePermission struct by permissionSigner.
@@ -515,7 +517,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address oldPermission,
         address newPermission,
         bytes calldata sig
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         _requireRegistered(account);
         if (_permissionIndex[account][newPermission] != 0) revert PermissionAlreadyRegistered(newPermission);
 
@@ -652,6 +654,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Revoke multiple permissions atomically. One signer nonce is consumed for
     ///         the entire batch; no ETH fee is required.
     ///         Empty arrays are a no-op and do not consume a nonce.
+    /// @dev    Intentionally exempt from whenNotPaused — users must be able to revoke
+    ///         permissions even during a protocol pause to reduce their exposure.
     /// @param  account     The registered Safe account.
     /// @param  permissions Addresses of permission contracts to revoke.
     /// @param  deadline    Unix timestamp after which the signature is invalid.
@@ -911,6 +915,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     /// @dev Forward `fee` to the treasury and refund any ETH overpayment to msg.sender.
+    ///      All callers (registerPermission, replacePermission, registerPermissions) complete
+    ///      every state mutation (nonce increment, permission array update) before invoking
+    ///      this function. The refund callback to msg.sender therefore occurs after all
+    ///      state is settled; re-entry into any nonReentrant function is blocked. Any
+    ///      re-entry into non-guarded functions (revokeSession, activateSession) still
+    ///      requires a valid permissionSigner signature, preventing unauthorised mutations.
     function _collectRegistrationFee(uint256 fee) internal {
         if (fee > 0) {
             (bool ok,) = treasury.call{value: fee}("");

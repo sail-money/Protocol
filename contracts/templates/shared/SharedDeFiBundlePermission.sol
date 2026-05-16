@@ -299,13 +299,14 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue,) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 
+        if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;
-        if (borPrice == 0) return true;
+        if (borPrice == 0) return false;
 
-        uint256 borrowScaled = Math.mulDiv(amount, borPrice, 1);
+        uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
         uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
         return ltvBps <= s.maxLtvBps;
     }
