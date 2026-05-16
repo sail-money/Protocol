@@ -166,7 +166,7 @@ contract SailKernelTest is Test {
         manager    = vm.addr(MANAGER_KEY);
         permSigner = vm.addr(SIGNER_KEY);
 
-        gov      = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN);
+        gov      = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN, 0, 0);
         kernel   = new SailKernel(address(gov), TREASURY);
         safe     = new MockSafe();
         perm     = new MockPermission();
