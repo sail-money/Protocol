@@ -210,7 +210,7 @@ contract BatchPermissionsTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_BatchRegister_ExactFeeSucceeds() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 fee1     = _fee(address(perm1));
@@ -231,7 +231,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_UnderpaymentReverts() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));
@@ -247,7 +247,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_OverpaymentRefunded() public {
-        _govExec(abi.encodeCall(gov.setBaseFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));
@@ -268,7 +268,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_ZeroFeeWhenBaseFeeZero() public {
-        // BASE_FEE default = 0, COMPLEXITY_RATE = 0 → totalFee = 0
+        // permissionRegistrationFee default = 0 → totalFee = 0
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.signerNonces(address(safe));
@@ -824,10 +824,7 @@ contract BatchPermissionsTest is Test {
     // Internal helper
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _fee(address perm) internal view returns (uint256) {
-        uint256 size = perm.code.length;
-        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
-        uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
-        return fee > cap ? cap : fee;
+    function _fee(address) internal view returns (uint256) {
+        return gov.permissionRegistrationFee();
     }
 }
