@@ -15,7 +15,7 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         Supported operations:
 ///           transfer(address,uint256)               — ERC-20 standard transfer
 ///           transferFrom(address,address,uint256)   — ERC-20 approved pull
-///           plain ETH send (calldata length < 4)    — native ETH to an allowed recipient
+///           plain ETH send (calldata length == 0)   — native ETH to an allowed recipient
 ///
 /// @dev    For ERC-20 paths, `ctx.target` is the token contract; `to` in calldata is the
 ///         recipient. Both the token and the recipient are independently checked.
@@ -23,16 +23,20 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         For plain ETH sends, `ctx.target` IS the recipient. There is no token check;
 ///         the ETH amount (`ctx.value`) is checked against `maxAmountPerTx`.
 ///
-///         The `transferFrom` path does NOT validate the `from` field. A manager can pull
-///         tokens from any address that has previously approved the Safe (e.g., an
-///         integrated DeFi protocol). If only pulling from the Safe's own balance is
-///         intended, use the `transfer` path exclusively.
+///         The `transferFrom` path validates that `from == ctx.account` (the Safe itself),
+///         preventing a manager from pulling tokens from arbitrary addresses that may have
+///         previously approved the Safe.
 ///
 ///         The recipient allowlist is mutable — `permissionSigner` can add and remove
 ///         addresses after deployment. Operators should use a multisig or time-locked
 ///         address as `permissionSigner` in production.
 /// @custom:security-contact security@sail.money
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract TransferTargetPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -146,18 +150,20 @@ contract TransferTargetPermission is IPermission {
 
     /// @inheritdoc IPermission
     /// @dev Evaluation logic by path:
-    ///      - Plain ETH send (txData.length < 4): check isAllowedRecipient[ctx.target] and ctx.value <= cap.
+    ///      - Plain ETH send (txData.length == 0): check isAllowedRecipient[ctx.target] and ctx.value <= cap.
+    ///        Short non-empty calldata (1–3 bytes) is rejected as malformed.
     ///      - ERC-20 transfer/transferFrom: check isAllowedToken[ctx.target], decode `to`, check
     ///        isAllowedRecipient[to] and amount <= cap. Non-zero ETH value is rejected.
     ///      Any other selector or malformed calldata returns false.
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
-        // ── plain ETH send (no function selector) ────────────────────────────
+        // ── plain ETH send (truly empty calldata) ────────────────────────────
         // ctx.target is the ETH recipient; ctx.value is the amount being sent.
-        // Require exactly zero calldata — 1–3 byte inputs fall through to the selector
-        // check below, which will fail to match any valid selector, returning false.
+        // Short non-empty calldata (1-3 bytes) is rejected — it cannot be a valid
+        // selector call and is likely malformed/crafted to bypass checks.
         if (txData.length == 0) {
             return isAllowedRecipient[ctx.target] && ctx.value <= maxAmountPerTx;
         }
+        if (txData.length < 4) return false;
 
         // ERC-20 calls carry no ETH
         if (ctx.value != 0) return false;
@@ -177,10 +183,9 @@ contract TransferTargetPermission is IPermission {
         if (ctx.selector == TRANSFERFROM_SELECTOR) {
             // selector(4) + from(32) + to(32) + amount(32) = 100 bytes minimum
             if (txData.length < 100) return false;
-            (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
-            // WARNING: the `from` field is not validated. A manager can pull tokens from any
-            // address that has previously approved the Safe (e.g., an integrated DeFi protocol).
-            // Use the `transfer` path if only pulling from the Safe's own balance is intended.
+            (address from, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // `from` must be the Safe itself to prevent pulling tokens from arbitrary approvers.
+            if (from != ctx.account) return false;
             return isAllowedRecipient[to] && amount <= maxAmountPerTx;
         }
 

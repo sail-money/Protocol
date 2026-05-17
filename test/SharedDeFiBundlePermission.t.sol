@@ -16,9 +16,9 @@ contract BundleTestOracle is IOracle {
         _dec[k]   = dec;
     }
 
-    function getPrice(address base, address quote) external view returns (uint256, uint8) {
+    function getPrice(address base, address quote) external view returns (uint256, uint8, uint256) {
         bytes32 k = keccak256(abi.encode(base, quote));
-        return (_price[k], _dec[k]);
+        return (_price[k], _dec[k], block.timestamp);
     }
 }
 

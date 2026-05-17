@@ -13,7 +13,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           fillOrder((address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint8,bytes),uint256)
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract LimitlessPredictionPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // fillOrder((address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint8,bytes),uint256)
     bytes4 private constant FILL_ORDER = bytes4(
         keccak256(
@@ -133,6 +138,8 @@ contract LimitlessPredictionPermission is IPermission {
 
         // Gate 3 — length guard then decode + field checks
         if (txData.length < MIN_CALLDATA_LEN) return false;
+        // Reject pathologically large calldata to prevent OOG in external decode call.
+        if (txData.length > 4096) return false;
 
         _Order memory order;
         try this._decodeOrder(txData[4:]) returns (_Order memory decoded, uint256) {
@@ -153,8 +160,6 @@ contract LimitlessPredictionPermission is IPermission {
         // direction check: BUY = long (buying YES tokens), SELL = short
         if (order.side == SIDE_BUY  && !allowLong)  return false;
         if (order.side == SIDE_SELL && !allowShort) return false;
-        // Reject any side value other than BUY or SELL (prevents bypass via unknown values)
-        if (order.side != SIDE_BUY && order.side != SIDE_SELL) return false;
 
         return true;
     }

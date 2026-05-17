@@ -97,7 +97,7 @@ contract ManipulableOracle2 is IOracle {
     uint8   public dec;
     constructor(uint256 _p, uint8 _d) { price = _p; dec = _d; }
     function setPrice(uint256 p) external { price = p; }
-    function getPrice(address, address) external view returns (uint256, uint8) { return (price, dec); }
+    function getPrice(address, address) external view returns (uint256, uint8, uint256) { return (price, dec, block.timestamp); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -70,7 +70,14 @@ contract SailGovernance {
     address public pendingGovernance;
 
     /// @notice Address that can pause the kernel in an emergency (no timelock).
+    ///         Can be rotated by the timelock via `rotateEmergencyAdmin`.
     address public emergencyAdmin;
+
+    /// @notice Timestamp of the last successful `pause()` call; 0 = never paused.
+    uint256 public lastPauseTimestamp;
+
+    /// @dev Minimum time between consecutive `pause()` calls.
+    uint256 public constant PAUSE_COOLDOWN = 72 hours;
 
     // -------------------------------------------------------------------------
     // Timelock — 48-hour delay on all parameter changes
@@ -80,17 +87,49 @@ contract SailGovernance {
     TimelockController public immutable timelock;
 
     // -------------------------------------------------------------------------
+    // Trusted Safe factory and singleton allowlists
+    // -------------------------------------------------------------------------
+
+    /// @notice Allowlist of Safe proxy factory contracts trusted by the kernel.
+    ///         Only factories in this mapping may be used in `createAccount`.
+    mapping(address => bool) public trustedSafeFactory;
+
+    /// @notice Allowlist of Safe singleton (implementation) contracts trusted by the kernel.
+    ///         Only singletons in this mapping may be used in `createAccount`.
+    mapping(address => bool) public trustedSafeSingleton;
+
+    /// @notice Emitted when a Safe factory's trusted status changes.
+    /// @param  factory  The factory address.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event SafeFactoryTrusted(address indexed factory, bool trusted);
+
+    /// @notice Emitted when a Safe singleton's trusted status changes.
+    /// @param  singleton  The singleton address.
+    /// @param  trusted    True if added to the allowlist, false if removed.
+    event SafeSingletonTrusted(address indexed singleton, bool trusted);
+
+    /// @notice Add or remove a Safe proxy factory from the trusted allowlist.
+    /// @param  factory  Address of the factory contract.
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedSafeFactory(address factory, bool trusted) external onlyTimelock {
+        trustedSafeFactory[factory] = trusted;
+        emit SafeFactoryTrusted(factory, trusted);
+    }
+
+    /// @notice Add or remove a Safe singleton from the trusted allowlist.
+    /// @param  singleton  Address of the singleton (implementation) contract.
+    /// @param  trusted    True to add to allowlist, false to remove.
+    function setTrustedSafeSingleton(address singleton, bool trusted) external onlyTimelock {
+        trustedSafeSingleton[singleton] = trusted;
+        emit SafeSingletonTrusted(singleton, trusted);
+    }
+
+    // -------------------------------------------------------------------------
     // Pause — emergency admin can pause for up to 72 hours
     // -------------------------------------------------------------------------
 
     /// @notice Timestamp at which the current pause expires. 0 = not paused.
     uint256 public pauseExpiry;
-
-    /// @notice Timestamp of the last pause call. Used to enforce PAUSE_COOLDOWN.
-    uint256 public lastPauseTimestamp;
-
-    /// @notice Minimum time between consecutive pause() calls (72 hours).
-    uint256 public constant PAUSE_COOLDOWN = 72 hours;
 
     // -------------------------------------------------------------------------
     // Events
@@ -127,6 +166,8 @@ contract SailGovernance {
 
     /// @notice Emitted when the emergency admin manually lifts a pause.
     event Unpaused();
+
+    /// @notice Emitted when the emergency admin is rotated via timelock.
     event EmergencyAdminRotated(address indexed oldAdmin, address indexed newAdmin);
 
     // -------------------------------------------------------------------------
@@ -161,8 +202,13 @@ contract SailGovernance {
     /// @dev Thrown by `proposeGovernance` when the candidate is the current governance address.
     error SameAddress();
 
-    /// @dev Thrown by `pause()` when called before the cooldown period has elapsed.
-    error PauseCooldown(uint256 availableAt);
+    /// @dev Thrown by `acceptGovernance` when the candidate does not yet hold PROPOSER_ROLE
+    ///      on the timelock. `rotateTimelockRoles` must be executed before `acceptGovernance`
+    ///      can complete, eliminating the window where old governance retains timelock keys.
+    error RolesNotYetRotated();
+
+    /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
+    error PauseCooldown(uint256 nextAllowed);
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -251,8 +297,14 @@ contract SailGovernance {
     /// @notice Step 2: nominated address accepts, completing the transfer.
     /// @dev    Clears `pendingGovernance` after the transfer. See `proposeGovernance` for the
     ///         required timelock role rotation procedure that must precede this call.
+    ///         Requires that `rotateTimelockRoles` has already been executed — i.e., the
+    ///         candidate already holds PROPOSER_ROLE on the timelock. This eliminates the
+    ///         window where old governance retains timelock scheduling rights after handoff.
     function acceptGovernance() external {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
+        // Enforce that rotateTimelockRoles was called before acceptGovernance, preventing
+        // a governance handoff window where the old governance still holds timelock roles.
+        if (!timelock.hasRole(timelock.PROPOSER_ROLE(), msg.sender)) revert RolesNotYetRotated();
         address previous  = governance;
         governance        = pendingGovernance;
         pendingGovernance = address(0);
@@ -328,8 +380,7 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Pause the kernel for up to 72 hours. Can be called without a timelock delay.
-    ///         Enforces a 72-hour cooldown between consecutive pause() calls to prevent
-    ///         the emergency admin from keeping the protocol permanently paused.
+    ///         Subject to a PAUSE_COOLDOWN between consecutive calls to prevent spam.
     function pause() external onlyEmergencyAdmin {
         if (lastPauseTimestamp != 0 && block.timestamp < lastPauseTimestamp + PAUSE_COOLDOWN)
             revert PauseCooldown(lastPauseTimestamp + PAUSE_COOLDOWN);
@@ -344,12 +395,13 @@ contract SailGovernance {
         emit Unpaused();
     }
 
-    /// @notice Rotate the emergency admin. Requires a timelock vote so a
-    ///         compromised admin cannot block their own replacement.
+    /// @notice Rotate the emergency admin address. Only callable by the timelock.
+    /// @param  newAdmin New emergency admin address. Must not be zero.
     function rotateEmergencyAdmin(address newAdmin) external onlyTimelock {
         if (newAdmin == address(0)) revert ZeroAddress();
-        emit EmergencyAdminRotated(emergencyAdmin, newAdmin);
+        address old = emergencyAdmin;
         emergencyAdmin = newAdmin;
+        emit EmergencyAdminRotated(old, newAdmin);
     }
 
     /// @notice Returns true if the kernel is currently paused.

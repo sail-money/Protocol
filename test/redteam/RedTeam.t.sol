@@ -144,8 +144,8 @@ contract ManipulableOracle is IOracle {
     constructor(uint256 _price, uint8 _dec) { price = _price; decimals_ = _dec; }
     function setPrice(uint256 p) external { price = p; }
 
-    function getPrice(address, address) external view returns (uint256, uint8) {
-        return (price, decimals_);
+    function getPrice(address, address) external view returns (uint256, uint8, uint256) {
+        return (price, decimals_, block.timestamp);
     }
 }
 
@@ -644,17 +644,13 @@ contract TemplateBypassTests is RedTeamBase {
         bytes4 TF_SEL = 0x23b872dd;
         bytes memory data = abi.encodeWithSelector(TF_SEL, victim, attacker, 500 ether);
 
-        // The permission will return TRUE because: token is allowed, recipient is allowed, amount <= cap
-        // The `from` field (victim) is never validated.
+        // M-6 fix: `from` must equal ctx.account. A different `from` is rejected.
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory dispatchSig = _signDispatch(address(safe), mockToken, 0, data, 0, deadline, MANAGER_KEY);
 
-        // The permission allows it — the safe executes. This is a DOCUMENTED design choice,
-        // not a bug (the comment in TransferTargetPermission explicitly warns about this).
-        // VULNERABILITY (by design): Manager can pull from any address that approved the Safe.
-        // Test confirms the permission evaluates to true (no PermissionDenied revert).
+        // Permission now returns false because victim != ctx.account (safe).
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
         kernel.dispatch(address(safe), mockToken, 0, data, dispatchSig, deadline);
-        // Reaching here means the dispatch succeeded — the `from` field bypass is real.
     }
 
     // ── 3c. Selector collision: calldata that matches a known selector but decodes to attacker addresses ──
@@ -931,16 +927,11 @@ contract FeeAccountingTests is RedTeamBase {
         vm.prank(manager);
         kernel.collectFees(address(safe), 0, 1_000_000e18, address(0));
 
-        // Immediately try a second collection on the same block with claimed profit
-        // elapsed == 0 → management fee = 0
-        // currentNav == HWM → performance fee = 0
-        (uint256 maxFee,,) = sfp.computeFee(address(safe), 1_000_000e18);
-        assertEq(maxFee, 0, "No fee should be claimable in same block");
-
-        // Manager cannot extract any fee on same block
+        // I-10 fix: MIN_COLLECTION_INTERVAL prevents same-block double collect.
+        // Second call on the same block reverts with CollectionTooFrequent.
         vm.prank(manager);
+        vm.expectRevert(StandardFeePolicy.CollectionTooFrequent.selector);
         kernel.collectFees(address(safe), 0, 1_000_000e18, address(0));
-        // If grossFee = 0, nothing is transferred — no harm done. Test passes.
     }
 }
 
