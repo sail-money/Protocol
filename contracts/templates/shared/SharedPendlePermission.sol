@@ -134,6 +134,7 @@ contract SharedPendlePermission is BaseSharedPermission {
             isAllowedMarket[account][allowedMarkets[i]] = true;
         }
 
+        if (pendleRouter == address(0)) revert ZeroRouter();
         s.pendleRouter      = pendleRouter;
         s.allowedMarkets    = allowedMarkets;
         s.maxAmountPerTx    = maxAmountPerTx;
@@ -215,11 +216,20 @@ contract SharedPendlePermission is BaseSharedPermission {
 
     // ── internal evaluators ───────────────────────────────────────────────────
 
+    /// @dev WARNING: The byte offsets below are hardcoded for Pendle Router V4 ABI as of deployment.
+    ///      If Pendle upgrades the router contract with a different ABI encoding, these offsets
+    ///      MUST be updated and a new template deployed. Do not assume backward compatibility.
+    ///      Verify against: https://github.com/pendle-finance/pendle-core-v2-public
+    ///
     /// @dev Handles all add/removeLiquidity* selectors.
     ///      All liquidity functions have (address receiver, address market, ...) as their
     ///      first two parameters, followed by a uint256 amount in position [2] for most
     ///      variants, or a TokenInput/TokenOutput struct in position [2] for dual-token
     ///      and single-token variants.
+    ///
+    /// @dev NOTE: For removeLiquidity selectors, `maxAmountPerTx` is enforced against
+    ///      `netLpToRemove` (LP token units), NOT underlying token units.
+    ///      Operators MUST set maxAmountPerTx in LP token denomination for these selectors.
     function _evalLiquidity(
         bytes calldata txData,
         Slot storage s,
@@ -413,8 +423,8 @@ contract SharedPendlePermission is BaseSharedPermission {
     }
 
     /// @dev Handles redeemDueInterestAndRewards(address user, address[] sys, address[] yts, address[] markets).
-    ///      Only checks that the user field equals ctx.account — no market/amount validation
-    ///      needed since claiming only moves rewards belonging to the Safe itself.
+    ///      Checks that the user field equals ctx.account and that every market in the
+    ///      markets array is in the account's allowlist.
     function _evalClaim(
         bytes calldata txData,
         Slot storage s,
@@ -423,7 +433,14 @@ contract SharedPendlePermission is BaseSharedPermission {
         if (!s.allowClaimYield) return false;
         if (txData.length < 36) return false; // 4 + 32 (user address word)
 
-        address user = abi.decode(txData[4:36], (address));
-        return user == account;
+        // redeemDueInterestAndRewards(address user, address[] sys, address[] yts, address[] markets)
+        // Decode all four parameters; validate user and each market entry.
+        (address user,, , address[] memory markets) =
+            abi.decode(txData[4:], (address, address[], address[], address[]));
+        if (user != account) return false;
+        for (uint256 i; i < markets.length; i++) {
+            if (!isAllowedMarket[account][markets[i]]) return false;
+        }
+        return true;
     }
 }

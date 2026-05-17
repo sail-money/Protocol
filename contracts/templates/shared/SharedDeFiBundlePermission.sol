@@ -85,8 +85,11 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     mapping(address account => mapping(address => bool)) public isTransferRecipient;
     mapping(address account => mapping(address => bool)) public isTransferToken;
 
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     error SlippageBpsTooLarge(uint256 bps);
     error LtvBpsTooLarge(uint256 bps);
+    error AllowlistTooLong();
 
     constructor(address _kernel)
         BaseSharedPermission(_kernel, "SharedDeFiBundlePermission", "1")
@@ -136,6 +139,9 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     }
 
     function _applySwap(address account, SwapConfig memory cfg) internal {
+        if (cfg.routers.length  > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (cfg.tokensIn.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (cfg.tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         SwapConfig storage s = _swap[account];
         for (uint256 i; i < s.routers.length; i++)   isSwapRouter[account][s.routers[i]]     = false;
         for (uint256 i; i < s.tokensIn.length; i++)  isSwapTokenIn[account][s.tokensIn[i]]   = false;
@@ -149,6 +155,8 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     }
 
     function _applyBorrow(address account, BorrowConfig memory cfg) internal {
+        if (cfg.protocols.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (cfg.assets.length    > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         BorrowConfig storage s = _borrow[account];
         for (uint256 i; i < s.protocols.length; i++) isBorrowProtocol[account][s.protocols[i]] = false;
         for (uint256 i; i < s.assets.length; i++)    isBorrowAsset[account][s.assets[i]]       = false;
@@ -160,6 +168,8 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     }
 
     function _applyTransfer(address account, TransferConfig memory cfg) internal {
+        if (cfg.recipients.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (cfg.tokens.length     > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         TransferConfig storage s = _transfer[account];
         for (uint256 i; i < s.recipients.length; i++) isTransferRecipient[account][s.recipients[i]] = false;
         for (uint256 i; i < s.tokens.length; i++)     isTransferToken[account][s.tokens[i]]         = false;
@@ -252,7 +262,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
         uint256 amountOutMin
     ) internal view returns (bool) {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
-        (uint256 price, uint8 dec) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        (uint256 price, uint8 dec,) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
@@ -299,15 +309,21 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
+        // Normalise colValue to whole units by dividing out its decimal precision.
+        // Without this, a collateral oracle returning e.g. 1e8 (in 8-dec units = $1)
+        // would produce a colNorm of 1e8 instead of 1, inflating LTV denominators.
+        uint256 colNorm = colValue / (10 ** uint256(colDec));
+        if (colNorm == 0) return false;
+
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
+        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
         return ltvBps <= s.maxLtvBps;
     }
 
@@ -325,7 +341,9 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
 
         // TRANSFERFROM_SELECTOR
         if (txData.length < LEN_TRANSFERFROM) return false;
-        (, address tfTo, uint256 tfAmount) = abi.decode(txData[4:], (address, address, uint256));
+        (address tfFrom, address tfTo, uint256 tfAmount) = abi.decode(txData[4:], (address, address, uint256));
+        // `from` must be the Safe itself to prevent pulling tokens from arbitrary approvers.
+        if (tfFrom != ctx.account) return false;
         if (tfAmount > cfg.maxAmountPerTx) return false;
         return isTransferRecipient[ctx.account][tfTo];
     }

@@ -63,7 +63,9 @@ abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
 
-        uint256 nonce = configNonces[account]++;
+        // Read nonce before incrementing — nonce is incremented AFTER signature verification
+        // succeeds, preventing a failed verify from consuming the nonce.
+        uint256 nonce = configNonces[account];
         bytes32 paramsHash = keccak256(params);
         bytes32 structHash = keccak256(abi.encode(
             CONFIGURE_TYPEHASH,
@@ -77,6 +79,8 @@ abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
         (address permSigner,,,) = kernel.configs(account);
         if (!_verifySig(permSigner, digest, sig)) revert InvalidSignature();
 
+        // Increment nonce only after successful verification
+        configNonces[account] = nonce + 1;
         _applyConfig(account, params);
         isConfigured[account] = true;
         emit Configured(account, nonce, paramsHash);

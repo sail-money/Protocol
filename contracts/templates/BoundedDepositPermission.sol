@@ -23,7 +23,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         `isAllowedTarget` allowlist. Operators must ensure each allowed target
 ///         only accepts tokens they intend to permit.
 /// @custom:security-contact security@sail.money
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract BoundedDepositPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
