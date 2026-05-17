@@ -30,6 +30,8 @@ contract StandardFeePolicyTest is Test {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     function _initAccount(address acct, uint256 nav) internal {
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(acct, nav);
         vm.prank(KERNEL);
         policy.recordCollection(acct, 0, nav);
     }
@@ -148,6 +150,7 @@ contract StandardFeePolicyTest is Test {
 
     function test_ComputeFee_ManagementFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
         vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         (uint256 grossFee,,) = p.computeFee(ACCOUNT, NAV);
@@ -208,6 +211,7 @@ contract StandardFeePolicyTest is Test {
 
     function test_ComputeFee_PerfFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(MGMT_BPS, 0, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
         vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         uint256 higherNav = NAV * 2;
@@ -232,15 +236,30 @@ contract StandardFeePolicyTest is Test {
 
     // ── recordCollection: initialisation ─────────────────────────────────────
 
-    function test_RecordCollection_RevertsOnZeroInitialNav() public {
+    function test_RecordCollection_RevertsWhenHWMNotSeeded() public {
         vm.prank(KERNEL);
-        vm.expectRevert(StandardFeePolicy.ZeroInitialNav.selector);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
         policy.recordCollection(ACCOUNT, 0, 0);
+    }
+
+    function test_SeedHighWaterMark_RevertsOnZeroNav() public {
+        vm.prank(FEE_MANAGER);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
+        policy.seedHighWaterMark(ACCOUNT, 0);
+    }
+
+    function test_SeedHighWaterMark_RevertsOnAlreadySeeded() public {
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+        vm.prank(FEE_MANAGER);
+        vm.expectRevert(StandardFeePolicy.AlreadySeeded.selector);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
     }
 
     function test_RecordCollection_ZeroNavAfterInitDoesNotRevert() public {
         // Zero nav is only forbidden on the FIRST call (init). Subsequent calls are fine.
         _initAccount(ACCOUNT, NAV);
+        vm.warp(block.timestamp + 1 days + 1);
         vm.prank(KERNEL);
         policy.recordCollection(ACCOUNT, 0, 0); // nav drops to 0 after init — no revert
     }
@@ -256,9 +275,13 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+
         vm.expectEmit(true, false, false, true, address(policy));
         emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
-        _initAccount(ACCOUNT, NAV);
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, 0, NAV);
     }
 
     function test_RecordCollection_FirstCallReturnsFeeZeroOnNextCompute() public {

@@ -68,6 +68,14 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission {
     bytes4 private constant AERO_REMOVE_LIQ     = bytes4(keccak256("removeLiquidity(address,address,bool,uint256,uint256,uint256,address,uint256)"));
     bytes4 private constant AERO_REMOVE_LIQ_ETH = bytes4(keccak256("removeLiquidityETH(address,bool,uint256,uint256,uint256,address,uint256)"));
 
+    // ── Constants ─────────────────────────────────────────────────────────────
+
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
+    // ── Errors ────────────────────────────────────────────────────────────────
+
+    error AllowlistTooLong();
+
     // ── Per-account config ────────────────────────────────────────────────────
 
     struct Slot {
@@ -111,6 +119,9 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission {
             bool allowBurn
         ) = abi.decode(params, (address[], address[], uint128, bool, bool, bool, bool, bool));
 
+        if (allowedTargets.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (allowedTokens.length  > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+
         // Clear previous target and token allowlists for this account
         Slot storage s = _slots[account];
         for (uint256 i; i < s.allowedTargets.length; i++) {
@@ -153,7 +164,7 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission {
         if (sel == COLLECT)                             return _evalCollect(txData, s, ctx.account);
         if (sel == BURN)                                return s.allowBurn;
         if (sel == AERO_ADD_LIQ)                        return _evalAeroAdd(txData, s, ctx.account);
-        if (sel == AERO_ADD_LIQ_ETH)                    return _evalAeroAddETH(txData, s, ctx.account);
+        if (sel == AERO_ADD_LIQ_ETH)                    return _evalAeroAddETH(txData, s, ctx.account, ctx.value);
         if (sel == AERO_REMOVE_LIQ)                     return _evalAeroRemove(txData, s, ctx.account);
         if (sel == AERO_REMOVE_LIQ_ETH)                 return _evalAeroRemoveETH(txData, s, ctx.account);
 
@@ -301,7 +312,8 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission {
     function _evalAeroAddETH(
         bytes calldata txData,
         Slot storage s,
-        address account
+        address account,
+        uint256 ethValue
     ) internal view returns (bool) {
         if (!s.allowMint) return false;
         if (txData.length < 228) return false; // 4 + 7 x 32
@@ -311,6 +323,7 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission {
 
         if (!isAllowedToken[account][token])               return false;
         if (amountTokenDesired > s.maxAmountPerTokenPerTx) return false;
+        if (ethValue > s.maxAmountPerTokenPerTx)           return false;
         if (to != account)                                 return false;
         return true;
     }

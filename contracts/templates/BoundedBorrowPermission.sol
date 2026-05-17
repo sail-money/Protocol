@@ -31,7 +31,12 @@ import {Math}                 from "@openzeppelin/contracts/utils/math/Math.sol"
 ///         Oracle decimal values above 77 are not supported — 10^78 overflows uint256.
 ///         The LTV check skips such oracles (treats them as unset).
 /// @custom:security-contact security@sail.money
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract BoundedBorrowPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -165,12 +170,12 @@ contract BoundedBorrowPermission is IPermission {
         // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
         // consistent. A mismatch would silently produce an off-by-orders-of-magnitude LTV.
         if (_collateralOracle != address(0) && _borrowOracle != address(0)) {
-            try IOracle(_collateralOracle).getPrice(address(0), address(0)) returns (uint256, uint8 colDec) {
+            try IOracle(_collateralOracle).getPrice(address(0), address(0)) returns (uint256, uint8 colDec, uint256) {
                 // If the collateral oracle probe succeeds, require the borrow oracle to also
                 // respond so we can verify decimal alignment. A revert here means the borrow
                 // oracle doesn't support address(0) probing — replace with a real asset address
                 // or use a wrapper oracle that accepts zero-address inputs.
-                (, uint8 borDec) = IOracle(_borrowOracle).getPrice(address(0), address(0));
+                (, uint8 borDec,) = IOracle(_borrowOracle).getPrice(address(0), address(0));
                 if (colDec != borDec) revert OracleDecimalMismatch(colDec, borDec);
             } catch {}
             // If the collateral oracle itself reverts on the zero-address probe, the check is
@@ -190,6 +195,20 @@ contract BoundedBorrowPermission is IPermission {
     // -------------------------------------------------------------------------
     // Setters
     // -------------------------------------------------------------------------
+
+    /// @notice Add or remove a lending protocol from the allowed-protocols list.
+    /// @param  protocol  Address of the lending protocol.
+    /// @param  allowed   True to permit borrows from this protocol, false to revoke.
+    function setAllowedProtocol(address protocol, bool allowed) external onlyPermissionSigner {
+        isAllowedProtocol[protocol] = allowed;
+    }
+
+    /// @notice Add or remove an asset from the allowed-assets list.
+    /// @param  asset    Address of the ERC-20 / cToken asset.
+    /// @param  allowed  True to permit borrows of this asset, false to revoke.
+    function setAllowedAsset(address asset, bool allowed) external onlyPermissionSigner {
+        isAllowedAsset[asset] = allowed;
+    }
 
     /// @notice Update the per-transaction borrow cap.
     /// @param  newMax New cap value (inclusive). Setting to 0 blocks all non-zero borrows.
@@ -273,8 +292,8 @@ contract BoundedBorrowPermission is IPermission {
     function _ltvCheck(address asset, uint256 amount, address account) internal view returns (bool) {
         if (collateralOracle == address(0) || borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec) = IOracle(collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec) = IOracle(borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec,) = IOracle(collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec,) = IOracle(borrowOracle).getPrice(asset, address(0));
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;

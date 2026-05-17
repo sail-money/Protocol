@@ -73,7 +73,9 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
 
         if (ctx.selector == TRANSFERFROM_SELECTOR) {
             if (txData.length < LEN_TRANSFERFROM) return false;
-            (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            (address from, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // `from` must be the Safe itself to prevent pulling tokens from arbitrary approvers.
+            if (from != ctx.account) return false;
             if (amount > s.maxAmountPerTx) return false;
             return isAllowedRecipient[ctx.account][to];
         }

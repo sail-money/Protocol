@@ -24,7 +24,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         `isAllowedTokenIn`/`isAllowedTokenOut` — only path[0] and path[last] are
 ///         checked. Operators must ensure the full path is acceptable.
 /// @custom:security-contact security@sail.money
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract BoundedSwapPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -261,7 +266,7 @@ contract BoundedSwapPermission is IPermission {
     ) internal view returns (bool) {
         if (priceOracle == address(0) || maxSlippageBps == 0) return true;
 
-        (uint256 price, uint8 dec) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
+        (uint256 price, uint8 dec,) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
         // 10^78 overflows uint256; treat as unsupported oracle configuration → deny.
         if (dec > 77) return false;

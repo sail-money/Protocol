@@ -398,8 +398,8 @@ contract MockOracle is IOracle {
         _dec[keccak256(abi.encode(a, b))]   = d;
     }
 
-    function getPrice(address a, address b) external view returns (uint256, uint8) {
+    function getPrice(address a, address b) external view returns (uint256, uint8, uint256) {
         bytes32 k = keccak256(abi.encode(a, b));
-        return (_price[k], _dec[k]);
+        return (_price[k], _dec[k], block.timestamp);
     }
 }

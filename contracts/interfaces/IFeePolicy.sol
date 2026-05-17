@@ -9,6 +9,13 @@ pragma solidity 0.8.26;
 ///         The kernel enforces `grossFee <= maxFee` where `maxFee` is returned by
 ///         `computeFee`; this bounds extraction to what the policy authorises.
 interface IFeePolicy {
+    /// @notice Return the address that receives the manager's net fee share.
+    /// @dev    The kernel calls this to determine the fee recipient, ignoring any
+    ///         caller-supplied address. Prevents a compromised manager from redirecting
+    ///         fees to an arbitrary address.
+    /// @return The pre-approved recipient address for manager fee proceeds.
+    function feeRecipient() external view returns (address);
+
     /// @notice Compute the maximum collectable fee for an account at a given NAV.
     /// @dev    Pure computation — must not modify state. Called by the kernel before
     ///         transferring funds to enforce the fee ceiling. If `lastCollectionTimestamp`
