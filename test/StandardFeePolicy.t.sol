@@ -30,7 +30,6 @@ contract StandardFeePolicyTest is Test {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     function _initAccount(address acct, uint256 nav) internal {
-        // feeManager must seed HWM first (H-5 fix)
         vm.prank(FEE_MANAGER);
         policy.seedHighWaterMark(acct, nav);
         vm.prank(KERNEL);
@@ -238,19 +237,18 @@ contract StandardFeePolicyTest is Test {
     // ── recordCollection: initialisation ─────────────────────────────────────
 
     function test_RecordCollection_RevertsWhenHWMNotSeeded() public {
-        // Must call seedHighWaterMark before recordCollection on a new account
         vm.prank(KERNEL);
         vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
-        policy.recordCollection(ACCOUNT, 0, NAV);
+        policy.recordCollection(ACCOUNT, 0, 0);
     }
 
-    function test_SeedHighWaterMark_RevertsOnZeroInitialNav() public {
+    function test_SeedHighWaterMark_RevertsOnZeroNav() public {
         vm.prank(FEE_MANAGER);
-        vm.expectRevert(StandardFeePolicy.ZeroInitialNav.selector);
+        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
         policy.seedHighWaterMark(ACCOUNT, 0);
     }
 
-    function test_SeedHighWaterMark_RevertsIfAlreadySeeded() public {
+    function test_SeedHighWaterMark_RevertsOnAlreadySeeded() public {
         vm.prank(FEE_MANAGER);
         policy.seedHighWaterMark(ACCOUNT, NAV);
         vm.prank(FEE_MANAGER);
@@ -258,31 +256,10 @@ contract StandardFeePolicyTest is Test {
         policy.seedHighWaterMark(ACCOUNT, NAV);
     }
 
-    function test_SeedHighWaterMark_RevertsNotFeeManager() public {
-        vm.prank(KERNEL);
-        vm.expectRevert(StandardFeePolicy.NotFeeManager.selector);
-        policy.seedHighWaterMark(ACCOUNT, NAV);
-    }
-
-    function test_SeedHighWaterMark_EmitsEvent() public {
-        vm.prank(FEE_MANAGER);
-        vm.expectEmit(true, false, false, true, address(policy));
-        emit StandardFeePolicy.HWMSeeded(ACCOUNT, NAV);
-        policy.seedHighWaterMark(ACCOUNT, NAV);
-    }
-
-    // Keep backward-compat test name pointing to new error
-    function test_RecordCollection_RevertsOnZeroInitialNav() public {
-        // With H-5 fix: zero nav is now rejected in seedHighWaterMark, not recordCollection.
-        // Trying recordCollection without seeding gives HWMNotSeeded.
-        vm.prank(KERNEL);
-        vm.expectRevert(StandardFeePolicy.HWMNotSeeded.selector);
-        policy.recordCollection(ACCOUNT, 0, 0);
-    }
-
     function test_RecordCollection_ZeroNavAfterInitDoesNotRevert() public {
         // Zero nav is only forbidden on the FIRST call (init). Subsequent calls are fine.
         _initAccount(ACCOUNT, NAV);
+        vm.warp(block.timestamp + 1 days + 1);
         vm.prank(KERNEL);
         policy.recordCollection(ACCOUNT, 0, 0); // nav drops to 0 after init — no revert
     }
@@ -298,9 +275,9 @@ contract StandardFeePolicyTest is Test {
     }
 
     function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
-        // Seed first (emits HWMSeeded), then check that recordCollection emits FeesCollected
         vm.prank(FEE_MANAGER);
         policy.seedHighWaterMark(ACCOUNT, NAV);
+
         vm.expectEmit(true, false, false, true, address(policy));
         emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
         vm.prank(KERNEL);

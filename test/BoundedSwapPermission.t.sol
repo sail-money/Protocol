@@ -20,10 +20,10 @@ contract MockOracle is IOracle {
     }
 
     function getPrice(address base, address quote)
-        external view returns (uint256 price, uint8 decimals)
+        external view returns (uint256 price, uint8 decimals, uint256 updatedAt)
     {
         PriceData memory pd = _prices[base][quote];
-        return (pd.price, pd.decimals);
+        return (pd.price, pd.decimals, block.timestamp);
     }
 }
 

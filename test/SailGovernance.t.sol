@@ -322,22 +322,42 @@ contract SailGovernanceTest is Test {
         assertEq(gov.pendingGovernance(), BOB);
     }
 
+    /// @dev Helper: rotate timelock roles from TEAM to `newGov`, then call acceptGovernance.
+    ///      Required by the M-1 fix: acceptGovernance now requires the candidate already
+    ///      holds PROPOSER_ROLE on the timelock (i.e., rotateTimelockRoles was called first).
+    function _rotateAndAccept(address newGov) internal {
+        TimelockController tl = gov.timelock();
+        bytes32 proposerRole = tl.PROPOSER_ROLE();
+        bytes32 executorRole = tl.EXECUTOR_ROLE();
+        vm.prank(address(tl));
+        tl.grantRole(proposerRole, newGov);
+        vm.prank(address(tl));
+        tl.grantRole(executorRole, newGov);
+        vm.prank(newGov);
+        gov.acceptGovernance();
+    }
+
     function test_AcceptGovernance_TransfersControl() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
-        vm.prank(ALICE);
-        gov.acceptGovernance();
+        _rotateAndAccept(ALICE);
         assertEq(gov.governance(), ALICE);
     }
 
     function test_AcceptGovernance_ClearsPendingGovernance() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
-        vm.prank(ALICE);
-        gov.acceptGovernance();
+        _rotateAndAccept(ALICE);
         assertEq(gov.pendingGovernance(), address(0));
     }
 
     function test_AcceptGovernance_EmitsEvent() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
+        TimelockController tl = gov.timelock();
+        bytes32 proposerRole = tl.PROPOSER_ROLE();
+        bytes32 executorRole = tl.EXECUTOR_ROLE();
+        vm.prank(address(tl));
+        tl.grantRole(proposerRole, ALICE);
+        vm.prank(address(tl));
+        tl.grantRole(executorRole, ALICE);
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(TEAM, ALICE);
         vm.prank(ALICE);
@@ -357,10 +377,17 @@ contract SailGovernanceTest is Test {
         gov.acceptGovernance();
     }
 
+    function test_AcceptGovernance_RevertsIfRolesNotRotated() public {
+        _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
+        // ALICE doesn't have PROPOSER_ROLE yet — rotateTimelockRoles not called
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.RolesNotYetRotated.selector);
+        gov.acceptGovernance();
+    }
+
     function test_TwoStep_OldGovernanceCannotProposeAfterAccept() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
-        vm.prank(ALICE);
-        gov.acceptGovernance();
+        _rotateAndAccept(ALICE);
         // Old governance (TEAM) no longer has PROPOSER_ROLE — timelock call would revert
         // Direct call reverts with NotTimelock
         vm.prank(TEAM);
@@ -370,10 +397,8 @@ contract SailGovernanceTest is Test {
 
     function test_TwoStep_NewGovernanceCanPropose() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
-        vm.prank(ALICE);
-        gov.acceptGovernance();
-        // ALICE is now governance but TEAM still has timelock roles; test that contract
-        // correctly stores ALICE as governance — acceptGovernance is the key assertion
+        _rotateAndAccept(ALICE);
+        // ALICE is now governance with full timelock roles
         assertEq(gov.governance(), ALICE);
     }
 

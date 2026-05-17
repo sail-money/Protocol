@@ -20,10 +20,6 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
     uint256 private constant LEN_TRANSFER     = 68;
     uint256 private constant LEN_TRANSFERFROM = 100;
 
-    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
-
-    error AllowlistTooLong();
-
     struct Slot {
         address[] recipients;
         address[] tokens;
@@ -51,9 +47,6 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
         (address[] memory recipients, address[] memory tokens, uint256 maxAmountPerTx) =
             abi.decode(params, (address[], address[], uint256));
 
-        if (recipients.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
-        if (tokens.length     > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
-
         Slot storage s = _slots[account];
         for (uint256 i; i < s.recipients.length; i++) isAllowedRecipient[account][s.recipients[i]] = false;
         for (uint256 i; i < s.tokens.length; i++)     isAllowedToken[account][s.tokens[i]]         = false;
@@ -80,7 +73,9 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
 
         if (ctx.selector == TRANSFERFROM_SELECTOR) {
             if (txData.length < LEN_TRANSFERFROM) return false;
-            (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            (address from, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // `from` must be the Safe itself to prevent pulling tokens from arbitrary approvers.
+            if (from != ctx.account) return false;
             if (amount > s.maxAmountPerTx) return false;
             return isAllowedRecipient[ctx.account][to];
         }

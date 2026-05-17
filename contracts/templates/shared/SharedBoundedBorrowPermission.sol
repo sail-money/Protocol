@@ -40,10 +40,7 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission {
     mapping(address account => mapping(address => bool)) public isAllowedProtocol;
     mapping(address account => mapping(address => bool)) public isAllowedAsset;
 
-    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
-
     error LtvBpsTooLarge(uint256 bps);
-    error AllowlistTooLong();
 
     constructor(address _kernel)
         BaseSharedPermission(_kernel, "SharedBoundedBorrowPermission", "1")
@@ -76,9 +73,6 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission {
         ) = abi.decode(params, (address[], address[], uint256, uint256, address, address));
 
         if (maxLtvBps > 10_000) revert LtvBpsTooLarge(maxLtvBps);
-
-        if (protocols.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
-        if (assets.length    > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.protocols.length; i++) isAllowedProtocol[account][s.protocols[i]] = false;
@@ -142,17 +136,15 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission {
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 
         if (colDec > 77 || borDec > 77) return false;
+        if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
-        uint256 colNorm = colValue / (10 ** uint256(colDec));
-        if (colNorm == 0) return false;
-
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
+        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
         return ltvBps <= s.maxLtvBps;
     }
 }
