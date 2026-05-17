@@ -330,7 +330,7 @@ The protocol has not yet been externally audited. An external audit is planned b
 **Group 1 — Trusted core (~905 SLOC):**  
 `SailKernel`, `SailGovernance`, `PermissionFactory`, `BaseSharedPermission`, and all interfaces.
 
-**Group 2 — Shared templates and policies (~670 SLOC):**  
+**Group 2 — Shared templates and policies (~1,130 SLOC):**  
 The six shared templates and `StandardFeePolicy`.
 
 The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
@@ -348,7 +348,7 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 | Dimension | Sail Protocol |
 |---|---|
 | Trusted core (kernel + governance + factory + interfaces + base) | 905 SLOC |
-| Total contracts in v1 audit scope | ~1,575 SLOC |
+| Total contracts in v1 audit scope | ~2,035 SLOC |
 | Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI` |
 | Permission evaluation | `staticcall` with per-permission gas cap |
 | Custody model | Self-custodial via Gnosis Safe |
