@@ -12,6 +12,15 @@ Sail is currently in audit-prep state. The protocol has not been externally audi
 
 ---
 
+## Documentation
+
+The protocol whitepaper covers the full design rationale, roles, permission model, fee mechanics, governance, and security properties:
+
+- **[Sail Protocol Whitepaper (PDF)](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf)**
+- LaTeX source: [`docs/whitepaper/Sail_Protocol_Whitepaper.tex`](./docs/whitepaper/Sail_Protocol_Whitepaper.tex)
+
+---
+
 ## Summary
 
 The core does five things:
