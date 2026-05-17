@@ -67,13 +67,13 @@ Governance is a contract initially held by the team multisig, transferable to a 
 
 | Component | Role | SLOC |
 |---|---|---|
-| `SailKernel` | Trusted execution core. Account registration, permission registry, EIP-712 signature verification, manager dispatch via Safe modules, fee collection, principal tracking. | 495 |
-| `SailGovernance` | Protocol parameter governance with 48-hour OpenZeppelin TimelockController, two-step transfer, emergency pause with 72h auto-expiry. | 112 |
-| `PermissionFactory` | Untrusted UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 131 |
-| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 85 |
-| Interfaces (`IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`) | Cross-contract API surface. | 43 |
+| `SailKernel` | Trusted execution core. Account registration, permission registry, EIP-712 signature verification, manager dispatch via Safe modules, fee collection, principal tracking. | 499 |
+| `SailGovernance` | Protocol parameter governance with 48-hour OpenZeppelin TimelockController, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 139 |
+| `PermissionFactory` | Untrusted UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
+| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 86 |
+| Interfaces (`IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`) | Cross-contract API surface. | 44 |
 
-**Trusted core total:** 866 SLOC.
+**Trusted core total:** 905 SLOC.
 
 ---
 
@@ -207,6 +207,8 @@ This risk exists in any product built on Sail that uses `StandardFeePolicy` and 
 
 Sail Protocol v1 is designed for **self-managed SMAs** — developers, AI agent builders, and crypto-native users operating Safes with their own capital. In this configuration the manager-attested NAV trust model is irrelevant because the manager and the LP are the same party.
 
+The kernel enforces a governance-managed allowlist of trusted Safe factory and singleton addresses, preventing a compromised manager from registering a backdoored Safe implementation.
+
 ### Future — Sail Marketplace
 
 The Sail Marketplace, a forthcoming curation layer, will provide audited fee policy templates with specific LP protection guarantees suited to different strategy types: `YieldFeePolicy` (trustless NAV via on-chain position adapters), `TradingFeePolicy` (principal-bounded fees, performance crystallized on withdrawal), `AttestedNAVFeePolicy` (independent attester co-signature on NAV updates), and others. Marketplace-listed managers will pay Fee 2 in exchange for discovery, audit guarantees, and the Marketplace's curation.
@@ -232,7 +234,7 @@ Permission templates that perform price-bounded checks use `IOracle`:
 
 ```solidity
 function getPrice(address base, address quote) 
-    external view returns (uint256 price, uint8 decimals);
+    external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
 ```
 
 Two distinct calling conventions exist in the codebase. Integrators must understand the difference:
@@ -240,6 +242,8 @@ Two distinct calling conventions exist in the codebase. Integrators must underst
 1. **Token-pair price oracle.** Used by `SharedBoundedSwapPermission` and the borrow-asset side of LTV checks. `base` and `quote` are ERC-20 token addresses. Standard adapters (Chainlink, Uniswap TWAP, Pyth) satisfy this convention directly.
 
 2. **Account collateral value oracle.** Used by `SharedBoundedBorrowPermission` and `SharedDeFiBundlePermission` for the collateral side of LTV checks. `base` is the Safe account address; the oracle adapter returns the aggregate value of that account's collateral positions across the protocols it holds. **Standard token-price oracles do not satisfy this convention.** A custom adapter must be deployed.
+
+The third return value, `updatedAt`, is the Unix timestamp of the underlying price observation. Oracle adapters SHOULD enforce a maximum acceptable age on `updatedAt` and revert (or return a sentinel) when the source feed is stale, so that downstream permissions reject swaps and borrows priced from outdated data.
 
 Reference adapter implementations for common protocol combinations are planned. Until they ship, integrators using borrow-related permissions are responsible for implementing the account collateral value oracle for their specific position topology.
 
@@ -313,7 +317,7 @@ forge build
 forge test
 ```
 
-Current test count: 864+ across 21 test files.
+Current test count: 965+ across 23 test files (including the red-team adversarial suite under `test/redteam/`).
 
 ---
 
@@ -323,13 +327,15 @@ The protocol has not yet been externally audited. An external audit is planned b
 
 ### Audit scope (planned)
 
-**Group 1 — Trusted core (~880 SLOC):**  
+**Group 1 — Trusted core (~905 SLOC):**  
 `SailKernel`, `SailGovernance`, `PermissionFactory`, `BaseSharedPermission`, and all interfaces.
 
 **Group 2 — Shared templates and policies (~670 SLOC):**  
 The six shared templates and `StandardFeePolicy`.
 
 The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
+
+Red-team adversarial test suite covering the specific attack vectors identified in the pre-audit security review: `test/redteam/RedTeam.t.sol` and `test/redteam/RedTeam2.t.sol`.
 
 ### Reporting vulnerabilities
 
@@ -341,13 +347,13 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 
 | Dimension | Sail Protocol |
 |---|---|
-| Trusted core (kernel + governance + factory + interfaces + base) | 866 SLOC |
-| Total contracts in v1 audit scope | ~1,550 SLOC |
+| Trusted core (kernel + governance + factory + interfaces + base) | 905 SLOC |
+| Total contracts in v1 audit scope | ~1,575 SLOC |
 | Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI` |
 | Permission evaluation | `staticcall` with per-permission gas cap |
 | Custody model | Self-custodial via Gnosis Safe |
 | Default fee 2 at launch | 0% |
-| Test count | 864+ |
+| Test count | 965+ |
 
 ---
 
