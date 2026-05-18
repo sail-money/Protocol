@@ -46,30 +46,27 @@ Governance is a contract initially held by the team multisig, transferable to a 
 ## Architecture
 
 ```
-                        ┌─────────────────────┐
-                        │   Permission Signer │
-                        │   signs EIP-712     │
-                        │   mandate updates   │
-                        └──────────┬──────────┘
-                                   │
-                                   ▼
-   ┌──────────┐  dispatch    ┌──────────────────┐  staticcall    ┌─────────────────┐
-   │ Manager  │─────────────▶│    SailKernel    │───────────────▶│  Permissions    │
-   │ (agent / │              │  (trusted core)  │   evaluate()   │  (user-deployed)│
-   │  human / │              │                  │                └─────────────────┘
-   │ multisig)│              │  - account reg   │
-   └──────────┘              │  - perm registry │
-                             │  - dispatch      │  execTransaction
-                             │  - fee accounting│   FromModule       ┌──────────┐
-                             │                  │──────────────────▶│   Safe   │
-                             └──────────┬───────┘                    │ (custody)│
-                                        │                            └──────────┘
-                                        │ collectFees
-                                        ▼
-                             ┌──────────────────┐
-                             │   Fee Policy     │
-                             │ (user-deployed)  │
-                             └──────────────────┘
+   ┌────────────────────┐                          ┌────────────────────┐
+   │  Permission Signer │                          │       Manager      │
+   │                    │                          │ agent/human/msig   │
+   └─────────┬──────────┘                          └─────────┬──────────┘
+             │                                               │
+             │ EIP-712 mandate                               │ dispatch
+             ▼                                               ▼
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                            SailKernel                               │
+   │                          (trusted core)                             │
+   │                                                                     │
+   │      · account registration        · manager dispatch               │
+   │      · permission registry         · fee collection                 │
+   └─────────┬───────────────────────┬───────────────────────┬───────────┘
+             │                       │                       │
+             │ staticcall            │ execModule            │ collectFees
+             ▼                       ▼                       ▼
+   ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
+   │     Permissions    │  │         Safe       │  │     Fee Policy     │
+   │   (user-deployed)  │  │      (custody)     │  │   (user-deployed)  │
+   └────────────────────┘  └────────────────────┘  └────────────────────┘
 ```
 
 ### Components
