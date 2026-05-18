@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
@@ -45,6 +45,8 @@ contract PermissionFactory {
     event Reconfigured(address indexed account, address indexed template, bytes32 paramsHash);
     event BatchAttached(address indexed account, address[] templates);
     event Replaced(address indexed account, address indexed oldTemplate, address indexed newTemplate);
+    event Detached(address indexed account, address indexed template);
+    event BatchDetached(address indexed account, address[] templates);
 
     error LengthMismatch();
     error RefundFailed();
@@ -55,7 +57,12 @@ contract PermissionFactory {
         kernel = ISailKernelFactory(_kernel);
     }
 
-    receive() external payable {}
+    /// @dev Accept ETH only from the kernel (excess refund from registration fee).
+    ///      Rejecting ETH from arbitrary senders prevents balance inflation attacks
+    ///      that could manipulate the `_refundExcess` accounting.
+    receive() external payable {
+        if (msg.sender != address(kernel)) revert RefundFailed();
+    }
 
     // -------------------------------------------------------------------------
     // attach: configure template + register with kernel, one tx
@@ -159,6 +166,7 @@ contract PermissionFactory {
 
     function detach(address account, address template, bytes calldata kernelSig) external {
         kernel.revokePermission(account, template, kernelSig);
+        emit Detached(account, template);
     }
 
     function detachBatch(
@@ -168,6 +176,7 @@ contract PermissionFactory {
         bytes calldata kernelBatchSig
     ) external {
         kernel.revokePermissions(account, templates, kernelDeadline, kernelBatchSig);
+        emit BatchDetached(account, templates);
     }
 
     // -------------------------------------------------------------------------

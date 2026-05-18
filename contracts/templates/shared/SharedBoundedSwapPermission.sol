@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
@@ -182,7 +182,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
         uint256 amountOutMin
     ) internal view returns (bool) {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
-        (uint256 price, uint8 dec) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        (uint256 price, uint8 dec,) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);

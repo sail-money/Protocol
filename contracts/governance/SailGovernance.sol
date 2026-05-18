@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
@@ -47,13 +47,9 @@ contract SailGovernance {
     /// @dev    Lowercase name signals mutable storage, not a constant.
     uint256 public currentProtocolCutBps;
 
-    /// @notice Flat component of the permission registration fee, in wei.
-    ///         Applied regardless of permission bytecode size.
-    uint256 public baseFee;
-
-    /// @notice Per-byte contribution to the permission registration fee, in wei.
-    ///         Final fee = min(baseFee + complexityRate × codeSize, MAX_PERMISSION_FEE_WEI).
-    uint256 public complexityRate;
+    /// @notice Flat fee charged per permission registration, in wei.
+    ///         Bounded by MAX_PERMISSION_FEE_WEI.
+    uint256 public permissionRegistrationFee;
 
     /// @notice Live limit on the number of permissions per account.
     ///         Governance may adjust this between 1 and MAX_PERMISSIONS_CAP (100).
@@ -74,7 +70,14 @@ contract SailGovernance {
     address public pendingGovernance;
 
     /// @notice Address that can pause the kernel in an emergency (no timelock).
-    address public immutable emergencyAdmin;
+    ///         Can be rotated by the timelock via `rotateEmergencyAdmin`.
+    address public emergencyAdmin;
+
+    /// @notice Timestamp of the last successful `pause()` call; 0 = never paused.
+    uint256 public lastPauseTimestamp;
+
+    /// @dev Minimum time between consecutive `pause()` calls.
+    uint256 public constant PAUSE_COOLDOWN = 72 hours;
 
     // -------------------------------------------------------------------------
     // Timelock — 48-hour delay on all parameter changes
@@ -82,6 +85,44 @@ contract SailGovernance {
 
     /// @notice On-chain timelock enforcing a 48-hour delay on all parameter changes.
     TimelockController public immutable timelock;
+
+    // -------------------------------------------------------------------------
+    // Trusted Safe factory and singleton allowlists
+    // -------------------------------------------------------------------------
+
+    /// @notice Allowlist of Safe proxy factory contracts trusted by the kernel.
+    ///         Only factories in this mapping may be used in `createAccount`.
+    mapping(address => bool) public trustedSafeFactory;
+
+    /// @notice Allowlist of Safe singleton (implementation) contracts trusted by the kernel.
+    ///         Only singletons in this mapping may be used in `createAccount`.
+    mapping(address => bool) public trustedSafeSingleton;
+
+    /// @notice Emitted when a Safe factory's trusted status changes.
+    /// @param  factory  The factory address.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event SafeFactoryTrusted(address indexed factory, bool trusted);
+
+    /// @notice Emitted when a Safe singleton's trusted status changes.
+    /// @param  singleton  The singleton address.
+    /// @param  trusted    True if added to the allowlist, false if removed.
+    event SafeSingletonTrusted(address indexed singleton, bool trusted);
+
+    /// @notice Add or remove a Safe proxy factory from the trusted allowlist.
+    /// @param  factory  Address of the factory contract.
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedSafeFactory(address factory, bool trusted) external onlyTimelock {
+        trustedSafeFactory[factory] = trusted;
+        emit SafeFactoryTrusted(factory, trusted);
+    }
+
+    /// @notice Add or remove a Safe singleton from the trusted allowlist.
+    /// @param  singleton  Address of the singleton (implementation) contract.
+    /// @param  trusted    True to add to allowlist, false to remove.
+    function setTrustedSafeSingleton(address singleton, bool trusted) external onlyTimelock {
+        trustedSafeSingleton[singleton] = trusted;
+        emit SafeSingletonTrusted(singleton, trusted);
+    }
 
     // -------------------------------------------------------------------------
     // Pause — emergency admin can pause for up to 72 hours
@@ -109,15 +150,10 @@ contract SailGovernance {
     /// @param  newBps New value.
     event ProtocolCutUpdated(uint256 oldBps, uint256 newBps);
 
-    /// @notice Emitted when `baseFee` is updated.
+    /// @notice Emitted when `permissionRegistrationFee` is updated.
     /// @param  oldFee Previous value in wei.
     /// @param  newFee New value in wei.
-    event BaseFeeUpdated(uint256 oldFee, uint256 newFee);
-
-    /// @notice Emitted when `complexityRate` is updated.
-    /// @param  oldRate Previous value in wei per byte.
-    /// @param  newRate New value in wei per byte.
-    event ComplexityRateUpdated(uint256 oldRate, uint256 newRate);
+    event PermissionRegistrationFeeUpdated(uint256 oldFee, uint256 newFee);
 
     /// @notice Emitted when `maxPermissionsPerAccount` is updated.
     /// @param  oldLimit Previous limit.
@@ -130,6 +166,9 @@ contract SailGovernance {
 
     /// @notice Emitted when the emergency admin manually lifts a pause.
     event Unpaused();
+
+    /// @notice Emitted when the emergency admin is rotated via timelock.
+    event EmergencyAdminRotated(address indexed oldAdmin, address indexed newAdmin);
 
     // -------------------------------------------------------------------------
     // Errors
@@ -150,8 +189,8 @@ contract SailGovernance {
     /// @dev Thrown when a requested `currentProtocolCutBps` exceeds `MAX_PROTOCOL_CUT_BPS`.
     error ExceedsProtocolCutCap(uint256 requested, uint256 cap);
 
-    /// @dev Thrown when a requested `baseFee` or `complexityRate` exceeds `MAX_PERMISSION_FEE_WEI`.
-    error ExceedsPermissionFeeCap(uint256 requested, uint256 cap);
+    /// @dev Thrown when a requested `permissionRegistrationFee` exceeds `MAX_PERMISSION_FEE_WEI`.
+    error FeeExceedsCap(uint256 requested, uint256 cap);
 
     /// @dev Thrown when a requested `maxPermissionsPerAccount` exceeds `MAX_PERMISSIONS_CAP`
     ///      or is set to zero.
@@ -162,6 +201,14 @@ contract SailGovernance {
 
     /// @dev Thrown by `proposeGovernance` when the candidate is the current governance address.
     error SameAddress();
+
+    /// @dev Thrown by `acceptGovernance` when the candidate does not yet hold PROPOSER_ROLE
+    ///      on the timelock. `rotateTimelockRoles` must be executed before `acceptGovernance`
+    ///      can complete, eliminating the window where old governance retains timelock keys.
+    error RolesNotYetRotated();
+
+    /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
+    error PauseCooldown(uint256 nextAllowed);
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -190,35 +237,28 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Deploy the governance contract.
-    /// @param  initialGovernance    Address to hold initial governance rights.
-    /// @param  maxPermissionFeeWei  Constitutional ceiling for the per-permission registration fee.
-    /// @param  _emergencyAdmin      Address that can pause the kernel without a timelock delay.
-    /// @param  initialBaseFee       Initial flat component of the permission registration fee, in wei.
-    ///                              Must not exceed maxPermissionFeeWei. Pass 0 to leave registration
-    ///                              free until governance raises it via the timelock.
-    /// @param  initialComplexityRate Initial per-byte contribution to the registration fee, in wei.
-    ///                               Must not exceed maxPermissionFeeWei. Pass 0 to disable the
-    ///                               size component until governance raises it via the timelock.
+    /// @param  initialGovernance                Address to hold initial governance rights.
+    /// @param  maxPermissionFeeWei              Constitutional ceiling for the per-permission registration fee.
+    /// @param  _emergencyAdmin                  Address that can pause the kernel without a timelock delay.
+    /// @param  initialPermissionRegistrationFee Initial flat permission-registration fee in wei.
+    ///                                          Must not exceed maxPermissionFeeWei. Pass 0 to leave
+    ///                                          registration free until governance raises it via the
+    ///                                          48-hour timelock.
     constructor(
         address initialGovernance,
         uint256 maxPermissionFeeWei,
         address _emergencyAdmin,
-        uint256 initialBaseFee,
-        uint256 initialComplexityRate
+        uint256 initialPermissionRegistrationFee
     ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
-        // Cap at 1e36 wei (~1e18 ETH). Values above this would allow base + sizeContrib
-        // to overflow uint256 in _calcPermissionFee (sum of two values each <= cap).
-        if (maxPermissionFeeWei > 1e36) revert ExceedsPermissionFeeCap(maxPermissionFeeWei, 1e36);
-        if (initialBaseFee        > maxPermissionFeeWei) revert ExceedsPermissionFeeCap(initialBaseFee, maxPermissionFeeWei);
-        if (initialComplexityRate > maxPermissionFeeWei) revert ExceedsPermissionFeeCap(initialComplexityRate, maxPermissionFeeWei);
+        if (maxPermissionFeeWei              > 1 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             1 ether);
+        if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
 
-        governance     = initialGovernance;
-        emergencyAdmin = _emergencyAdmin;
-        MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
-        baseFee        = initialBaseFee;
-        complexityRate = initialComplexityRate;
-        maxPermissionsPerAccount = 20;
+        governance                = initialGovernance;
+        emergencyAdmin            = _emergencyAdmin;
+        MAX_PERMISSION_FEE_WEI    = maxPermissionFeeWei;
+        permissionRegistrationFee = initialPermissionRegistrationFee;
+        maxPermissionsPerAccount  = 20;
 
         // Governance is the sole proposer and executor; no admin (self-governing timelock).
         address[] memory proposers = new address[](1);
@@ -268,8 +308,14 @@ contract SailGovernance {
     /// @notice Step 2: nominated address accepts, completing the transfer.
     /// @dev    Clears `pendingGovernance` after the transfer. See `proposeGovernance` for the
     ///         required timelock role rotation procedure that must precede this call.
+    ///         Requires that `rotateTimelockRoles` has already been executed — i.e., the
+    ///         candidate already holds PROPOSER_ROLE on the timelock. This eliminates the
+    ///         window where old governance retains timelock scheduling rights after handoff.
     function acceptGovernance() external {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
+        // Enforce that rotateTimelockRoles was called before acceptGovernance, preventing
+        // a governance handoff window where the old governance still holds timelock roles.
+        if (!timelock.hasRole(timelock.PROPOSER_ROLE(), msg.sender)) revert RolesNotYetRotated();
         address previous  = governance;
         governance        = pendingGovernance;
         pendingGovernance = address(0);
@@ -314,26 +360,13 @@ contract SailGovernance {
         emit ProtocolCutUpdated(old, newBps);
     }
 
-    /// @notice Set the flat component of the permission registration fee.
+    /// @notice Set the flat fee charged per permission registration.
     /// @param  newFee New fee in wei. Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setBaseFee(uint256 newFee) external onlyTimelock {
-        if (newFee > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newFee, MAX_PERMISSION_FEE_WEI);
-        uint256 old = baseFee;
-        baseFee = newFee;
-        emit BaseFeeUpdated(old, newFee);
-    }
-
-    /// @notice Set the per-byte complexity contribution to the permission registration fee.
-    /// @dev    The actual per-permission fee is always capped at MAX_PERMISSION_FEE_WEI by the
-    ///         kernel, so an extreme rate cannot cause fees to exceed the constitutional cap.
-    ///         Rate is bounded at MAX_PERMISSION_FEE_WEI for consistency with setBaseFee.
-    /// @param  newRate New rate in wei per byte of permission bytecode.
-    ///                 Must not exceed MAX_PERMISSION_FEE_WEI.
-    function setComplexityRate(uint256 newRate) external onlyTimelock {
-        if (newRate > MAX_PERMISSION_FEE_WEI) revert ExceedsPermissionFeeCap(newRate, MAX_PERMISSION_FEE_WEI);
-        uint256 old = complexityRate;
-        complexityRate = newRate;
-        emit ComplexityRateUpdated(old, newRate);
+    function setPermissionRegistrationFee(uint256 newFee) external onlyTimelock {
+        if (newFee > MAX_PERMISSION_FEE_WEI) revert FeeExceedsCap(newFee, MAX_PERMISSION_FEE_WEI);
+        uint256 oldFee = permissionRegistrationFee;
+        permissionRegistrationFee = newFee;
+        emit PermissionRegistrationFeeUpdated(oldFee, newFee);
     }
 
     /// @notice Set the live limit on the number of permissions per account.
@@ -358,7 +391,11 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Pause the kernel for up to 72 hours. Can be called without a timelock delay.
+    ///         Subject to a PAUSE_COOLDOWN between consecutive calls to prevent spam.
     function pause() external onlyEmergencyAdmin {
+        if (lastPauseTimestamp != 0 && block.timestamp < lastPauseTimestamp + PAUSE_COOLDOWN)
+            revert PauseCooldown(lastPauseTimestamp + PAUSE_COOLDOWN);
+        lastPauseTimestamp = block.timestamp;
         pauseExpiry = block.timestamp + 72 hours;
         emit Paused(pauseExpiry);
     }
@@ -367,6 +404,15 @@ contract SailGovernance {
     function unpause() external onlyEmergencyAdmin {
         pauseExpiry = 0;
         emit Unpaused();
+    }
+
+    /// @notice Rotate the emergency admin address. Only callable by the timelock.
+    /// @param  newAdmin New emergency admin address. Must not be zero.
+    function rotateEmergencyAdmin(address newAdmin) external onlyTimelock {
+        if (newAdmin == address(0)) revert ZeroAddress();
+        address old = emergencyAdmin;
+        emergencyAdmin = newAdmin;
+        emit EmergencyAdminRotated(old, newAdmin);
     }
 
     /// @notice Returns true if the kernel is currently paused.

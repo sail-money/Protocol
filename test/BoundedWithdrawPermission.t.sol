@@ -41,7 +41,7 @@ contract BoundedWithdrawPermissionTest is Test {
             assembly { sel := mload(add(data, 32)) }
         }
         return Context({
-            account:        address(0),
+            account:        SAFE,
             manager:        address(0),
             submitter:      address(0),
             target:         token,
@@ -123,22 +123,24 @@ contract BoundedWithdrawPermissionTest is Test {
     }
 
     // ── golden path: transferFrom() ───────────────────────────────────────────
+    // Note: `from` must equal ctx.account (the Safe) per M-6 security fix.
 
     function test_TransferFrom_GoldenPath() public view {
-        bytes memory data = _transferFrom(address(0x1234), SAFE, 500e18);
+        bytes memory data = _transferFrom(SAFE, SAFE, 500e18);
         assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
     }
 
     function test_TransferFrom_ExactlyAtCap() public view {
-        bytes memory data = _transferFrom(address(0x1234), SAFE, MAX_AMOUNT);
+        bytes memory data = _transferFrom(SAFE, SAFE, MAX_AMOUNT);
         assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
     }
 
-    function test_TransferFrom_FromAddressIrrelevant() public view {
+    function test_TransferFrom_FromMustBeSafe() public view {
+        // `from` must be the Safe (ctx.account); any other address is rejected.
         bytes memory dataA = _transferFrom(address(0x1111), SAFE, 1e18);
         bytes memory dataB = _transferFrom(address(0x9999), SAFE, 1e18);
-        assertTrue(perm.evaluate(dataA, _ctx(TOKEN_A, dataA)));
-        assertTrue(perm.evaluate(dataB, _ctx(TOKEN_A, dataB)));
+        assertFalse(perm.evaluate(dataA, _ctx(TOKEN_A, dataA)));
+        assertFalse(perm.evaluate(dataB, _ctx(TOKEN_A, dataB)));
     }
 
     // ── wrong recipient ───────────────────────────────────────────────────────
@@ -337,23 +339,22 @@ contract BoundedWithdrawPermissionTest is Test {
         assertFalse(perm.evaluate(data, _ctx(TOKEN_A, data)));
     }
 
-    // ── transferFrom `from` field is unchecked (documented behaviour) ─────────
-    // The permission allows the manager to pull from ANY address that has
-    // approved the Safe. Operators must understand this when using transferFrom.
+    // ── transferFrom `from` field is validated (M-6 security fix) ─────────────
+    // `from` must equal ctx.account (the Safe). External approvers are rejected.
 
-    function test_TransferFrom_ExternalApprover_Passes() public view {
+    function test_TransferFrom_ExternalApprover_Rejected() public view {
         // `from` = an external DeFi protocol that has approved the Safe.
-        // The permission evaluates true because only `to` and `amount` are checked.
+        // The permission now rejects this because `from != ctx.account`.
         address externalProtocol = address(0xEEEE);
         bytes memory data = _transferFrom(externalProtocol, SAFE, MAX_AMOUNT);
-        assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
+        assertFalse(perm.evaluate(data, _ctx(TOKEN_A, data)));
     }
 
-    function test_TransferFrom_AnyFrom_SameToAndAmount_Passes() public view {
-        // Confirm the `from` field never causes denial — only `to` and `amount` matter.
+    function test_TransferFrom_AnyFrom_NotSafe_Rejected() public view {
+        // Any `from` address that is not the Safe is rejected.
         for (uint160 i = 1; i < 5; i++) {
             bytes memory data = _transferFrom(address(i), SAFE, 1e18);
-            assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
+            assertFalse(perm.evaluate(data, _ctx(TOKEN_A, data)));
         }
     }
 }
