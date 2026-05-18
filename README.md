@@ -330,7 +330,7 @@ contracts/
 ├── policies/
 │   └── StandardFeePolicy.sol                  # reference fee policy — 147 SLOC
 ├── safe/
-│   └── SafeModuleEnabler.sol                  # Safe module enablement helper
+│   └── SafeModuleEnabler.sol                  # deployment helper — out of audit scope (9 SLOC, stateless)
 └── templates/
     ├── shared/                                # recommended — 7 templates, 1,230 SLOC
     │   ├── BaseSharedPermission.sol           # abstract base — 86 SLOC
@@ -432,6 +432,8 @@ Each template is independently auditable. A bug in one template affects only acc
 | **Total** | **~1,600** |
 
 `PermissionFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
+
+`contracts/safe/SafeModuleEnabler.sol` is a stateless one-shot bootstrap helper (9 SLOC) invoked once during Safe creation via `delegatecall` from `Safe.setup()`. It holds no state, no privileges, and has no runtime role after account creation. Direct calls revert by construction. It is explicitly out of v1 audit scope.
 
 The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
 
