@@ -6,7 +6,7 @@ Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an 
 
 The protocol is positioned for developers and crypto-native builders deploying autonomous agents on top of Safe accounts. Sail provides the custody layer agents need to act on-chain without being given private keys, and the permission infrastructure that LPs need to bound what an agent can do.
 
-The trusted kernel is ~500 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
+The trusted kernel is ~590 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
 
 Sail is currently in audit-prep state. The protocol has not been externally audited and is not deployed on mainnet.
 
@@ -14,10 +14,17 @@ Sail is currently in audit-prep state. The protocol has not been externally audi
 
 ## Documentation
 
-The protocol whitepaper covers the full design rationale, roles, permission model, fee mechanics, governance, and security properties:
-
-- **[Sail Protocol Whitepaper (PDF)](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf)**
-- LaTeX source: [`docs/whitepaper/Sail_Protocol_Whitepaper.tex`](./docs/whitepaper/Sail_Protocol_Whitepaper.tex)
+- **[Whitepaper (PDF)](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf)** — full design rationale, roles, permission model, fee mechanics, governance, security properties
+- **[Specification](./docs/spec.md)** — single source of truth for protocol design decisions
+- **[Architecture](./docs/ARCHITECTURE.md)** — component diagram, data flow, trust boundaries
+- **[Kernel](./docs/KERNEL.md)** — SailKernel internals, dispatch flow, storage layout
+- **[Permission templates](./docs/TEMPLATES.md)** — template authoring guide, shared vs per-instance patterns
+- **[Fee policies](./docs/FEE_POLICIES.md)** — IFeePolicy interface, StandardFeePolicy, NAV trust model
+- **[Governance](./docs/GOVERNANCE.md)** — parameter governance, timelock, constitutional caps
+- **[Security](./docs/SECURITY.md)** — threat model, invariants, known limitations
+- **[Integration guide](./docs/INTEGRATION.md)** — Safe setup, permission registration, manager signing flow
+- **[Agent identity](./docs/agent-identity.md)** — IAgentIdentityResolver, off-chain discovery patterns
+- **[Off-chain attribution](./docs/off-chain-attribution.md)** — deriving metrics from kernel events
 
 ---
 
@@ -71,15 +78,30 @@ Governance is a contract initially held by the team multisig, transferable to a 
 
 ### Components
 
+**Trusted core** — every account on the protocol depends on this surface.
+
 | Component | Role | SLOC |
 |---|---|---|
-| `SailKernel` | Trusted execution core. Account registration, permission registry, EIP-712 signature verification, manager dispatch via Safe modules, fee collection, principal tracking. | 499 |
-| `SailGovernance` | Protocol parameter governance with 48-hour OpenZeppelin TimelockController, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 139 |
-| `PermissionFactory` | Untrusted UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
-| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 86 |
-| Interfaces (`IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`) | Cross-contract API surface. | 44 |
+| `SailKernel` | Account registration, permission registry, EIP-712 signature verification, selective and batch manager dispatch via Safe modules, fee collection, principal tracking. | 590 |
+| `SailGovernance` | Protocol parameter governance with 48h timelock, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 146 |
+| Interfaces | `IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`, `IBatchPermission`, `IPermissionIntrospection`, `IAgentIdentityResolver`, `SailCapabilities` | 113 |
+| **Total** | | **849** |
 
-**Trusted core total:** 905 SLOC.
+**Template layer** — independently deployable and auditable; a bug affects only registered accounts.
+
+| Component | Role | SLOC |
+|---|---|---|
+| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 86 |
+| `StandardFeePolicy` | Reference fee policy. Management fee on AUM, performance fee above high-water mark. Manager-attested NAV model. | 147 |
+| `SharedBoundedSwapPermission` | AMM swaps. Router allowlist, token allowlist, amount cap, optional oracle slippage. | 159 |
+| `SharedBoundedBorrowPermission` | Aave V3, Morpho, Compound borrows. Protocol allowlist, asset allowlist, LTV check. | 129 |
+| `SharedTransferTargetPermission` | ERC-20 transfers. Recipient allowlist, token allowlist. | 77 |
+| `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in one registered permission. Selector-routed evaluation. | 273 |
+| `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. | 262 |
+| `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. | 197 |
+| `SharedApproveAndCallBatchPermission` | Batch dispatch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. | 133 |
+| `PermissionFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
+| **Total** | | **1,600** |
 
 ---
 
@@ -142,6 +164,7 @@ The `params` field is opaque template-specific calldata, decoded inside the temp
 | `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in a single registered permission. Selector-routed evaluation. |
 | `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. |
 | `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. |
+| `SharedApproveAndCallBatchPermission` | Batch dispatch via `IBatchPermission`. Atomic approve / protocol call / reset. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. |
 
 ### Atomic per-instance templates (legacy)
 
@@ -290,28 +313,68 @@ Each exclusion reduces what the protocol owns. The kernel owns less, by design, 
 ```
 contracts/
 ├── core/
-│   └── SailKernel.sol
+│   └── SailKernel.sol                         # trusted core — 590 SLOC
 ├── governance/
-│   └── SailGovernance.sol
+│   └── SailGovernance.sol                     # trusted core — 146 SLOC
 ├── factory/
-│   └── PermissionFactory.sol
-├── interfaces/
+│   └── PermissionFactory.sol                  # UX orchestrator — 137 SLOC
+├── interfaces/                                # trusted core — 113 SLOC total
 │   ├── IPermission.sol
 │   ├── IConfigurablePermission.sol
+│   ├── IBatchPermission.sol
 │   ├── IFeePolicy.sol
-│   └── IOracle.sol
+│   ├── IOracle.sol
+│   ├── IPermissionIntrospection.sol
+│   ├── IAgentIdentityResolver.sol
+│   └── SailCapabilities.sol
 ├── policies/
-│   └── StandardFeePolicy.sol
+│   └── StandardFeePolicy.sol                  # reference fee policy — 147 SLOC
+├── safe/
+│   └── SafeModuleEnabler.sol                  # Safe module enablement helper
 └── templates/
-    ├── shared/
-    │   ├── BaseSharedPermission.sol
+    ├── shared/                                # recommended — 7 templates, 1,230 SLOC
+    │   ├── BaseSharedPermission.sol           # abstract base — 86 SLOC
     │   ├── SharedBoundedSwapPermission.sol
     │   ├── SharedBoundedBorrowPermission.sol
     │   ├── SharedTransferTargetPermission.sol
     │   ├── SharedDeFiBundlePermission.sol
     │   ├── SharedPendlePermission.sol
-    │   └── SharedAMMLiquidityPermission.sol
-    └── [atomic per-instance templates — legacy]
+    │   ├── SharedAMMLiquidityPermission.sol
+    │   └── SharedApproveAndCallBatchPermission.sol
+    └── [atomic per-instance templates — legacy, not recommended]
+
+docs/
+├── whitepaper/                                # PDF + LaTeX source
+├── spec.md                                    # protocol specification
+├── ARCHITECTURE.md
+├── KERNEL.md
+├── TEMPLATES.md
+├── FEE_POLICIES.md
+├── GOVERNANCE.md
+├── SECURITY.md
+├── INTEGRATION.md
+├── agent-identity.md
+└── off-chain-attribution.md
+
+test/
+├── SailKernel.t.sol
+├── SailGovernance.t.sol
+├── Integration.t.sol
+├── SelectiveDispatch.t.sol
+├── BatchDispatch.t.sol
+├── BatchDispatchBench.t.sol
+├── BatchPermissions.t.sol
+├── PermissionIntrospection.t.sol
+├── AgentIdentity.t.sol
+├── PermissionFactory.t.sol
+├── StandardFeePolicy.t.sol
+├── [shared template test files]
+├── [legacy template test files]
+├── mocks/
+├── support/
+└── redteam/                                   # adversarial test suite
+    ├── RedTeam.t.sol
+    └── RedTeam2.t.sol
 ```
 
 ---
@@ -350,7 +413,7 @@ This is the mandatory audit surface. A bug anywhere in the trusted core puts eve
 | Interfaces (8 files) | 113 |
 | **Total** | **~849** |
 
-**Secondary audit scope — Template layer (~1,463 SLOC)**
+**Secondary audit scope — Template layer (~1,600 SLOC)**
 
 Each template is independently auditable. A bug in one template affects only accounts that have registered that template. New templates can be deployed and audited post-launch without re-auditing the trusted core.
 
@@ -358,19 +421,17 @@ Each template is independently auditable. A bug in one template affects only acc
 |---|---|
 | `BaseSharedPermission` | 86 |
 | `StandardFeePolicy` | 147 |
-| `SharedBoundedSwapPermission` | — |
-| `SharedBoundedBorrowPermission` | — |
-| `SharedTransferTargetPermission` | — |
-| `SharedDeFiBundlePermission` | — |
-| `SharedPendlePermission` | — |
-| `SharedAMMLiquidityPermission` | — |
-| `SharedApproveAndCallBatchPermission` | — |
-| Templates subtotal | ~1,230 |
-| **Total** | **~1,463** |
+| `SharedBoundedSwapPermission` | 159 |
+| `SharedBoundedBorrowPermission` | 129 |
+| `SharedTransferTargetPermission` | 77 |
+| `SharedDeFiBundlePermission` | 273 |
+| `SharedPendlePermission` | 262 |
+| `SharedAMMLiquidityPermission` | 197 |
+| `SharedApproveAndCallBatchPermission` | 133 |
+| `PermissionFactory` | 137 |
+| **Total** | **~1,600** |
 
-**Out of scope — Tooling (137 SLOC)**
-
-`PermissionFactory` (137 SLOC). Holds no protocol-level privileges. Not a security-critical component. Users can interact with the kernel directly without it.
+`PermissionFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
 
 The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
 
@@ -387,11 +448,12 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 | Dimension | Sail Protocol |
 |---|---|
 | Trusted core (kernel + governance + interfaces) | ~849 SLOC |
-| Template layer (templates + base + fee policy) | ~1,463 SLOC |
+| Template layer (templates + base + fee policy + factory) | ~1,600 SLOC |
 | Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI = 0.001 ETH` |
-| Permission evaluation | `staticcall` with per-permission gas cap |
+| Dispatch model | Selective — manager names one registered permission per dispatch |
+| Permission evaluation | `staticcall` with per-permission gas cap; fail-closed |
 | Custody model | Self-custodial via Gnosis Safe |
-| Default fee 2 at launch | 0% |
+| Default protocol cut at launch | 0% |
 | Test count | 1,114 |
 
 ---
