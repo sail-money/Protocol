@@ -310,7 +310,7 @@ The protocol comprises five components in the trusted core, plus a default fee p
 \code{SailGovernance} & Protocol parameter governance with a timelock, two-step transfer, emergency pause with auto-expiry, and trusted Safe factory and singleton allowlists.\\
 \code{PermissionFactory} & Untrusted UX orchestrator. Bundles permission configuration and registration into single transactions. Holds no protocol-level privileges.\\
 \code{BaseSharedPermission} & Abstract base for shared multi-tenant permission templates. EIP-712 domain, per-account nonces, ECDSA and ERC-1271 signature verification.\\
-Interfaces & \code{IPermission}, \code{IConfigurablePermission}, \code{IFeePolicy}, \code{IOracle}.\\
+Interfaces & \code{IPermission}, \code{IConfigurablePermission}, \code{IFeePolicy}, \code{IOracle}, \code{IBatchPermission}, \code{IPermissionIntrospection}, \code{IAgentIdentityResolver}.\\
 \midrule
 \multicolumn{2}{l}{\textit{Default policy and example templates}}\\
 \code{StandardFeePolicy} & Reference fee policy: management fee on AUM, performance fee above high-water mark.\\
@@ -405,6 +405,14 @@ Figure~\ref{fig:flow} illustrates the dispatch path for a manager transaction.
 
 The kernel never holds custody of assets. The Safe holds the capital. The kernel holds only the permission list, principal accounting, and fee policy reference for each account.
 
+\subsection{Batch Dispatch}
+
+The protocol provides a second dispatch path for multi-step strategies that require atomic execution. \code{dispatchBatch()} accepts an ordered array of calls and a single batch permission --- a contract implementing \code{IBatchPermission} --- that validates the entire call sequence before any execution begins. Each call in the batch executes via the Safe module path in order; any subcall failure reverts the entire batch atomically.
+
+This path is designed for DeFi strategies requiring temporary ERC20 approvals: the batch permission validates an approve-execute-reset sequence as a unit, enforcing that the approval amount matches the consumed amount and that the cleanup reset is present. It is equally available for any multi-step strategy where atomicity across calls is required.
+
+The manager's signature commits to the permission address, the exact call array, a nonce, and a deadline. Batch dispatch follows the same selective authorization model as single dispatch: one named permission evaluates the entire batch, and other registered permissions are not consulted.
+
 % --- 5. Permission System ---
 \section{Permission System}
 
@@ -476,6 +484,7 @@ To demonstrate the permission pattern across common DeFi primitives, Sail ships 
 \code{SharedDeFiBundlePermission} & Composite: swap, borrow, and transfer in one registered permission. Selector-routed evaluation.\\
 \code{SharedPendlePermission} & Yield-protocol router: liquidity, principal-token swaps, yield-token swaps, mint/redeem, claim rewards.\\
 \code{SharedAMMLiquidityPermission} & Concentrated liquidity operations on AMM position managers.\\
+\code{SharedApproveAndCallBatchPermission} & Batch: atomic approve / protocol call / reset sequence. Enforces token allowlist, spender allowlist, amount cap, and mandatory reset to zero.\\
 \bottomrule
 \end{tabularx}
 \caption{Example permission templates.}
@@ -517,6 +526,16 @@ A permission's lifecycle is governed by four operations, all authorized by the P
 \textbf{Reconfiguration.} A subsequent \code{configure} call with a fresh nonce clears previous per-account state and applies the new params atomically.
 
 \textbf{Revocation.} The Permission Signer signs \code{revokePermission}. The address is removed from the account's list. Two levels of revocation exist: revoking a single permission narrows the manager's authority; revoking the manager session entirely cuts off the manager.
+
+\subsection{Optional Extension Interfaces}
+
+Permission templates may optionally implement additional interfaces to expose metadata and capabilities to off-chain tooling, indexers, and the Sail Marketplace.
+
+\textbf{IPermissionIntrospection.} Templates implementing this interface expose a stable identifier (\code{permissionId}), a version hash, a metadata URI, and an array of capability identifiers. The \code{SailCapabilities} library defines the canonical capability constants (\code{BOUNDED\_SWAP}, \code{BOUNDED\_BORROW}, \code{BATCH\_DISPATCH}, and others). Indexers use these to group accounts and dispatches by template type without maintaining a separate registry of known permission addresses. The Sail Marketplace uses capability identifiers for strategy discovery and filtering.
+
+\textbf{IAgentIdentityResolver.} Templates operating under a known agent identity may implement this interface to expose an \code{AgentIdentityRef} associating the manager with an external identity registry, a chain, an agent ID, and a signing wallet. A per-account variant, \code{IAccountAgentIdentityResolver}, is available for shared templates where different accounts may be managed by different agents. This is metadata only --- the kernel does not read or verify agent identity. Identity-based authorization, if required, is enforced inside the template's own \code{evaluate()} implementation, not at the protocol level.
+
+Neither interface is required by the kernel. Both are conventions for the template and tooling layer, consistent with Sail's design principle of keeping the trusted core minimal and pushing product-specific logic outward.
 
 % --- 6. Fee Model ---
 \section{Fee Model}
@@ -720,11 +739,14 @@ Owner & The party who holds the Safe and owns the SMA's assets.\\
 Permission Signer & The signer authorized to register, configure, and revoke permissions on the account. May be the same party as the Owner.\\
 Manager & The party authorized to execute transactions on behalf of the account, within the bounds of the registered permissions. Typically an autonomous agent.\\
 Permission & A Solidity contract implementing \code{IPermission}. The kernel evaluates the permission named by the manager's signature for each dispatch.\\
+Batch permission & A Solidity contract implementing \code{IBatchPermission}. Validates an entire ordered call sequence before the kernel executes it atomically via \code{dispatchBatch()}.\\
 Shared template & A permission contract that serves multiple accounts via per-account configuration storage; the recommended deployment pattern.\\
 Fee 1 & Permission registration fee. Flat ETH per registered permission, paid to the protocol treasury.\\
 Fee 2 & Protocol cut on manager-collected fees. Capped by the constitution. Set to zero at protocol launch.\\
 Constitutional cap & A bound encoded in immutable source. No governance procedure can raise it.\\
 Sail Marketplace & The forthcoming curation layer providing audited fee policies, manager discovery, and LP-protection guarantees for third-party allocations.\\
+Selective authorization & The dispatch model in which the manager's signature names one registered permission as the authorizer; the kernel evaluates that permission alone.\\
+Capability identifier & A \code{bytes32} constant from \code{SailCapabilities} that a template declares via \code{IPermissionIntrospection} to signal its functional capabilities to consumers.\\
 \bottomrule
 \end{tabularx}
 
