@@ -31,6 +31,10 @@ struct Context {
 ///         staticcall), but they may read arbitrary on-chain state within the gas budget.
 /// @dev    Templates MAY also implement IBatchPermission to declare whole-batch
 ///         validation for kernel batch dispatch.
+/// @dev    Templates MAY implement IAgentIdentityResolver or
+///         IAccountAgentIdentityResolver to expose the agent identity associated
+///         with the manager or strategy. This is metadata only — the kernel never
+///         reads or verifies agent identity.
 interface IPermission {
     /// @notice Decide whether a manager-submitted transaction is permitted.
     /// @dev    Called by the kernel once per registered permission per dispatch.

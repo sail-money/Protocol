@@ -52,4 +52,12 @@ library SailCapabilities {
     ///         Authorises kernel-native batch dispatch using the approve/consume/reset pattern.
     bytes32 internal constant BATCH_DISPATCH =
         keccak256("sail.capability.batch-dispatch.v1");
+
+    /// @dev Declared by templates that implement IAgentIdentityResolver or
+    ///      IAccountAgentIdentityResolver. Signals to consumers that this template
+    ///      can surface agent identity metadata for off-chain discovery and indexing.
+    ///      Presence of this capability does NOT imply any on-chain identity enforcement
+    ///      — check the template's evaluate() logic for that.
+    bytes32 internal constant AGENT_IDENTITY =
+        keccak256("sail.capability.agent-identity.v1");
 }
