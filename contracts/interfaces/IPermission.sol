@@ -29,6 +29,8 @@ struct Context {
 ///         (`SailKernel.PERMISSION_GAS_CAP`). A revert or gas exhaustion is treated
 ///         as `false` by the kernel. Permissions must never modify state (enforced by
 ///         staticcall), but they may read arbitrary on-chain state within the gas budget.
+/// @dev    Templates MAY also implement IBatchPermission to declare whole-batch
+///         validation for kernel batch dispatch.
 interface IPermission {
     /// @notice Decide whether a manager-submitted transaction is permitted.
     /// @dev    Called by the kernel once per registered permission per dispatch.

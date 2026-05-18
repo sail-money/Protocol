@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {IFeePolicy}            from "../interfaces/IFeePolicy.sol";
+import {IPermission, Context}                from "../interfaces/IPermission.sol";
+import {IBatchPermission, Call, BatchContext} from "../interfaces/IBatchPermission.sol";
+import {IFeePolicy}                            from "../interfaces/IFeePolicy.sol";
 import {SailGovernance}        from "../governance/SailGovernance.sol";
 import {ECDSA}                 from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712}                from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -59,6 +60,22 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         AzuroPredictionPermission, LimitlessPredictionPermission) that use
     ///         `try this._decode*(...)` external calls within their evaluate paths.
     uint256 public constant PERMISSION_GAS_CAP = 150_000;
+
+    /// @notice Maximum number of subcalls in a single batch dispatch.
+    /// @dev    Bounds gas consumption in the subcall execution loop. A manager that needs
+    ///         more than this can split into multiple consecutive batch dispatches.
+    uint256 public constant MAX_BATCH_LENGTH = 16;
+
+    /// @notice Gas budget allocated to a batch permission's `evaluateBatch` staticcall.
+    /// @dev    Higher than PERMISSION_GAS_CAP because the batch evaluator must inspect
+    ///         every subcall's calldata; a revert, OOG, or malformed return is treated
+    ///         as a false return (fail-closed).
+    uint256 public constant BATCH_EVAL_GAS_CAP = 1_000_000;
+
+    /// @dev Gas budget for the `isBatchPermission()` type-detection staticcall. A view
+    ///      function returning a bool should comfortably fit; a larger budget would
+    ///      enlarge the attack surface without benefit.
+    uint256 private constant BATCH_DETECT_GAS_CAP = 20_000;
 
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
@@ -123,6 +140,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         "RevokePermissions(address account,address[] permissions,uint256 nonce,uint256 deadline)"
     );
 
+    /// @notice EIP-712 type hash for manager batch-dispatch authorisation.
+    ///         Type string: "DispatchBatch(address account,address permission,bytes32 callsHash,uint256 nonce,uint256 deadline)"
+    ///         `callsHash` = keccak256(abi.encode(calls)) — see `dispatchBatch` for the encoding.
+    bytes32 public constant DISPATCH_BATCH_TYPEHASH = keccak256(
+        "DispatchBatch(address account,address permission,bytes32 callsHash,uint256 nonce,uint256 deadline)"
+    );
+
     // -------------------------------------------------------------------------
     // Account state
     // -------------------------------------------------------------------------
@@ -157,6 +181,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Per-account nonces for manager dispatch signatures.
     ///         Separate from signerNonces to prevent cross-operation replay.
     mapping(address account => uint256) public managerNonces;
+
+    /// @notice Per-account nonces for manager batch-dispatch signatures.
+    /// @dev    Lives in a separate namespace from `managerNonces` so that single
+    ///         dispatches and batch dispatches cannot replay across each other.
+    ///         Consuming a batch nonce does not advance dispatch nonces, and vice versa.
+    mapping(address account => uint256) public batchNonces;
 
     /// @notice Per-account nonces for permissionSigner operations
     ///         (register, revoke, replace, session, feePolicy).
@@ -234,6 +264,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  value     Native ETH forwarded with the call (wei).
     /// @param  dataHash  keccak256 of the dispatched calldata.
     event Dispatched(address indexed account, address indexed target, uint256 value, bytes32 dataHash);
+
+    /// @notice Emitted on each successful batch dispatch.
+    /// @param  account    The Safe account that executed the batch.
+    /// @param  permission The batch-aware permission that authorised the batch.
+    /// @param  batchHash  keccak256(abi.encode(calls)) — stable identifier for the call sequence.
+    /// @param  callCount  Number of subcalls in the batch.
+    event BatchDispatched(
+        address indexed account,
+        address indexed permission,
+        bytes32 batchHash,
+        uint256 callCount
+    );
 
     /// @notice Emitted on each successful fee collection.
     /// @param  account        The Safe account that was charged.
@@ -349,6 +391,28 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @dev Thrown by `createAccount` when the provided Safe singleton is not in governance's trusted allowlist.
     error UntrustedSingleton(address singleton);
+
+    /// @dev Thrown by `dispatchBatch` when the calls array is empty.
+    error EmptyBatch();
+
+    /// @dev Thrown by `dispatchBatch` when the calls array exceeds MAX_BATCH_LENGTH.
+    error BatchTooLong(uint256 length);
+
+    /// @dev Thrown by `dispatchBatch` when the named permission does not implement IBatchPermission
+    ///      (detected via try/catch on `isBatchPermission()`).
+    error PermissionNotBatchAware(address permission);
+
+    /// @dev Thrown by `dispatchBatch` when the named permission's `evaluateBatch`
+    ///      returns false, reverts, runs out of gas, or returns malformed data.
+    error BatchPermissionDenied();
+
+    /// @dev Thrown by `dispatchBatch` when one of the batched subcalls reverts
+    ///      (Safe's execTransactionFromModule returns false).
+    error BatchSubcallFailed(uint256 index, address target);
+
+    /// @dev Thrown by `dispatchBatch` when a subcall targets the kernel itself —
+    ///      a defensive guard preventing self-targeted reentrancy attempts.
+    error KernelSelfTarget(uint256 index);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -748,6 +812,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);
+        // Deadline is a user-supplied expiry, intentionally compared against block.timestamp.
+        // Matches the pattern used by every other deadline-checking entry point in this contract.
+        // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
         uint256 nonce    = managerNonces[account];
@@ -798,6 +865,131 @@ contract SailKernel is EIP712, ReentrancyGuard {
     {
         bytes memory callData = abi.encodeCall(IPermission.evaluate, (data, ctx));
         (bool success, bytes memory ret) = permission.staticcall{gas: PERMISSION_GAS_CAP}(callData);
+        if (!success || ret.length < 32) return false;
+        return abi.decode(ret, (bool));
+    }
+
+    // -------------------------------------------------------------------------
+    // 3b. Batch dispatch
+    // -------------------------------------------------------------------------
+
+    /// @notice Execute a sequence of Safe module calls as a single atomic transaction,
+    ///         gated by ONE named batch-aware permission.
+    ///
+    /// @dev    DIVERGENCE FROM `dispatch`: only the named `permission` is evaluated.
+    ///         Other IPermissions registered on the account are NOT consulted during
+    ///         batch dispatch. The batch-aware permission owns full responsibility for
+    ///         validating every subcall and any cross-call invariants (e.g. matching
+    ///         approve/consume amounts, mandatory reset-to-zero cleanup).
+    ///
+    ///         The `permission` MUST still be registered on the account — registration
+    ///         is the permissionSigner's trust anchor. Choosing it for a batch then
+    ///         requires only the manager's signature.
+    ///
+    ///         Atomicity: if any subcall returns false from execTransactionFromModule,
+    ///         the entire dispatch reverts, rolling back all prior subcalls in the batch.
+    ///
+    ///         Operation type: every subcall executes with `operation = 0` (CALL).
+    ///         DELEGATECALL is never used. The kernel does not depend on Safe MultiSend.
+    ///
+    ///         Self-target guard: no subcall may target this kernel. This is a defensive
+    ///         measure — re-entry through public functions is already blocked by
+    ///         nonReentrant, but rejecting kernel-targeted subcalls eliminates the
+    ///         entire class of self-targeted attacks at the dispatch boundary.
+    ///
+    /// @param  account     The registered Safe account to execute through.
+    /// @param  permission  The batch-aware permission that authorises this batch.
+    ///                     Must be registered on the account and implement IBatchPermission.
+    /// @param  calls       Ordered subcall sequence (length 1..MAX_BATCH_LENGTH).
+    /// @param  managerSig  EIP-712 signature over DispatchBatch struct by the account's manager.
+    /// @param  deadline    Unix timestamp after which the signature is invalid.
+    function dispatchBatch(
+        address account,
+        address permission,
+        Call[] calldata calls,
+        bytes calldata managerSig,
+        uint256 deadline
+    ) external nonReentrant whenNotPaused {
+        // 1. Account / session / deadline validation
+        _requireRegistered(account);
+        AccountConfig storage cfg = configs[account];
+        if (!cfg.sessionActive) revert SessionInactive(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+
+        // 2. Batch length bounds
+        uint256 len = calls.length;
+        if (len == 0) revert EmptyBatch();
+        if (len > MAX_BATCH_LENGTH) revert BatchTooLong(len);
+
+        // 3. Permission must be registered for this account
+        if (_permissionIndex[account][permission] == 0) revert PermissionNotRegistered(permission);
+
+        // 4. Permission must implement IBatchPermission. Detection via staticcall
+        //    is stricter than try/catch — guarantees no state mutation regardless of
+        //    what the target claims about its function modifiers.
+        {
+            (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
+                abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
+            );
+            if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
+                revert PermissionNotBatchAware(permission);
+            }
+        }
+
+        // 5. Verify manager signature over the canonical callsHash
+        bytes32 callsHash = keccak256(abi.encode(calls));
+        uint256 nonce     = batchNonces[account];
+        bytes32 digest    = _hashTypedDataV4(keccak256(abi.encode(
+            DISPATCH_BATCH_TYPEHASH,
+            account,
+            permission,
+            callsHash,
+            nonce,
+            deadline
+        )));
+        if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
+        batchNonces[account] = nonce + 1;
+
+        // 6. Pre-flight: no subcall may target the kernel itself
+        for (uint256 i = 0; i < len;) {
+            if (calls[i].target == address(this)) revert KernelSelfTarget(i);
+            unchecked { ++i; }
+        }
+
+        // 7. Build BatchContext and evaluate the batch permission
+        BatchContext memory ctx = BatchContext({
+            account:        account,
+            manager:        cfg.manager,
+            submitter:      msg.sender,
+            permission:     permission,
+            batchHash:      callsHash,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
+        if (!_evaluateBatchPermission(permission, calls, ctx)) revert BatchPermissionDenied();
+
+        // 8. Execute each subcall in order via Safe module CALL (operation = 0).
+        //    Any failure reverts the entire transaction, rolling back earlier subcalls.
+        for (uint256 i = 0; i < len;) {
+            Call calldata c = calls[i];
+            bool ok = ISafe(account).execTransactionFromModule(c.target, c.value, c.data, 0);
+            if (!ok) revert BatchSubcallFailed(i, c.target);
+            unchecked { ++i; }
+        }
+
+        emit BatchDispatched(account, permission, callsHash, len);
+    }
+
+    /// @dev Invoke `evaluateBatch` on the named permission via staticcall with the
+    ///      batch gas cap. Returns false on revert, OOG, or malformed return data.
+    ///      Pattern mirrors `_evaluatePermission` for consistency.
+    function _evaluateBatchPermission(
+        address permission,
+        Call[] calldata calls,
+        BatchContext memory ctx
+    ) internal view returns (bool) {
+        bytes memory callData = abi.encodeCall(IBatchPermission.evaluateBatch, (calls, ctx));
+        (bool success, bytes memory ret) = permission.staticcall{gas: BATCH_EVAL_GAS_CAP}(callData);
         if (!success || ret.length < 32) return false;
         return abi.decode(ret, (bool));
     }
