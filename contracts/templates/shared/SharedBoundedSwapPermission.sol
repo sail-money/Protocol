@@ -3,6 +3,8 @@ pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -19,7 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 uint256   maxSlippageBps,
 ///                 address   priceOracle
 ///             )
-contract SharedBoundedSwapPermission is BaseSharedPermission {
+contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrospection {
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) — V3 SwapRouter (with deadline)
     bytes4 private constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) — V3 SwapRouter02 (no deadline)
@@ -187,5 +189,24 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
         return amountOutMin >= oracleMinOut;
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedBoundedSwapPermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](1);
+        ids[0] = SailCapabilities.BOUNDED_SWAP;
     }
 }

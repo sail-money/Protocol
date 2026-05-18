@@ -3,6 +3,8 @@ pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -18,7 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   collateralOracle,
 ///                 address   borrowOracle
 ///             )
-contract SharedBoundedBorrowPermission is BaseSharedPermission {
+contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
@@ -146,5 +148,24 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission {
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
         uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
         return ltvBps <= s.maxLtvBps;
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedBoundedBorrowPermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](1);
+        ids[0] = SailCapabilities.BOUNDED_BORROW;
     }
 }

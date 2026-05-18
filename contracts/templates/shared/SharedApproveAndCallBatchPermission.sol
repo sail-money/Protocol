@@ -3,6 +3,8 @@ pragma solidity 0.8.26;
 
 import {IPermission, Context}                 from "../../interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../../interfaces/IBatchPermission.sol";
+import {IPermissionIntrospection}             from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities}                     from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission}                 from "./BaseSharedPermission.sol";
 
 /// @notice Shared multi-tenant batch permission for the canonical
@@ -24,7 +26,7 @@ import {BaseSharedPermission}                 from "./BaseSharedPermission.sol";
 ///
 /// @dev    Decoding philosophy: every decode is bounds-checked. Malformed
 ///         calldata reverts. The kernel treats a revert as denial (fail-closed).
-contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPermission {
+contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPermission, IPermissionIntrospection {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -243,5 +245,24 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
     ///      ensure data.length >= 36.
     function _decodeFirstUint256(bytes calldata data) internal pure returns (uint256) {
         return uint256(bytes32(data[4:36]));
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedApproveAndCallBatchPermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](1);
+        ids[0] = SailCapabilities.BATCH_DISPATCH;
     }
 }

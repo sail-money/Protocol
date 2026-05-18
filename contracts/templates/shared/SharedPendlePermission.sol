@@ -2,6 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 
 /// @notice Multi-account permission template that gates Pendle V2 Router V4 operations.
@@ -29,7 +31,7 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///                 bool      allowMintRedeem,
 ///                 bool      allowClaimYield
 ///             )
-contract SharedPendlePermission is BaseSharedPermission {
+contract SharedPendlePermission is BaseSharedPermission, IPermissionIntrospection {
     // ── Pendle Router V4 selectors ────────────────────────────────────────────
     // Encoding key (structs expanded to tuple types):
     //   ApproxParams  = (uint256,uint256,uint256,uint256,uint256)
@@ -212,6 +214,25 @@ contract SharedPendlePermission is BaseSharedPermission {
 
     function discriminator() external pure returns (bytes32) {
         return keccak256("SharedPendlePermission");
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedPendlePermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](1);
+        ids[0] = SailCapabilities.PENDLE_YIELD;
     }
 
     // ── internal evaluators ───────────────────────────────────────────────────

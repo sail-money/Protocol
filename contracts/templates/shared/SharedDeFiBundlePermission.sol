@@ -3,6 +3,8 @@ pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -18,7 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///
 ///         This is the recommended pattern for production Safes: build curated bundles
 ///         (e.g. "Conservative Yield", "Active Trading") and attach one bundle per Safe.
-contract SharedDeFiBundlePermission is BaseSharedPermission {
+contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospection {
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -201,6 +203,31 @@ contract SharedDeFiBundlePermission is BaseSharedPermission {
 
     function discriminator() external pure returns (bytes32) {
         return keccak256("SharedDeFiBundlePermission");
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedDeFiBundlePermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    /// @notice This template composes swap, borrow, and transfer capabilities.
+    ///         All four capability IDs are declared so consumers can discover the
+    ///         full action surface without inspecting each sub-domain individually.
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](4);
+        ids[0] = SailCapabilities.DEFI_BUNDLE;
+        ids[1] = SailCapabilities.BOUNDED_SWAP;
+        ids[2] = SailCapabilities.BOUNDED_BORROW;
+        ids[3] = SailCapabilities.TRANSFER_TARGET;
     }
 
     // -------------------------------------------------------------------------

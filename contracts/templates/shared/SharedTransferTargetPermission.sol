@@ -2,6 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 
 /// @notice Multi-account variant of TransferTargetPermission. One deployment serves any
@@ -13,7 +15,7 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///                 address[] allowedTokens,
 ///                 uint256   maxAmountPerTx
 ///             )
-contract SharedTransferTargetPermission is BaseSharedPermission {
+contract SharedTransferTargetPermission is BaseSharedPermission, IPermissionIntrospection {
     bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
     bytes4 private constant TRANSFERFROM_SELECTOR = 0x23b872dd;
 
@@ -85,5 +87,24 @@ contract SharedTransferTargetPermission is BaseSharedPermission {
 
     function discriminator() external pure returns (bytes32) {
         return keccak256("SharedTransferTargetPermission");
+    }
+
+    // ── IPermissionIntrospection ──────────────────────────────────────────────
+
+    function permissionId() external pure override returns (bytes32) {
+        return keccak256("sail.permission.SharedTransferTargetPermission.v1");
+    }
+
+    function permissionVersion() external pure override returns (bytes32) {
+        return keccak256("v1");
+    }
+
+    function metadataURI() external pure override returns (string memory) {
+        return "";
+    }
+
+    function capabilityIds() external pure override returns (bytes32[] memory ids) {
+        ids = new bytes32[](1);
+        ids[0] = SailCapabilities.TRANSFER_TARGET;
     }
 }
