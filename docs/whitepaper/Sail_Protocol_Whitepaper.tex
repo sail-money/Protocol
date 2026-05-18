@@ -150,7 +150,7 @@ Legal mandates, the substrate that governs traditional separately managed accoun
 
 Sail Protocol is the infrastructure for that relationship. The protocol formalizes the onchain SMA: a self-custodial account, held by the LP through a Safe, whose mandate is enforced by smart contracts on every manager transaction. Three roles are separated explicitly. The Owner holds the Safe. The Permission Signer authorizes the mandate. The Manager executes within bounds. The Manager is typically an agent.
 
-Permissions are user-deployed Solidity contracts. The kernel evaluates each one via \code{staticcall} under a per-permission gas cap and dispatches the call to the Safe only if every permission returns \code{true}. Because permissions are arbitrary Solidity, any DeFi primitive can be a permission. The protocol covers, by construction, everything DeFi can do.
+Permissions are user-deployed Solidity contracts. The manager's signature names one registered permission as the authorizer for each dispatch; the kernel evaluates that permission via \code{staticcall} under a gas cap and dispatches the call to the Safe only if it returns \code{true}. Because permissions are arbitrary Solidity, any DeFi primitive can be a permission. The protocol covers, by construction, everything DeFi can do.
 
 The protocol enforces two fee mechanisms: a per-permission registration fee paid to the protocol treasury, and a protocol cut on manager-collected fees. The protocol cut is set to zero at protocol launch. Anyone can deploy SMAs, write permissions, and operate as a manager.
 
@@ -286,7 +286,7 @@ The role of \emph{transaction submitter} --- the address that pays gas and submi
 
 In Sail, the mandate is not a document. It is the union of two onchain objects: a Safe held by the Owner, which holds the SMA's assets, and a list of registered permissions --- contracts implementing \code{IPermission} --- against that Safe.
 
-When the Manager submits a transaction, the kernel calls \code{evaluate()} on each registered permission. The transaction is dispatched to the Safe only if every permission returns \code{true}. A single rejection terminates the dispatch.
+When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls \code{evaluate()} on that permission alone and dispatches the call to the Safe only if it returns \code{true}. Other registered permissions are not consulted during the dispatch.
 
 The mandate is therefore enforceable at every transaction. If the manager attempts to swap to an unallowed router, transfer to an unallowed recipient, borrow above the configured LTV, or call any function outside the registered permission set, the transaction reverts before any state change occurs.
 
@@ -399,7 +399,7 @@ Figure~\ref{fig:flow} illustrates the dispatch path for a manager transaction.
   node[midway, fill=white, inner sep=2pt, font=\footnotesize]{\code{collectFees}};
 
 \end{tikzpicture}
-\caption{Manager dispatch flow. The Permission Signer authorizes the mandate by EIP-712 signature. The Manager submits a transaction. The kernel evaluates each registered permission via \code{staticcall}; if every permission returns \code{true}, the kernel forwards the call to the Safe through the Safe module interface. When the Manager calls \code{collectFees}, the kernel consults the registered Fee Policy and splits the result.}
+\caption{Manager dispatch flow. The Permission Signer authorizes the mandate by EIP-712 signature. The Manager submits a transaction naming one registered permission as the authorizer. The kernel evaluates that permission via \code{staticcall}; if it returns \code{true}, the kernel forwards the call to the Safe through the Safe module interface. When the Manager calls \code{collectFees}, the kernel consults the registered Fee Policy and splits the result.}
 \label{fig:flow}
 \end{figure}
 
@@ -441,7 +441,7 @@ The kernel's evaluation of registered permissions has four properties that toget
 
 \textbf{Gas isolation.} Each permission is called with a fixed gas cap. A permission that exceeds its cap reverts and is treated as returning \code{false}. A pathological permission cannot DoS the kernel or consume the manager's gas budget beyond the cap.
 
-\textbf{Conjunctive semantics.} The kernel iterates over every registered permission and evaluates each one. The transaction is dispatched only if every permission returns \code{true}. There is no precedence, no override, no special-case shortcut. The mandate is the conjunction of all registered permissions.
+\textbf{Selective authorization.} The manager's signature names one registered permission as the authorizer for the dispatch. The kernel evaluates that permission alone --- no other registered permissions are consulted. The mandate is the union of registered permissions; each dispatch selects one as its authorizer. This enables multiple unrelated templates to coexist on one account: a swap permission, a borrow permission, and a transfer permission can all be registered, and each call selects the appropriate authorizer without the others falsely denying it. Batch dispatch follows the same model via the \code{IBatchPermission} interface.
 
 \textbf{Fail-closed.} Any permission that reverts, runs out of gas, returns malformed data, or returns \code{false} causes the entire dispatch to revert. The default behavior of a buggy permission is to deny, not to allow.
 
@@ -452,7 +452,7 @@ Because permissions are arbitrary Solidity contracts, the protocol does not boun
 
 This is a substantive design choice. The alternative path is a fixed-grammar mandate language: a set of enums describing conditions, references, parameter kinds, and value sources, interpreted by a constraint virtual machine inside the kernel. That approach trades expressiveness for predictability: the kernel knows exactly what every policy can do because the grammar is finite. The cost is that every new DeFi pattern --- a router with a new calldata shape, a yield protocol with a different reward structure, an emerging primitive that did not exist when the grammar was designed --- requires extending the grammar, updating the VM, and shipping a kernel upgrade.
 
-Sail's approach inverts the trade-off. The kernel knows nothing about DeFi venues. It calls \code{evaluate()} on a permission contract and respects the answer. The structural guarantees (\code{staticcall}, gas cap, fail-closed, conjunctive semantics) protect the kernel from the permission; everything the permission expresses inside that envelope is the author's responsibility, not the kernel's.
+Sail's approach inverts the trade-off. The kernel knows nothing about DeFi venues. It calls \code{evaluate()} on a permission contract and respects the answer. The structural guarantees (\code{staticcall}, gas cap, fail-closed, selective authorization) protect the kernel from the permission; everything the permission expresses inside that envelope is the author's responsibility, not the kernel's.
 
 The result is that adding a new DeFi integration to Sail is a contract deployment, not a protocol upgrade. The kernel does not need to know about any specific DeFi venue --- existing or future. A permission contract that gates calls to a venue with the constraints its author chose is sufficient.
 
@@ -597,8 +597,8 @@ Governance is initially held by the team multisig. The contract is structured to
 The protocol provides six formal guarantees, each a property of the deployed bytecode rather than of governance policy.
 
 \begin{enumerate}[leftmargin=1.5em,itemsep=4pt]
-  \item \textbf{Custody isolation.} The kernel cannot transfer Safe assets except through a manager dispatch that satisfies every registered permission. The kernel has no direct write access to the Safe outside the module dispatch path.
-  \item \textbf{Conjunctive evaluation.} A manager dispatch succeeds only if every registered permission returns \code{true}. A single rejection terminates the dispatch.
+  \item \textbf{Custody isolation.} The kernel cannot transfer Safe assets except through a manager dispatch that satisfies the named permission's evaluation. The kernel has no direct write access to the Safe outside the module dispatch path.
+  \item \textbf{Selective authorization.} A manager dispatch succeeds only if the permission named in the manager's signature is registered for the account and returns \code{true} on evaluation. Other registered permissions are not evaluated during the dispatch.
   \item \textbf{Reentrancy safety.} Permission evaluation occurs via \code{staticcall}, which prohibits state mutation. No re-entry path exists through the permission surface.
   \item \textbf{Gas isolation.} Each permission is called with a fixed gas cap. A permission that exceeds its cap is treated as returning \code{false}; the kernel cannot be denied service by a malicious permission.
   \item \textbf{Constitutional fee caps.} Protocol cut and registration fee cannot exceed their constitutional bounds. No governance procedure can change this.
@@ -696,7 +696,7 @@ Each exclusion reduces what the protocol owns. The kernel owns less, by design, 
 % --- 12. Conclusion ---
 \section{Conclusion}
 
-Sail Protocol expresses the separately managed account relationship as a minimal onchain primitive. A small trusted kernel mediates between an Owner who holds custody through a Safe, a Permission Signer who authorizes the mandate, and a Manager who executes within bounds. Permissions are user-deployed Solidity contracts evaluated under structural safety guarantees --- \code{staticcall}, gas cap, conjunctive semantics, fail-closed. Fees split through a protocol-enforced mechanism with an immutable constitutional cap. Anything beyond the kernel lives outside it: NAV, fee schedules, venue-specific gating, oracle policy.
+Sail Protocol expresses the separately managed account relationship as a minimal onchain primitive. A small trusted kernel mediates between an Owner who holds custody through a Safe, a Permission Signer who authorizes the mandate, and a Manager who executes within bounds. Permissions are user-deployed Solidity contracts evaluated under structural safety guarantees --- \code{staticcall}, gas cap, selective authorization, fail-closed. Fees split through a protocol-enforced mechanism with an immutable constitutional cap. Anything beyond the kernel lives outside it: NAV, fee schedules, venue-specific gating, oracle policy.
 
 The protocol exists because autonomous agents have made the legal mandate insufficient. An agent executing at machine speed cannot be governed by paperwork. The mandate must be code, evaluated on every transaction, revocable in a single block.
 
@@ -719,7 +719,7 @@ Onchain SMA & A self-custodial managed account whose mandate is enforced by smar
 Owner & The party who holds the Safe and owns the SMA's assets.\\
 Permission Signer & The signer authorized to register, configure, and revoke permissions on the account. May be the same party as the Owner.\\
 Manager & The party authorized to execute transactions on behalf of the account, within the bounds of the registered permissions. Typically an autonomous agent.\\
-Permission & A Solidity contract implementing \code{IPermission}. The kernel evaluates each registered permission on every manager dispatch.\\
+Permission & A Solidity contract implementing \code{IPermission}. The kernel evaluates the permission named by the manager's signature for each dispatch.\\
 Shared template & A permission contract that serves multiple accounts via per-account configuration storage; the recommended deployment pattern.\\
 Fee 1 & Permission registration fee. Flat ETH per registered permission, paid to the protocol treasury.\\
 Fee 2 & Protocol cut on manager-collected fees. Capped by the constitution. Set to zero at protocol launch.\\
