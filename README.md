@@ -329,7 +329,7 @@ forge build
 forge test
 ```
 
-Current test count: 965+ across 23 test files (including the red-team adversarial suite under `test/redteam/`).
+Current test count: 1,114 across 23 test files (including the red-team adversarial suite under `test/redteam/`).
 
 ---
 
@@ -339,11 +339,38 @@ The protocol has not yet been externally audited. An external audit is planned b
 
 ### Audit scope (planned)
 
-**Group 1 — Trusted core (~905 SLOC):**  
-`SailKernel`, `SailGovernance`, `PermissionFactory`, `BaseSharedPermission`, and all interfaces.
+**Primary audit scope — Trusted core (~849 SLOC)**
 
-**Group 2 — Shared templates and policies (~1,130 SLOC):**  
-The six shared templates and `StandardFeePolicy`.
+This is the mandatory audit surface. A bug anywhere in the trusted core puts every account on the protocol at risk.
+
+| Component | SLOC |
+|---|---|
+| `SailKernel` | 590 |
+| `SailGovernance` | 146 |
+| Interfaces (8 files) | 113 |
+| **Total** | **~849** |
+
+**Secondary audit scope — Template layer (~1,463 SLOC)**
+
+Each template is independently auditable. A bug in one template affects only accounts that have registered that template. New templates can be deployed and audited post-launch without re-auditing the trusted core.
+
+| Component | SLOC |
+|---|---|
+| `BaseSharedPermission` | 86 |
+| `StandardFeePolicy` | 147 |
+| `SharedBoundedSwapPermission` | — |
+| `SharedBoundedBorrowPermission` | — |
+| `SharedTransferTargetPermission` | — |
+| `SharedDeFiBundlePermission` | — |
+| `SharedPendlePermission` | — |
+| `SharedAMMLiquidityPermission` | — |
+| `SharedApproveAndCallBatchPermission` | — |
+| Templates subtotal | ~1,230 |
+| **Total** | **~1,463** |
+
+**Out of scope — Tooling (137 SLOC)**
+
+`PermissionFactory` (137 SLOC). Holds no protocol-level privileges. Not a security-critical component. Users can interact with the kernel directly without it.
 
 The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
 
@@ -359,13 +386,13 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 
 | Dimension | Sail Protocol |
 |---|---|
-| Trusted core (kernel + governance + factory + interfaces + base) | 905 SLOC |
-| Total contracts in v1 audit scope | ~2,035 SLOC |
+| Trusted core (kernel + governance + interfaces) | ~849 SLOC |
+| Template layer (templates + base + fee policy) | ~1,463 SLOC |
 | Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI = 0.001 ETH` |
 | Permission evaluation | `staticcall` with per-permission gas cap |
 | Custody model | Self-custodial via Gnosis Safe |
 | Default fee 2 at launch | 0% |
-| Test count | 965+ |
+| Test count | 1,114 |
 
 ---
 
