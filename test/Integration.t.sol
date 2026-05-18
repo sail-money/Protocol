@@ -68,7 +68,7 @@ contract IntegrationTest is Test {
 
     // ── governance / fee parameters ───────────────────────────────────────────
     uint256 constant BASE_FEE           = 0.001 ether;
-    uint256 constant MAX_PERM_FEE       = 0.1 ether;
+    uint256 constant MAX_PERM_FEE       = 0.001 ether;
     uint256 constant PROTOCOL_CUT_BPS   = 1_000;     // 10%
     uint256 constant MGMT_BPS           = 200;        // 2% annual
     uint256 constant PERF_BPS           = 2_000;      // 20%

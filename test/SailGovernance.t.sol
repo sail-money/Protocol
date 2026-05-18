@@ -12,7 +12,7 @@ contract SailGovernanceTest is Test {
     address constant ALICE           = address(0x2222);
     address constant BOB             = address(0x3333);
     address constant EMERGENCY_ADMIN = address(0x4444);
-    uint256 constant MAX_FEE         = 1 ether;
+    uint256 constant MAX_FEE         = 0.001 ether;
 
     uint256 private _saltNonce;
 
@@ -503,10 +503,10 @@ contract SailGovernanceTest is Test {
     }
 
     function test_SetPermissionRegistrationFee_EmitsEvent() public {
-        bytes memory data = abi.encodeCall(gov.setPermissionRegistrationFee, (0.1 ether));
+        bytes memory data = abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether));
         bytes32 salt = _timelockSchedule(data);
         vm.expectEmit(false, false, false, true);
-        emit PermissionRegistrationFeeUpdated(0, 0.1 ether);
+        emit PermissionRegistrationFeeUpdated(0, 0.001 ether);
         _timelockExecute(data, salt);
     }
 }

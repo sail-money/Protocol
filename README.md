@@ -2,7 +2,7 @@
 
 > A protocol for onchain Separately Managed Accounts run by agents.
 
-Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an account where capital sits under the LP's custody and a designated manager — typically an autonomous agent, but optionally a human, multisig, or MPC wallet — executes transactions within bounds approved by the account's permission signer. Sail provides the kernel that mediates this relationship: it instantiates the account, registers permissions, gates manager dispatch through those permissions, accounts for fees, and tracks principal.
+Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an account where capital sits under the LP's custody and a designated manager — typically an autonomous agent, but optionally a human, multisig, or MPC wallet — executes transactions within bounds approved by the account's permission signer. Sail provides the kernel that mediates this relationship: it instantiates the account, registers permissions, gates manager dispatch through those permissions, accounts for fees, and tracks principal. Because each SMA is a separate account with its own permission set, an agent can run an individually calibrated strategy for each owner — sensitive to their balance, risk profile, and preferences — rather than applying a single algorithm across all accounts.
 
 The protocol is positioned for developers and crypto-native builders deploying autonomous agents on top of Safe accounts. Sail provides the custody layer agents need to act on-chain without being given private keys, and the permission infrastructure that LPs need to bound what an agent can do.
 
@@ -168,7 +168,7 @@ total_fee = permissionRegistrationFee × number_of_permissions
 ```
 
 - Storage variable: `SailGovernance.permissionRegistrationFee`
-- Constitutional cap: `MAX_PERMISSION_FEE_WEI` (immutable, set at deployment)
+- Constitutional cap: `MAX_PERMISSION_FEE_WEI = 0.001 ETH` (immutable)
 - Governance-tunable via `setPermissionRegistrationFee` (48h timelock)
 - Excess `msg.value` is refunded to the caller
 
@@ -191,7 +191,7 @@ manager_take    = manager_gross_fee - protocol_cut - distributor_cut
 
 The kernel does not compute the gross fee — that is the responsibility of the user-deployed `IFeePolicy` contract, which contains the actual schedule (management fee on AUM, performance fee on profits above HWM, hybrid models, custom math).
 
-The Fee 2 mechanism is built into the kernel but disabled by default at v1 launch. It is intended to be activated by governance when the Sail Marketplace launches, providing revenue for the curation and infrastructure layer described in the trust model section below.
+The Fee 2 mechanism is built into the kernel but disabled by default at protocol launch. It is intended to be activated by governance when the Sail Marketplace launches, providing revenue for the curation and infrastructure layer described in the trust model section below.
 
 ---
 
@@ -203,15 +203,15 @@ Sail Protocol is open-source, permissionless infrastructure. Anyone can deploy S
 
 ### Manager-attested NAV in `StandardFeePolicy`
 
-The default fee policy shipped with v1 — `StandardFeePolicy` — uses a **manager-attested NAV model**. The manager submits the portfolio value (`currentNav`) at fee collection time. The protocol does not independently verify this value.
+The default fee policy — `StandardFeePolicy` — uses a **manager-attested NAV model**. The manager submits the portfolio value (`currentNav`) at fee collection time. The protocol does not independently verify this value.
 
 In the open protocol, a manager operating an SMA where a third party has deposited funds can inflate the reported NAV when collecting fees. The maximum extractable amount is bounded by the Safe's liquid balance and the configured fee parameters but can reach a significant portion of the SMA's value in a single fee collection.
 
 This risk exists in any product built on Sail that uses `StandardFeePolicy` and accepts third-party LP deposits, regardless of whether that product is associated with Sail Protocol.
 
-### Intended use at v1 launch
+### Intended use at launch
 
-Sail Protocol v1 is designed for **self-managed SMAs** — developers, AI agent builders, and crypto-native users operating Safes with their own capital. In this configuration the manager-attested NAV trust model is irrelevant because the manager and the LP are the same party.
+Sail Protocol is designed for **self-managed SMAs** — developers, AI agent builders, and crypto-native users operating Safes with their own capital. In this configuration the manager-attested NAV trust model is irrelevant because the manager and the LP are the same party.
 
 The kernel enforces a governance-managed allowlist of trusted Safe factory and singleton addresses, preventing a compromised manager from registering a backdoored Safe implementation.
 
@@ -355,7 +355,7 @@ A bug bounty program will be announced prior to mainnet launch. For pre-audit vu
 |---|---|
 | Trusted core (kernel + governance + factory + interfaces + base) | 905 SLOC |
 | Total contracts in v1 audit scope | ~2,035 SLOC |
-| Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI` |
+| Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI = 0.001 ETH` |
 | Permission evaluation | `staticcall` with per-permission gas cap |
 | Custody model | Self-custodial via Gnosis Safe |
 | Default fee 2 at launch | 0% |

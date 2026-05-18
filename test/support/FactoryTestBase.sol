@@ -55,7 +55,7 @@ abstract contract FactoryTestBase is Test {
     address internal constant TREASURY = address(0xAAAA);
 
     uint256 internal constant BASE_FEE         = 0.001 ether;
-    uint256 internal constant MAX_PERM_FEE     = 1 ether;
+    uint256 internal constant MAX_PERM_FEE     = 0.001 ether;
     uint256 internal constant PROTOCOL_CUT_BPS = 1_000;
 
     SailGovernance    internal gov;

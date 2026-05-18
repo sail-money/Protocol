@@ -128,7 +128,7 @@ abstract contract RedTeamBase2 is Test {
         vm.deal(address(this), 1000 ether);
         vm.deal(attacker,      100 ether);
 
-        gov = new SailGovernance(address(this), 1 ether, address(this), 0);
+        gov = new SailGovernance(address(this), 0.001 ether, address(this), 0);
         vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(1_000);
         gov.setPermissionRegistrationFee(0.001 ether);
@@ -1439,17 +1439,17 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
 }
 
 // =============================================================================
-// SECTION 21 — MAX_PERMISSION_FEE_WEI = 1 ether guard
+// SECTION 21 — MAX_PERMISSION_FEE_WEI = 0.001 ether guard
 // =============================================================================
 contract FeeCapTests is RedTeamBase2 {
 
-    // ── 21a. Deploy governance with maxPermissionFeeWei > 1 ether must revert ──
+    // ── 21a. Deploy governance with maxPermissionFeeWei > 0.001 ether must revert ──
 
     function test_Attack_FeeCap_MaxPermissionFeeExceeds1Ether() public {
         vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 1 ether + 1, 1 ether)
+            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 0.001 ether + 1, 0.001 ether)
         );
-        new SailGovernance(address(this), 1 ether + 1, address(this), 0);
+        new SailGovernance(address(this), 0.001 ether + 1, address(this), 0);
     }
 
     // ── 21b. Governance cannot set permissionRegistrationFee above MAX_PERMISSION_FEE_WEI ──
@@ -1457,17 +1457,17 @@ contract FeeCapTests is RedTeamBase2 {
     function test_Attack_FeeCap_SetFeeAboveCapReverts() public {
         vm.prank(address(gov.timelock()));
         vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 1 ether + 1, 1 ether)
+            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 0.001 ether + 1, 0.001 ether)
         );
-        gov.setPermissionRegistrationFee(1 ether + 1);
+        gov.setPermissionRegistrationFee(0.001 ether + 1);
     }
 
-    // ── 21c. Setting fee to exactly 1 ether (the cap) is allowed ──
+    // ── 21c. Setting fee to exactly 0.001 ether (the cap) is allowed ──
 
     function test_Attack_FeeCap_SetFeeExactlyAtCap() public {
         vm.prank(address(gov.timelock()));
-        gov.setPermissionRegistrationFee(1 ether);
-        assertEq(gov.permissionRegistrationFee(), 1 ether);
+        gov.setPermissionRegistrationFee(0.001 ether);
+        assertEq(gov.permissionRegistrationFee(), 0.001 ether);
     }
 }
 

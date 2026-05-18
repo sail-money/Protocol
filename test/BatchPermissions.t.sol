@@ -51,7 +51,7 @@ contract BatchPermissionsTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
         manager    = vm.addr(MANAGER_KEY);
 
-        gov    = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN, 0);
+        gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0);
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new BatchMockSafe();
 
@@ -210,7 +210,7 @@ contract BatchPermissionsTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_BatchRegister_ExactFeeSucceeds() public {
-        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 fee1     = _fee(address(perm1));
@@ -231,7 +231,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_UnderpaymentReverts() public {
-        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));
@@ -247,7 +247,7 @@ contract BatchPermissionsTest is Test {
     }
 
     function test_BatchRegister_OverpaymentRefunded() public {
-        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.01 ether)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         address[] memory perms = _arr(address(perm1), address(perm2));
         uint256 totalFee = _fee(address(perm1)) + _fee(address(perm2));

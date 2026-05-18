@@ -179,7 +179,7 @@ abstract contract RedTeamBase is Test {
         vm.deal(attacker,      100 ether);
 
         // Deploy governance
-        gov = new SailGovernance(address(this), 1 ether, address(this), 0);
+        gov = new SailGovernance(address(this), 0.001 ether, address(this), 0);
         vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(1_000);
         gov.setPermissionRegistrationFee(0.001 ether);

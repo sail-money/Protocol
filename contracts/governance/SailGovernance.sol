@@ -251,7 +251,7 @@ contract SailGovernance {
         uint256 initialPermissionRegistrationFee
     ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
-        if (maxPermissionFeeWei              > 1 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             1 ether);
+        if (maxPermissionFeeWei              > 0.001 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             0.001 ether);
         if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
 
         governance                = initialGovernance;
