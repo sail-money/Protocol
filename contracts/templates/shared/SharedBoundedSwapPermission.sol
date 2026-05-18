@@ -20,12 +20,15 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   priceOracle
 ///             )
 contract SharedBoundedSwapPermission is BaseSharedPermission {
-    // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))
-    bytes4 private constant EXACT_INPUT_SINGLE = 0x414bf389;
+    // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) — V3 SwapRouter (with deadline)
+    bytes4 private constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
+    // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) — V3 SwapRouter02 (no deadline)
+    bytes4 private constant EXACT_INPUT_SINGLE_V2 = 0x04e45aaf;
     // swapExactTokensForTokens(uint256,uint256,address[],address,uint256)
-    bytes4 private constant SWAP_EXACT_TOKENS  = 0x38ed1739;
+    bytes4 private constant SWAP_EXACT_TOKENS     = 0x38ed1739;
 
-    uint256 private constant LEN_V3     = 260;
+    uint256 private constant LEN_V3_V1  = 260;
+    uint256 private constant LEN_V3_V2  = 228;
     uint256 private constant LEN_V2_MIN = 196;
 
     struct Slot {
@@ -105,8 +108,8 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
         if (!isAllowedRouter[ctx.account][ctx.target]) return false;
         Slot storage s = _slots[ctx.account];
 
-        if (ctx.selector == EXACT_INPUT_SINGLE) {
-            if (txData.length < LEN_V3) return false;
+        if (ctx.selector == EXACT_INPUT_SINGLE_V1) {
+            if (txData.length < LEN_V3_V1) return false;
             (
                 address tokenIn,
                 address tokenOut,
@@ -118,6 +121,26 @@ contract SharedBoundedSwapPermission is BaseSharedPermission {
             ) = abi.decode(
                 txData[4:],
                 (address, address, uint24, address, uint256, uint256, uint256, uint160)
+            );
+            if (!isAllowedTokenIn[ctx.account][tokenIn])   return false;
+            if (!isAllowedTokenOut[ctx.account][tokenOut]) return false;
+            if (recipient != ctx.account)                  return false;
+            if (amountIn > s.maxAmountPerTx)               return false;
+            return _oracleCheck(s, tokenIn, tokenOut, amountIn, amountOutMinimum);
+        }
+
+        if (ctx.selector == EXACT_INPUT_SINGLE_V2) {
+            if (txData.length < LEN_V3_V2) return false;
+            (
+                address tokenIn,
+                address tokenOut,
+                ,
+                address recipient,
+                uint256 amountIn,
+                uint256 amountOutMinimum,
+            ) = abi.decode(
+                txData[4:],
+                (address, address, uint24, address, uint256, uint256, uint160)
             );
             if (!isAllowedTokenIn[ctx.account][tokenIn])   return false;
             if (!isAllowedTokenOut[ctx.account][tokenOut]) return false;

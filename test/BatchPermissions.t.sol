@@ -51,7 +51,7 @@ contract BatchPermissionsTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
         manager    = vm.addr(MANAGER_KEY);
 
-        gov    = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN);
+        gov    = new SailGovernance(TEAM, 1 ether, EMERGENCY_ADMIN, 0);
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new BatchMockSafe();
 

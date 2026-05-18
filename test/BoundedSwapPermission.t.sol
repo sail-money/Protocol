@@ -93,6 +93,21 @@ contract BoundedSwapPermissionTest is Test {
         );
     }
 
+    /// @dev SwapRouter02 variant — no deadline field.
+    function _v3SwapRouter02(
+        address tokenIn,
+        address tokenOut,
+        address recipient,
+        uint256 amountIn,
+        uint256 amountOutMin
+    ) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            bytes4(0x04e45aaf),
+            tokenIn, tokenOut, uint24(3000), recipient,
+            amountIn, amountOutMin, uint160(0)
+        );
+    }
+
     function _v2(
         uint256 amountIn,
         uint256 amountOutMin,
@@ -445,8 +460,39 @@ contract BoundedSwapPermissionTest is Test {
         assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
     }
 
+    // -------------------------------------------------------------------------
+    // SwapRouter02 (V3 without deadline) — selector 0x04e45aaf
+    // -------------------------------------------------------------------------
+
+    function test_V3SwapRouter02_AllowedSwap() public view {
+        bytes memory data = _v3SwapRouter02(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, ORACLE_MIN_OUT);
+        assertTrue(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
+    function test_V3SwapRouter02_DeniedWhenRecipientNotSafe() public view {
+        bytes memory data = _v3SwapRouter02(TOKEN_IN, TOKEN_OUT, address(0xDEAD), AMOUNT_IN, ORACLE_MIN_OUT);
+        assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
+    function test_V3SwapRouter02_DeniedWhenAmountAboveCap() public view {
+        bytes memory data = _v3SwapRouter02(TOKEN_IN, TOKEN_OUT, SAFE, MAX_AMOUNT + 1, ORACLE_MIN_OUT);
+        assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
+    function test_V3SwapRouter02_DeniedWhenTokenInNotAllowed() public view {
+        bytes memory data = _v3SwapRouter02(address(0x9999), TOKEN_OUT, SAFE, AMOUNT_IN, ORACLE_MIN_OUT);
+        assertFalse(perm.evaluate(data, _ctx(ROUTER, data)));
+    }
+
+    function test_V3SwapRouter02_DeniedWhenTruncated() public view {
+        bytes memory full = _v3SwapRouter02(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, ORACLE_MIN_OUT);
+        bytes memory shortBuf = new bytes(227); // one byte short of LEN_V3_V2 = 228
+        for (uint256 i; i < 227; i++) shortBuf[i] = full[i];
+        assertFalse(perm.evaluate(shortBuf, _ctx(ROUTER, full)));
+    }
+
     function testFuzz_UnknownSelector(bytes4 sel) public view {
-        vm.assume(sel != bytes4(0x414bf389) && sel != bytes4(0x38ed1739));
+        vm.assume(sel != bytes4(0x414bf389) && sel != bytes4(0x04e45aaf) && sel != bytes4(0x38ed1739));
         bytes memory data = abi.encodePacked(
             sel,
             abi.encode(TOKEN_IN, TOKEN_OUT, uint24(3000), SAFE, type(uint256).max, AMOUNT_IN, ORACLE_MIN_OUT, uint160(0))

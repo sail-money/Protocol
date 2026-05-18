@@ -11,7 +11,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         configured — within a slippage band derived from the on-chain price.
 ///
 ///         Supported selectors:
-///           0x414bf389  exactInputSingle(ExactInputSingleParams)  — Uniswap V3 SwapRouter
+///           0x414bf389  exactInputSingle(ExactInputSingleParams)  — Uniswap V3 SwapRouter (with deadline)
+///           0x04e45aaf  exactInputSingle(ExactInputSingleParams)  — Uniswap V3 SwapRouter02 (no deadline)
 ///           0x38ed1739  swapExactTokensForTokens(...)            — Uniswap V2 Router
 ///
 /// @dev    Oracle check behaviour:
@@ -34,19 +35,28 @@ contract BoundedSwapPermission is IPermission {
     // Selectors
     // -------------------------------------------------------------------------
 
-    /// @dev exactInputSingle((tokenIn,tokenOut,fee,recipient,deadline,amountIn,amountOutMinimum,sqrtPriceLimitX96))
-    bytes4 private constant EXACT_INPUT_SINGLE = 0x414bf389;
+    /// @dev Uniswap V3 SwapRouter:
+    ///      exactInputSingle((tokenIn,tokenOut,fee,recipient,deadline,amountIn,amountOutMinimum,sqrtPriceLimitX96))
+    bytes4 private constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
+
+    /// @dev Uniswap V3 SwapRouter02 (deadline dropped — checkout uses block.timestamp internally):
+    ///      exactInputSingle((tokenIn,tokenOut,fee,recipient,amountIn,amountOutMinimum,sqrtPriceLimitX96))
+    bytes4 private constant EXACT_INPUT_SINGLE_V2 = 0x04e45aaf;
 
     /// @dev swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
-    bytes4 private constant SWAP_EXACT_TOKENS  = 0x38ed1739;
+    bytes4 private constant SWAP_EXACT_TOKENS    = 0x38ed1739;
 
     // -------------------------------------------------------------------------
     // Calldata length constants
     // -------------------------------------------------------------------------
 
-    /// @dev Minimum calldata length for V3 exactInputSingle:
+    /// @dev Minimum calldata length for V3 SwapRouter exactInputSingle:
     ///      selector(4) + 8 struct words × 32 = 260 bytes.
-    uint256 private constant LEN_V3 = 260;
+    uint256 private constant LEN_V3_V1 = 260;
+
+    /// @dev Minimum calldata length for V3 SwapRouter02 exactInputSingle:
+    ///      selector(4) + 7 struct words × 32 = 228 bytes.
+    uint256 private constant LEN_V3_V2 = 228;
 
     /// @dev Minimum calldata length for V2 swapExactTokensForTokens structural check:
     ///      selector(4) + 5 head words × 32 (amountIn, amountOutMin, pathOffset, to, deadline)
@@ -190,9 +200,9 @@ contract BoundedSwapPermission is IPermission {
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
         if (!isAllowedRouter[ctx.target]) return false;
 
-        // ── Uniswap V3 exactInputSingle ───────────────────────────────────────
-        if (ctx.selector == EXACT_INPUT_SINGLE) {
-            if (txData.length < LEN_V3) return false;
+        // ── Uniswap V3 SwapRouter (V1, with deadline) ─────────────────────────
+        if (ctx.selector == EXACT_INPUT_SINGLE_V1) {
+            if (txData.length < LEN_V3_V1) return false;
 
             // ExactInputSingleParams: tokenIn, tokenOut, fee, recipient, deadline,
             //                         amountIn, amountOutMinimum, sqrtPriceLimitX96
@@ -207,6 +217,32 @@ contract BoundedSwapPermission is IPermission {
             ) = abi.decode(
                 txData[4:],
                 (address, address, uint24, address, uint256, uint256, uint256, uint160)
+            );
+
+            if (!isAllowedTokenIn[tokenIn])   return false;
+            if (!isAllowedTokenOut[tokenOut]) return false;
+            if (recipient != ctx.account)     return false;
+            if (amountIn > maxAmountPerTx)    return false;
+
+            return _oracleCheck(tokenIn, tokenOut, amountIn, amountOutMinimum);
+        }
+
+        // ── Uniswap V3 SwapRouter02 (V2, no deadline) ─────────────────────────
+        if (ctx.selector == EXACT_INPUT_SINGLE_V2) {
+            if (txData.length < LEN_V3_V2) return false;
+
+            // ExactInputSingleParams (SwapRouter02): tokenIn, tokenOut, fee, recipient,
+            //                                        amountIn, amountOutMinimum, sqrtPriceLimitX96
+            (
+                address tokenIn,
+                address tokenOut,
+                ,              // fee (uint24)
+                address recipient,
+                uint256 amountIn,
+                uint256 amountOutMinimum,
+            ) = abi.decode(
+                txData[4:],
+                (address, address, uint24, address, uint256, uint256, uint160)
             );
 
             if (!isAllowedTokenIn[tokenIn])   return false;

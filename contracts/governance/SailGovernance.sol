@@ -237,17 +237,28 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice Deploy the governance contract.
-    /// @param  initialGovernance   Address to hold initial governance rights.
-    /// @param  maxPermissionFeeWei Constitutional ceiling for the per-permission registration fee.
-    /// @param  _emergencyAdmin     Address that can pause the kernel without a timelock delay.
-    constructor(address initialGovernance, uint256 maxPermissionFeeWei, address _emergencyAdmin) {
+    /// @param  initialGovernance                Address to hold initial governance rights.
+    /// @param  maxPermissionFeeWei              Constitutional ceiling for the per-permission registration fee.
+    /// @param  _emergencyAdmin                  Address that can pause the kernel without a timelock delay.
+    /// @param  initialPermissionRegistrationFee Initial flat permission-registration fee in wei.
+    ///                                          Must not exceed maxPermissionFeeWei. Pass 0 to leave
+    ///                                          registration free until governance raises it via the
+    ///                                          48-hour timelock.
+    constructor(
+        address initialGovernance,
+        uint256 maxPermissionFeeWei,
+        address _emergencyAdmin,
+        uint256 initialPermissionRegistrationFee
+    ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
-        if (maxPermissionFeeWei > 1 ether) revert FeeExceedsCap(maxPermissionFeeWei, 1 ether);
+        if (maxPermissionFeeWei              > 1 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             1 ether);
+        if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
 
-        governance     = initialGovernance;
-        emergencyAdmin = _emergencyAdmin;
-        MAX_PERMISSION_FEE_WEI = maxPermissionFeeWei;
-        maxPermissionsPerAccount = 20;
+        governance                = initialGovernance;
+        emergencyAdmin            = _emergencyAdmin;
+        MAX_PERMISSION_FEE_WEI    = maxPermissionFeeWei;
+        permissionRegistrationFee = initialPermissionRegistrationFee;
+        maxPermissionsPerAccount  = 20;
 
         // Governance is the sole proposer and executor; no admin (self-governing timelock).
         address[] memory proposers = new address[](1);

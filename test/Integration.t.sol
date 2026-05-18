@@ -98,7 +98,7 @@ contract IntegrationTest is Test {
         vm.deal(address(this), 10 ether); // enough to pay registration fees
 
         // 1. Governance (test contract is initial governance)
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN, 0);
         _govExec(abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
         _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (BASE_FEE)));
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0

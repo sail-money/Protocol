@@ -25,7 +25,7 @@ contract SailGovernanceTest is Test {
     event Unpaused();
 
     function setUp() public {
-        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
+        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -85,17 +85,29 @@ contract SailGovernanceTest is Test {
     function test_Constructor_EmitsGovernanceTransferred() public {
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(address(0), TEAM);
-        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0);
     }
 
     function test_Constructor_RevertsOnZeroGovernance() public {
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN);
+        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN, 0);
     }
 
     function test_Constructor_RevertsOnZeroEmergencyAdmin() public {
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(TEAM, MAX_FEE, address(0));
+        new SailGovernance(TEAM, MAX_FEE, address(0), 0);
+    }
+
+    function test_Constructor_RevertsOnInitialFeeAboveCap() public {
+        vm.expectRevert(abi.encodeWithSelector(
+            SailGovernance.FeeExceedsCap.selector, MAX_FEE + 1, MAX_FEE
+        ));
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, MAX_FEE + 1);
+    }
+
+    function test_Constructor_SeedsInitialPermissionRegistrationFee() public {
+        SailGovernance g = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0.001 ether);
+        assertEq(g.permissionRegistrationFee(), 0.001 ether);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

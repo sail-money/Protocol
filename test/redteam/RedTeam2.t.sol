@@ -128,7 +128,7 @@ abstract contract RedTeamBase2 is Test {
         vm.deal(address(this), 1000 ether);
         vm.deal(attacker,      100 ether);
 
-        gov = new SailGovernance(address(this), 1 ether, address(this));
+        gov = new SailGovernance(address(this), 1 ether, address(this), 0);
         vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(1_000);
         gov.setPermissionRegistrationFee(0.001 ether);
@@ -1449,7 +1449,7 @@ contract FeeCapTests is RedTeamBase2 {
         vm.expectRevert(
             abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 1 ether + 1, 1 ether)
         );
-        new SailGovernance(address(this), 1 ether + 1, address(this));
+        new SailGovernance(address(this), 1 ether + 1, address(this), 0);
     }
 
     // ── 21b. Governance cannot set permissionRegistrationFee above MAX_PERMISSION_FEE_WEI ──

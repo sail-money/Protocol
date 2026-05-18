@@ -72,12 +72,11 @@ abstract contract FactoryTestBase is Test {
 
         vm.deal(address(this), 100 ether);
 
-        // Deploy governance with this test contract as governance + emergencyAdmin
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this));
-        vm.startPrank(address(gov.timelock()));
+        // Deploy governance with this test contract as governance + emergencyAdmin,
+        // seeding the initial permission-registration fee directly via the constructor.
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE);
+        vm.prank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
-        gov.setPermissionRegistrationFee(BASE_FEE);
-        vm.stopPrank();
 
         kernel  = new SailKernel(address(gov), TREASURY);
         factory = new PermissionFactory(address(kernel));
