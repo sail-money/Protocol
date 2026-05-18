@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -10,7 +10,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         Supported selectors:
 ///           commitOrder(uint128,uint128,int128,uint128,uint256,bytes32,address)
 ///           modifyCollateral(uint128,uint128,int256)
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract SynthetixPerpPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // commitOrder(uint128 accountId, uint128 marketId, int128 sizeDelta,
     //             uint128 settlementStrategyId, uint256 acceptablePrice,
     //             bytes32 trackingCode, address referrer)

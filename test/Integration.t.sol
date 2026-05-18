@@ -68,7 +68,6 @@ contract IntegrationTest is Test {
 
     // ── governance / fee parameters ───────────────────────────────────────────
     uint256 constant BASE_FEE           = 0.001 ether;
-    uint256 constant COMPLEXITY_RATE    = 1;          // 1 wei per bytecode byte
     uint256 constant MAX_PERM_FEE       = 0.1 ether;
     uint256 constant PROTOCOL_CUT_BPS   = 1_000;     // 10%
     uint256 constant MGMT_BPS           = 200;        // 2% annual
@@ -99,10 +98,9 @@ contract IntegrationTest is Test {
         vm.deal(address(this), 10 ether); // enough to pay registration fees
 
         // 1. Governance (test contract is initial governance)
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN, 0, 0);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN, 0);
         _govExec(abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
-        _govExec(abi.encodeCall(gov.setBaseFee, (BASE_FEE)));
-        _govExec(abi.encodeCall(gov.setComplexityRate, (COMPLEXITY_RATE)));
+        _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (BASE_FEE)));
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0
 
         // 2. Kernel
@@ -137,9 +135,11 @@ contract IntegrationTest is Test {
             _signRegisterPermission(address(mockSafe), address(swap), 0)
         );
 
-        // 8. Initialise fee policy: first collectFees seeds HWM = 100 ether at T0
+        // 8. Initialise fee policy: feeManager seeds HWM first (H-5 fix), then first collectFees
+        vm.prank(FEE_MANAGER);
+        feePolicy.seedHighWaterMark(address(mockSafe), 100 ether);
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), 0, 100 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), 0, 100 ether, address(0));
     }
 
     receive() external payable {} // accept refunds from registerPermission
@@ -158,12 +158,8 @@ contract IntegrationTest is Test {
     // Test 1 — Per-permission deployment fee against real bytecode
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Fee_CalculationMatchesBytecodeSize() public view {
-        uint256 size = address(swap).code.length;
-        uint256 expected = BASE_FEE + size * COMPLEXITY_RATE;
-        // Under the cap for any reasonably sized contract
-        assertLt(expected, MAX_PERM_FEE, "test assumption: fee under cap");
-        assertEq(_calcFee(address(swap)), expected);
+    function test_Fee_CalculationIsFlatFee() public view {
+        assertEq(_calcFee(address(swap)), BASE_FEE);
     }
 
     function test_Fee_ExactPaymentSucceeds() public {
@@ -367,22 +363,22 @@ contract IntegrationTest is Test {
     function test_FeeCollection_SplitsLandInCorrectWallets() public {
         vm.warp(T0 + 365 days);
 
-        uint256 treasuryBefore  = TREASURY.balance;
-        uint256 deadBefore      = DEAD.balance;
-        uint256 recipientBefore = MANAGER_RECIPIENT.balance;
+        uint256 treasuryBefore   = TREASURY.balance;
+        uint256 deadBefore       = DEAD.balance;
+        uint256 feeManagerBefore = FEE_MANAGER.balance;
 
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
-        assertEq(TREASURY.balance          - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
-        assertEq(DEAD.balance              - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
-        assertEq(MANAGER_RECIPIENT.balance - recipientBefore,  MANAGER_TAKE_AMT, "manager take mismatch");
+        assertEq(TREASURY.balance   - treasuryBefore,  PROTOCOL_CUT_AMT, "protocol cut mismatch");
+        assertEq(DEAD.balance       - deadBefore,       DIST_CUT_AMT,     "distributor cut mismatch");
+        assertEq(FEE_MANAGER.balance - feeManagerBefore, MANAGER_TAKE_AMT, "manager take mismatch");
     }
 
     function test_FeeCollection_HWMRatchetsUp() public {
         vm.warp(T0 + 365 days);
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
         assertEq(feePolicy.highWaterMark(address(mockSafe)), 120 ether);
         assertEq(feePolicy.lastCollectionTimestamp(address(mockSafe)), T0 + 365 days);
@@ -392,7 +388,7 @@ contract IntegrationTest is Test {
         // First collection: grossFee = 6.4 ether, HWM → 120 ether
         vm.warp(T0 + 365 days);
         vm.prank(manager);
-        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), GROSS_FEE, 120 ether, address(0));
 
         // Second year: currentNav still 120 ether (at the new HWM)
         vm.warp(T0 + 730 days);
@@ -412,7 +408,7 @@ contract IntegrationTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.FeeTooLarge.selector, tooBig, GROSS_FEE));
-        kernel.collectFees(address(mockSafe), tooBig, 120 ether, address(0), MANAGER_RECIPIENT);
+        kernel.collectFees(address(mockSafe), tooBig, 120 ether, address(0));
     }
 
     function test_FeeCollection_RecordDepositAccumulatesPrincipal() public {
@@ -477,11 +473,8 @@ contract IntegrationTest is Test {
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _calcFee(address perm) internal view returns (uint256) {
-        uint256 size = perm.code.length;
-        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
-        uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
-        return fee > cap ? cap : fee;
+    function _calcFee(address) internal view returns (uint256) {
+        return gov.permissionRegistrationFee();
     }
 
     function _signRegisterPermission(address account, address permission, uint256 nonce)

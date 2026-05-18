@@ -28,8 +28,7 @@ import {SafeModuleEnabler}   from "../contracts/safe/SafeModuleEnabler.sol";
 ///           FEE_MANAGER               — can tune StandardFeePolicy       (default: deployer)
 ///           DISTRIBUTOR               — fee split recipient              (default: address(0))
 ///           MAX_PERMISSION_FEE_WEI    — constitutional cap                (default: 0.01 ether)
-///           INITIAL_BASE_FEE          — initial flat reg fee in wei       (default: 0)
-///           INITIAL_COMPLEXITY_RATE   — initial per-byte rate in wei      (default: 0)
+///           INITIAL_PERMISSION_REGISTRATION_FEE — initial flat reg fee   (default: 0)
 ///           MGMT_FEE_BPS              — StandardFeePolicy mgmt fee bps    (default: 200 = 2%)
 ///           PERF_FEE_BPS              — StandardFeePolicy perf fee bps    (default: 1000 = 10%)
 ///           DISTRIBUTOR_BPS           — distributor share of mgr fee bps  (default: 0)
@@ -42,8 +41,7 @@ contract Deploy is Script {
         address feeManager;
         address distributor;
         uint256 maxPermissionFeeWei;
-        uint256 initialBaseFee;
-        uint256 initialComplexityRate;
+        uint256 initialPermissionRegistrationFee;
         uint256 managementFeeBps;
         uint256 performanceFeeBps;
         uint256 distributorBps;
@@ -71,8 +69,7 @@ contract Deploy is Script {
             cfg.initialGovernance,
             cfg.maxPermissionFeeWei,
             cfg.emergencyAdmin,
-            cfg.initialBaseFee,
-            cfg.initialComplexityRate
+            cfg.initialPermissionRegistrationFee
         );
         console2.log("SailGovernance     :", address(d.governance));
         console2.log("  timelock         :", address(d.governance.timelock()));
@@ -109,9 +106,8 @@ contract Deploy is Script {
         c.emergencyAdmin        = _envAddrOr("EMERGENCY_ADMIN",      c.deployer);
         c.feeManager            = _envAddrOr("FEE_MANAGER",          c.deployer);
         c.distributor           = _envAddrOr("DISTRIBUTOR",          address(0));
-        c.maxPermissionFeeWei   = _envUintOr("MAX_PERMISSION_FEE_WEI",  0.01 ether);
-        c.initialBaseFee        = _envUintOrZero("INITIAL_BASE_FEE");
-        c.initialComplexityRate = _envUintOrZero("INITIAL_COMPLEXITY_RATE");
+        c.maxPermissionFeeWei              = _envUintOr("MAX_PERMISSION_FEE_WEI", 0.01 ether);
+        c.initialPermissionRegistrationFee = _envUintOrZero("INITIAL_PERMISSION_REGISTRATION_FEE");
         c.managementFeeBps      = _envUintOr("MGMT_FEE_BPS",            200);
         c.performanceFeeBps     = _envUintOr("PERF_FEE_BPS",          1_000);
         c.distributorBps        = _envUintOr("DISTRIBUTOR_BPS",           0);
@@ -141,8 +137,7 @@ contract Deploy is Script {
         console2.log("feeManager           :", c.feeManager);
         console2.log("distributor          :", c.distributor);
         console2.log("maxPermissionFeeWei  :", c.maxPermissionFeeWei);
-        console2.log("initialBaseFee       :", c.initialBaseFee);
-        console2.log("initialComplexityRate:", c.initialComplexityRate);
+        console2.log("initialRegFee        :", c.initialPermissionRegistrationFee);
         console2.log("managementFeeBps     :", c.managementFeeBps);
         console2.log("performanceFeeBps    :", c.performanceFeeBps);
         console2.log("distributorBps       :", c.distributorBps);
@@ -191,8 +186,7 @@ contract Deploy is Script {
         vm.serializeUint(k, "blockNumber",           block.number);
         vm.serializeUint(k, "timestamp",             block.timestamp);
         vm.serializeUint(k, "maxPermissionFeeWei",   c.maxPermissionFeeWei);
-        vm.serializeUint(k, "initialBaseFee",        c.initialBaseFee);
-        vm.serializeUint(k, "initialComplexityRate", c.initialComplexityRate);
+        vm.serializeUint(k, "initialPermissionRegistrationFee", c.initialPermissionRegistrationFee);
         vm.serializeUint(k, "managementFeeBps",      c.managementFeeBps);
     }
 }

@@ -55,7 +55,6 @@ abstract contract FactoryTestBase is Test {
     address internal constant TREASURY = address(0xAAAA);
 
     uint256 internal constant BASE_FEE         = 0.001 ether;
-    uint256 internal constant COMPLEXITY_RATE  = 1;
     uint256 internal constant MAX_PERM_FEE     = 1 ether;
     uint256 internal constant PROTOCOL_CUT_BPS = 1_000;
 
@@ -74,8 +73,8 @@ abstract contract FactoryTestBase is Test {
         vm.deal(address(this), 100 ether);
 
         // Deploy governance with this test contract as governance + emergencyAdmin,
-        // seeding the initial fee schedule directly via the constructor.
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, COMPLEXITY_RATE);
+        // seeding the initial permission-registration fee directly via the constructor.
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE);
         vm.prank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
 
@@ -94,11 +93,8 @@ abstract contract FactoryTestBase is Test {
 
     // ── helpers shared by all tests ──────────────────────────────────────────
 
-    function _calcFee(address template) internal view returns (uint256) {
-        uint256 size = template.code.length;
-        uint256 fee  = gov.baseFee() + size * gov.complexityRate();
-        uint256 cap  = gov.MAX_PERMISSION_FEE_WEI();
-        return fee > cap ? cap : fee;
+    function _calcFee(address) internal view returns (uint256) {
+        return gov.permissionRegistrationFee();
     }
 
     function _signConfigure(

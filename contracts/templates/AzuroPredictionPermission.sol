@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -10,7 +10,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           betFor((address,(uint256,uint256,uint8,uint64[],uint128[],uint128,uint8)[],uint8,address,bytes,bytes,bytes)[])
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract AzuroPredictionPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // betFor((address,(uint256,uint256,uint8,uint64[],uint128[],uint128,uint8)[],uint8,address,bytes,bytes,bytes)[])
     bytes4 private constant BET_FOR = bytes4(
         keccak256(
@@ -47,10 +52,9 @@ contract AzuroPredictionPermission is IPermission {
 
     address public immutable azuroCore;
 
-    /// @dev Stored for reference and off-chain indexing only. Not checked in `evaluate` because
-    ///      Azuro V3 routes all bets through `azuroCore`, which enforces LP-level access control
-    ///      internally. The permission verifies the target is `azuroCore`, which is sufficient —
-    ///      azuroCore itself enforces the LP binding.
+    /// @notice The Azuro LP pool this permission is bound to.
+    ///         `evaluate` verifies that the first argument of `betFor` matches this address,
+    ///         ensuring bets are only placed through the expected LP pool.
     address public immutable azuroLP;
 
     mapping(uint256 conditionId => bool) public isAllowedCondition;
@@ -126,13 +130,20 @@ contract AzuroPredictionPermission is IPermission {
 
         // Gate 3 — length guard then decode + field checks
         if (txData.length < MIN_CALLDATA_LEN) return false;
+        // Reject pathologically large calldata to prevent OOG in external decode call.
+        if (txData.length > 4096) return false;
 
         _OrderData[] memory orders;
-        try this._decodeOrders(txData[4:]) returns (_OrderData[] memory decoded) {
+        address lp;
+        try this._decodeOrders(txData[4:]) returns (address decodedLp, _OrderData[] memory decoded) {
+            lp     = decodedLp;
             orders = decoded;
         } catch {
             return false;
         }
+
+        // Gate 4 — LP must match the bound azuroLP
+        if (lp != azuroLP) return false;
 
         if (orders.length == 0) return false;
 
@@ -166,7 +177,8 @@ contract AzuroPredictionPermission is IPermission {
     // ── external decode helper (used via try/catch in evaluate) ──────────────
 
     /// @dev External so it can be called with try/catch for revert-safe decoding.
-    function _decodeOrders(bytes calldata data) external pure returns (_OrderData[] memory) {
-        return abi.decode(data, (_OrderData[]));
+    ///      Decodes (address lp, _OrderData[] orders) — lp is validated against azuroLP in evaluate.
+    function _decodeOrders(bytes calldata data) external pure returns (address lp, _OrderData[] memory orders) {
+        return abi.decode(data, (address, _OrderData[]));
     }
 }

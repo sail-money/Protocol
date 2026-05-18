@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -55,7 +55,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Gas budget allocated to each permission's `evaluate` staticcall.
     ///         A revert or gas exhaustion within a permission is treated as a false return.
-    uint256 public constant PERMISSION_GAS_CAP = 100_000;
+    ///         Increased to 150_000 to accommodate templates (e.g. GMXPerpPermission,
+    ///         AzuroPredictionPermission, LimitlessPredictionPermission) that use
+    ///         `try this._decode*(...)` external calls within their evaluate paths.
+    uint256 public constant PERMISSION_GAS_CAP = 150_000;
 
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
@@ -157,6 +160,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Per-account nonces for permissionSigner operations
     ///         (register, revoke, replace, session, feePolicy).
+    /// @dev    All signer operations share a single nonce counter per account.
+    ///         Concurrent independent operations must use batch variants (registerPermissions,
+    ///         revokePermissions) rather than multiple single-op calls. Submitting two
+    ///         single-op calls simultaneously will cause one to fail due to nonce conflict.
     mapping(address account => uint256) public signerNonces;
 
     // -------------------------------------------------------------------------
@@ -337,6 +344,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown when `createAccount` deploys a Safe that does not have this kernel enabled as a module.
     error ModuleNotEnabled();
 
+    /// @dev Thrown by `createAccount` when the provided Safe factory is not in governance's trusted allowlist.
+    error UntrustedFactory(address factory);
+
+    /// @dev Thrown by `createAccount` when the provided Safe singleton is not in governance's trusted allowlist.
+    error UntrustedSingleton(address singleton);
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -414,6 +427,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address manager,
         address feePolicy
     ) external returns (address account) {
+        if (!governance.trustedSafeFactory(safeFactory))     revert UntrustedFactory(safeFactory);
+        if (!governance.trustedSafeSingleton(safeSingleton)) revert UntrustedSingleton(safeSingleton);
         uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)));
         account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);
         if (!ISafe(account).isModuleEnabled(address(this))) revert ModuleNotEnabled();
@@ -476,7 +491,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         );
         signerNonces[account] = nonce + 1;
 
-        uint256 fee = _calcPermissionFee(permission);
+        uint256 fee = _calcPermissionFee();
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
         _permissions[account].push(permission);
@@ -488,6 +503,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Revoke a single permission from an account.
     ///         Requires a permissionSigner EIP-712 signature.
+    /// @dev    Intentionally exempt from whenNotPaused — users must be able to revoke
+    ///         permissions even during a protocol pause to reduce their exposure.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to revoke.
     /// @param  sig        EIP-712 signature over RevokePermission struct by permissionSigner.
@@ -515,7 +532,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address oldPermission,
         address newPermission,
         bytes calldata sig
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         _requireRegistered(account);
         if (_permissionIndex[account][newPermission] != 0) revert PermissionAlreadyRegistered(newPermission);
 
@@ -530,7 +547,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 idx = _permissionIndex[account][oldPermission];
         if (idx == 0) revert PermissionNotRegistered(oldPermission);
 
-        uint256 fee = _calcPermissionFee(newPermission);
+        uint256 fee = _calcPermissionFee();
         if (msg.value < fee) revert InsufficientFee(fee, msg.value);
 
         _permissions[account][idx - 1] = newPermission;
@@ -580,7 +597,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  account      The registered Safe account.
     /// @param  newFeePolicy New fee policy contract address; address(0) = no fee policy.
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
-    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external nonReentrant {
+    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external nonReentrant whenNotPaused {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
@@ -634,10 +651,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         signerNonces[account] = nonce + 1;
 
         // Compute total fee before any state changes
-        uint256 totalFee;
-        for (uint256 i; i < permissions.length; i++) {
-            totalFee += _calcPermissionFee(permissions[i]);
-        }
+        uint256 totalFee = _calcPermissionFee() * permissions.length;
         if (msg.value < totalFee) revert InsufficientFee(totalFee, msg.value);
 
         // Add all permissions atomically — reverts if any duplicate found
@@ -655,6 +669,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Revoke multiple permissions atomically. One signer nonce is consumed for
     ///         the entire batch; no ETH fee is required.
     ///         Empty arrays are a no-op and do not consume a nonce.
+    /// @dev    Intentionally exempt from whenNotPaused — users must be able to revoke
+    ///         permissions even during a protocol pause to reduce their exposure.
     /// @param  account     The registered Safe account.
     /// @param  permissions Addresses of permission contracts to revoke.
     /// @param  deadline    Unix timestamp after which the signature is invalid.
@@ -794,6 +810,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         against the registered fee policy and enforces the protocol/distributor split.
     /// @dev    TRUST ASSUMPTION: `currentNav` is provided by the manager and is not verified
     ///         on-chain. The fee policy is the sole guard against inflated NAV inputs.
+    ///
+    /// @dev    DENOMINATION WARNING: `currentNav` and `feeToken` must use consistent units.
+    ///         The fee policy computes maxFee from currentNav — if NAV is USD-denominated
+    ///         but feeToken is WETH, the fee ceiling will be wildly incorrect.
+    ///         Deployers must ensure their fee policy validates or denominates in feeToken units.
     ///         The actual tokens transferred equal `grossFee` — not a function of `currentNav` —
     ///         but a dishonest manager could inflate `currentNav` to unlock a larger `maxFee`
     ///         ceiling and then pass a correspondingly large `grossFee`. Deployers must use a
@@ -802,21 +823,25 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  grossFee   Requested fee amount. Must not exceed the policy's computed maximum.
     /// @param  currentNav Current net asset value reported by the manager.
     /// @param  feeToken   ERC-20 token for fee payment; address(0) = native ETH.
-    /// @param  recipient  Address that receives the manager's net share after splits.
-    ///                    Must not be the zero address.
+    /// @dev DENOMINATION WARNING: `grossFee` and `currentNav` must be expressed in the same
+    ///      token units as the fee token (or ETH wei if feeToken==address(0)). Mixing
+    ///      denominations between grossFee and currentNav will silently produce incorrect fee
+    ///      calculations inside the policy.
     function collectFees(
         address account,
         uint256 grossFee,
         uint256 currentNav,
-        address feeToken,
-        address recipient
+        address feeToken
     ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
-        if (recipient == address(0)) revert ZeroAddress();
         AccountConfig storage cfg = configs[account];
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
         address feePolicy = cfg.feePolicy;
         if (feePolicy == address(0)) revert FeePolicyNotSet();
+
+        // Recipient is always pulled from the policy — prevents manager from redirecting fees.
+        address recipient = IFeePolicy(feePolicy).feeRecipient();
+        if (recipient == address(0)) revert ZeroAddress();
 
         (uint256 maxFee, address distributor, uint256 distributorBps) =
             IFeePolicy(feePolicy).computeFee(account, currentNav);
@@ -870,7 +895,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         contracts to derive context-aware fee limits.
     /// @param  account The registered Safe account.
     /// @param  amount  Deposit amount to record (in the account's base currency units).
-    function recordDeposit(address account, uint256 amount) external {
+    function recordDeposit(address account, uint256 amount) external nonReentrant {
         _requireRegistered(account);
         if (msg.sender != configs[account].permissionSigner) revert NotPermissionSigner();
         uint256 newDeposits = cumulativeDeposits[account] += amount;
@@ -880,7 +905,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Record a withdrawal from the account. Only the permissionSigner may call.
     /// @param  account The registered Safe account.
     /// @param  amount  Withdrawal amount to record (in the account's base currency units).
-    function recordWithdrawal(address account, uint256 amount) external {
+    function recordWithdrawal(address account, uint256 amount) external nonReentrant {
         _requireRegistered(account);
         if (msg.sender != configs[account].permissionSigner) revert NotPermissionSigner();
         uint256 newWithdrawals = cumulativeWithdrawals[account] += amount;
@@ -908,17 +933,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!registered[account]) revert AccountNotRegistered(account);
     }
 
-    /// @dev Compute the registration fee for a permission based on its bytecode size.
-    ///      Each component is individually capped at MAX_PERMISSION_FEE_WEI before summing
-    ///      to prevent overflow when both components are near the cap.
-    function _calcPermissionFee(address permission) internal view returns (uint256) {
-        uint256 cap  = governance.MAX_PERMISSION_FEE_WEI();
-        uint256 base        = Math.min(governance.baseFee(), cap);
-        uint256 sizeContrib = Math.min(permission.code.length * governance.complexityRate(), cap);
-        return Math.min(base + sizeContrib, cap);
+    /// @dev Return the flat registration fee for a permission.
+    function _calcPermissionFee() internal view returns (uint256) {
+        return governance.permissionRegistrationFee();
     }
 
     /// @dev Forward `fee` to the treasury and refund any ETH overpayment to msg.sender.
+    ///      All callers (registerPermission, replacePermission, registerPermissions) complete
+    ///      every state mutation (nonce increment, permission array update) before invoking
+    ///      this function. The refund callback to msg.sender therefore occurs after all
+    ///      state is settled; re-entry into any nonReentrant function is blocked. Any
+    ///      re-entry into non-guarded functions (revokeSession, activateSession) still
+    ///      requires a valid permissionSigner signature, preventing unauthorised mutations.
     function _collectRegistrationFee(uint256 fee) internal {
         if (fee > 0) {
             (bool ok,) = treasury.call{value: fee}("");

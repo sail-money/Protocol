@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {Context} from "../../interfaces/IPermission.sol";
@@ -136,8 +136,8 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission {
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;

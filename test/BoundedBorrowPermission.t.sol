@@ -19,9 +19,9 @@ contract BorrowMockOracle is IOracle {
         _prices[base][quote] = PriceData(price, dec);
     }
 
-    function getPrice(address base, address quote) external view returns (uint256 price, uint8 decimals) {
+    function getPrice(address base, address quote) external view returns (uint256 price, uint8 decimals, uint256 updatedAt) {
         PriceData memory pd = _prices[base][quote];
-        return (pd.price, pd.decimals);
+        return (pd.price, pd.decimals, block.timestamp);
     }
 }
 

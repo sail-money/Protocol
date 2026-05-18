@@ -172,10 +172,13 @@ contract TransferTargetPermissionTest is Test {
         assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
     }
 
-    function test_TransferFrom_AnyFrom_ToAllowedRecipient() public view {
-        // from field is not validated — any address is allowed as the source
-        bytes memory data = _transferFrom(STRANGER, PARTNER, 100e18);
+    function test_TransferFrom_FromMustBeSafe_ToAllowedRecipient() public view {
+        // `from` must equal ctx.account (the Safe) per M-6 security fix.
+        bytes memory data = _transferFrom(SAFE, PARTNER, 100e18);
         assertTrue(perm.evaluate(data, _ctx(TOKEN_A, data)));
+        // Non-Safe `from` is rejected.
+        bytes memory dataRejected = _transferFrom(STRANGER, PARTNER, 100e18);
+        assertFalse(perm.evaluate(dataRejected, _ctx(TOKEN_A, dataRejected)));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -198,12 +201,12 @@ contract TransferTargetPermissionTest is Test {
         assertTrue(perm.evaluate("", _ctxEth(PARTNER, 0)));
     }
 
-    function test_EthSend_ShortCalldataIsStillEthPath() public view {
-        // Any calldata shorter than 4 bytes routes to the ETH path
+    function test_EthSend_ShortCalldataIsRejected() public view {
+        // Non-empty calldata shorter than 4 bytes is malformed — rejected (not ETH path).
         bytes memory tiny = new bytes(2);
         Context memory ctx = _ctxEth(PARTNER, 0.1 ether);
         ctx.selector = bytes4(0);
-        assertTrue(perm.evaluate(tiny, ctx));
+        assertFalse(perm.evaluate(tiny, ctx));
     }
 
     function test_EthSend_BlockedForUnknownRecipient() public view {

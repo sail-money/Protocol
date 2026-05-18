@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -11,13 +11,16 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///           transfer(address,uint256)               — direct transfer from the Safe
 ///           transferFrom(address,address,uint256)   — pull from a pre-approved address
 ///
-/// @dev    The `transferFrom` path does NOT validate the `from` field. A manager can
-///         pull tokens from any address that has previously approved the Safe
-///         (e.g., an integrated DeFi protocol whose approval was set elsewhere).
-///         If only pulling from the Safe's own balance is intended, use the `transfer`
-///         path — or deploy a policy that explicitly restricts `from == ctx.account`.
+/// @dev    The `transferFrom` path validates that `from == ctx.account` (the Safe itself),
+///         preventing a manager from pulling tokens from arbitrary addresses that may have
+///         previously approved the Safe.
 /// @custom:security-contact security@sail.money
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract BoundedWithdrawPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -139,10 +142,9 @@ contract BoundedWithdrawPermission is IPermission {
         if (ctx.selector == TRANSFERFROM_SELECTOR) {
             // Encoded: selector(4) + from(32) + to(32) + amount(32) = 100 bytes minimum
             if (txData.length < 100) return false;
-            (, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
-            // WARNING: the `from` field is not validated. A manager can pull tokens from any
-            // address that has previously approved the Safe (e.g., an integrated DeFi protocol).
-            // Use the `transfer` path if only pulling from the Safe's own balance is intended.
+            (address from, address to, uint256 amount) = abi.decode(txData[4:], (address, address, uint256));
+            // `from` must be the Safe itself to prevent pulling tokens from arbitrary approvers.
+            if (from != ctx.account) return false;
             return to == allowedRecipient && amount <= maxAmountPerTx;
         }
 

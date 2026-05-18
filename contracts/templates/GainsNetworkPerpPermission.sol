@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -11,7 +11,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         Supported selectors:
 ///           OPEN_TRADE   openTrade((address,uint256,uint256,uint256,uint256,bool,uint256,uint256,uint256),uint8,uint256,uint256,address)
 ///           CLOSE_TRADE  closeTrade(uint256,uint256)
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract GainsNetworkPerpPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // openTrade((address,uint256,uint256,uint256,uint256,bool,uint256,uint256,uint256),uint8,uint256,uint256,address)
     bytes4 private constant OPEN_TRADE = bytes4(
         keccak256(

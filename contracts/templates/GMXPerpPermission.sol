@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
@@ -10,7 +10,12 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           0x0b686a6a  createOrder  (GMX V2 ExchangeRouter)
+/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
+///      Deploy a separate instance per account. Using one instance for multiple accounts
+///      allows any account's permissionSigner to control all accounts sharing the template.
 contract GMXPerpPermission is IPermission {
+    /// @notice Marks this as a single-account template (not a shared multi-account deployment).
+    bool public constant IS_SINGLE_ACCOUNT = true;
     // createOrder((addresses,numbers,orderType,decreasePositionSwapType,isLong,shouldUnwrapNativeToken,referralCode))
     bytes4 private constant CREATE_ORDER = 0x0b686a6a;
 
@@ -142,6 +147,8 @@ contract GMXPerpPermission is IPermission {
 
         // Gate 3 — calldata length guard then decode + field checks
         if (txData.length < MIN_CALLDATA_LEN) return false;
+        // Reject pathologically large calldata to prevent OOG in external decode call.
+        if (txData.length > 4096) return false;
 
         _CreateOrderParams memory params;
         try this._decodeOrder(txData[4:]) returns (_CreateOrderParams memory decoded) {

@@ -106,7 +106,7 @@ contract AzuroPredictionPermissionTest is Test {
         orders[0].bettorSignature = "";
         orders[0].oracleSignature = "";
 
-        return abi.encodeWithSelector(BET_FOR, orders);
+        return abi.encodeWithSelector(BET_FOR, LP, orders);
     }
 
     function _buildComboOrders(address betOwner, uint256 cond1, uint256 cond2, uint128 payoutLimit)
@@ -125,7 +125,7 @@ contract AzuroPredictionPermissionTest is Test {
         orders[0].bettorSignature = "";
         orders[0].oracleSignature = "";
 
-        return abi.encodeWithSelector(BET_FOR, orders);
+        return abi.encodeWithSelector(BET_FOR, LP, orders);
     }
 
     function _ctx(bytes memory /*data*/) internal view returns (Context memory) {
@@ -290,7 +290,7 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_EmptyOrdersArray_ReturnsFalse() public view {
         OrderData[] memory orders = new OrderData[](0);
-        bytes memory data = abi.encodeWithSelector(BET_FOR, orders);
+        bytes memory data = abi.encodeWithSelector(BET_FOR, LP, orders);
         assertFalse(perm.evaluate(data, _ctx(data)));
     }
 
