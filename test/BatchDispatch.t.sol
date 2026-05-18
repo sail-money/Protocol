@@ -775,6 +775,7 @@ contract BatchDispatchTest is Test {
         bytes32 sh = keccak256(abi.encode(
             kernel.DISPATCH_TYPEHASH(),
             address(safe),
+            address(batchPerm),
             address(tokenA),
             uint256(0),
             keccak256(data),
@@ -786,7 +787,7 @@ contract BatchDispatchTest is Test {
 
         // batchPerm.evaluate() returns false → first permission denies → PermissionDenied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(batchPerm)));
-        kernel.dispatch(address(safe), address(tokenA), 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(batchPerm), address(tokenA), 0, data, sig, deadline);
     }
 
     function test_BackwardsCompat_NonceNamespacesAreIndependent() public {

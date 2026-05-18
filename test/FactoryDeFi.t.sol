@@ -65,7 +65,7 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         // Agent dispatches swap
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
-        _dispatch(address(safe), UNI_V3_ROUTER, 0, swapData);
+        _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData);
 
         // Safe must have received exactly one execTransactionFromModule call
         assertEq(safe.callCount(), 1);
@@ -88,12 +88,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V2_ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V2_ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapTemplate))
         );
-        kernel.dispatch(address(safe), UNI_V2_ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(safe), address(swapTemplate), UNI_V2_ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_DeFi_UniswapV3_OverCap_Blocked() public {
@@ -109,12 +109,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapTemplate))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         // 1 WETH in, min 990 USDC out — within 2% of fair 1000
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 1 ether, 990e6);
-        _dispatch(address(safe), UNI_V3_ROUTER, 0, swapData);
+        _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData);
         assertEq(safe.callCount(), 1);
     }
 
@@ -157,12 +157,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 1 ether, 900e6);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapTemplate))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         );
 
         bytes memory data = _aaveBorrow(USDC, 5_000, address(safe));
-        _dispatch(address(safe), AAVE_V3_POOL, 0, data);
+        _dispatch(address(safe), address(borrowTemplate), AAVE_V3_POOL, 0, data);
 
         assertEq(safe.callCount(), 1);
         (address to,, bytes memory d,) = safe.getCall(0);
@@ -218,12 +218,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory data = _aaveBorrow(USDC, 8_000, address(safe));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), AAVE_V3_POOL, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(borrowTemplate), AAVE_V3_POOL, 0, data, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(borrowTemplate))
         );
-        kernel.dispatch(address(safe), AAVE_V3_POOL, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(borrowTemplate), AAVE_V3_POOL, 0, data, sig, deadline);
     }
 
     function test_DeFi_AaveV3_BorrowOnBehalfOfWrongAccount_Blocked() public {
@@ -241,12 +241,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory data = _aaveBorrow(USDC, 1_000e18, address(0xDEAD));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), AAVE_V3_POOL, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(borrowTemplate), AAVE_V3_POOL, 0, data, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(borrowTemplate))
         );
-        kernel.dispatch(address(safe), AAVE_V3_POOL, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(borrowTemplate), AAVE_V3_POOL, 0, data, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory data = abi.encodeWithSignature(
             "transfer(address,uint256)", BENEFICIARY, uint256(1_000e6)
         );
-        _dispatch(address(safe), USDC, 0, data);
+        _dispatch(address(safe), address(transferTemplate), USDC, 0, data);
         assertEq(safe.callCount(), 1);
     }
 
@@ -279,12 +279,12 @@ contract FactoryDeFiTest is FactoryTestBase {
         );
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), USDC, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(transferTemplate), USDC, 0, data, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(transferTemplate))
         );
-        kernel.dispatch(address(safe), USDC, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(transferTemplate), USDC, 0, data, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -321,11 +321,11 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         // A's agent can swap WETH→USDC
         bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 4 ether, 0);
-        _dispatch(address(safe), UNI_V3_ROUTER, 0, dataA);
+        _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B's agent can swap WETH→DAI
         bytes memory dataB = _v3Swap(WETH, DAI, address(safeB), 15 ether, 0);
-        _dispatch(address(safeB), UNI_V3_ROUTER, 0, dataB);
+        _dispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB);
 
         assertEq(safe.callCount(),  1);
         assertEq(safeB.callCount(), 1);
@@ -350,11 +350,11 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory dataA = _v3Swap(WETH, DAI, address(safe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, dataA, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapTemplate))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, dataA, sig, deadline);
+        kernel.dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA, sig, deadline);
     }
 
     function test_MultiUser_ReconfigureOnlyAffectsOneAccount() public {
@@ -388,16 +388,16 @@ contract FactoryDeFiTest is FactoryTestBase {
         // Verify dispatch behaviour matches the new caps
         // A: 50 ETH passes
         bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 50 ether, 0);
-        _dispatch(address(safe), UNI_V3_ROUTER, 0, dataA);
+        _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B: 50 ETH fails (over its 5 ETH cap)
         bytes memory dataB = _v3Swap(WETH, USDC, address(safeB), 50 ether, 0);
         uint256 nonce    = kernel.managerNonces(address(safeB));
-        bytes memory sig = _signDispatch(address(safeB), UNI_V3_ROUTER, 0, dataB, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapTemplate))
         );
-        kernel.dispatch(address(safeB), UNI_V3_ROUTER, 0, dataB, sig, deadline);
+        kernel.dispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -469,11 +469,11 @@ contract FactoryDeFiTest is FactoryTestBase {
         factory.attach{value: fee}(account, address(template), params, deadline, cfgSig, kSig);
     }
 
-    function _dispatch(address account, address target, uint256 value, bytes memory data) internal {
+    function _dispatch(address account, address permission, address target, uint256 value, bytes memory data) internal {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(account);
-        bytes memory sig = _signDispatch(account, target, value, data, nonce, deadline);
-        kernel.dispatch(account, target, value, data, sig, deadline);
+        bytes memory sig = _signDispatch(account, permission, target, value, data, nonce, deadline);
+        kernel.dispatch(account, permission, target, value, data, sig, deadline);
     }
 
     function _v3Swap(

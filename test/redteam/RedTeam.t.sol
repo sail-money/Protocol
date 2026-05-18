@@ -224,6 +224,7 @@ abstract contract RedTeamBase is Test {
 
     function _signDispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes memory data,
@@ -232,7 +233,7 @@ abstract contract RedTeamBase is Test {
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 sh = keccak256(abi.encode(
-            kernel.DISPATCH_TYPEHASH(), account, target, value, keccak256(data), nonce, deadline
+            kernel.DISPATCH_TYPEHASH(), account, permission, target, value, keccak256(data), nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -290,14 +291,14 @@ contract DispatchAbuseTests is RedTeamBase {
     // ── 1a. Manager dispatch with no registered permissions (deny-by-default) ──
 
     function test_Attack_DispatchWithNoPermissions() public {
-        // Accounts with no permissions should be blocked by NoPermissionsRegistered.
-        // Manager has the right signature but there are zero permissions registered.
+        // With selective semantics, the named permission must be registered.
+        // No permissions are registered here, so PermissionNotRegistered fires.
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", attacker, 1 ether);
-        bytes memory sig  = _signDispatch(address(safe), attacker, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY);
 
-        vm.expectRevert(abi.encodeWithSelector(SailKernel.NoPermissionsRegistered.selector, address(safe)));
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(alwaysTrue)));
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 1b. Manager replays an old nonce ──
@@ -307,14 +308,14 @@ contract DispatchAbuseTests is RedTeamBase {
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), attacker, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY);
 
         // First dispatch succeeds
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
 
         // Replay the same sig — nonce is now 1, so the sig for nonce 0 is invalid
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 1c. Manager dispatches after session revoked ──
@@ -329,10 +330,10 @@ contract DispatchAbuseTests is RedTeamBase {
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), attacker, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(safe)));
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 1d. Manager uses expired deadline ──
@@ -342,12 +343,12 @@ contract DispatchAbuseTests is RedTeamBase {
 
         uint256 deadline = block.timestamp - 1; // already expired
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), attacker, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.DeadlineExpired.selector, deadline, block.timestamp)
         );
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 1e. Attacker (not manager) tries to dispatch without valid manager key ──
@@ -358,10 +359,10 @@ contract DispatchAbuseTests is RedTeamBase {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
         // Sign with ATTACKER_KEY instead of MANAGER_KEY
-        bytes memory sig = _signDispatch(address(safe), attacker, 0, data, 0, deadline, ATTACKER_KEY);
+        bytes memory sig = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, ATTACKER_KEY);
 
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 1f. Manager dispatches with a modified calldata (but same nonce/digest) ──
@@ -375,11 +376,11 @@ contract DispatchAbuseTests is RedTeamBase {
         bytes memory tamperedData = abi.encodeWithSignature("transfer(address,uint256)", attacker, 999 ether);
 
         // Sign over originalData
-        bytes memory sig = _signDispatch(address(safe), address(0), 0, originalData, 0, deadline, MANAGER_KEY);
+        bytes memory sig = _signDispatch(address(safe), address(alwaysTrue), address(0), 0, originalData, 0, deadline, MANAGER_KEY);
 
         // Attempt dispatch with tamperedData — digest mismatch
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), address(0), 0, tamperedData, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), address(0), 0, tamperedData, sig, deadline);
     }
 
     // ── 1g. Manager uses wrong target (target is covered by sig commitment) ──
@@ -392,11 +393,11 @@ contract DispatchAbuseTests is RedTeamBase {
         address signedTarget = address(0xBEEF);
         address attackTarget = address(0xDEAD);
 
-        bytes memory sig = _signDispatch(address(safe), signedTarget, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig = _signDispatch(address(safe), address(alwaysTrue), signedTarget, 0, data, 0, deadline, MANAGER_KEY);
 
         // Different target — must revert
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), attackTarget, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), attackTarget, 0, data, sig, deadline);
     }
 
     // ── 1h. Cross-account sig replay: use account A's dispatch sig for account B ──
@@ -421,11 +422,11 @@ contract DispatchAbuseTests is RedTeamBase {
         bytes memory data = "";
 
         // Signature for safe (account A)
-        bytes memory sigForA = _signDispatch(address(safe), attacker, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sigForA = _signDispatch(address(safe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY);
 
         // Try to use safe A's sig on safe B — should fail since account is in the digest
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe2), attacker, 0, data, sigForA, deadline);
+        kernel.dispatch(address(safe2), address(alwaysTrue), attacker, 0, data, sigForA, deadline);
     }
 }
 
@@ -514,7 +515,7 @@ contract SignatureAttackTests is RedTeamBase {
         // This is a documented trust assumption, not a protocol bug.
         // The test verifies the kernel DOES execute with a MaliciousERC1271Manager.
         bool dispatched;
-        try kernel.dispatch(address(safe3), attacker, 0, data, junkSig, deadline) {
+        try kernel.dispatch(address(safe3), address(alwaysTrue), attacker, 0, data, junkSig, deadline) {
             dispatched = true;
         } catch {
             dispatched = false;
@@ -610,13 +611,13 @@ contract TemplateBypassTests is RedTeamBase {
         bytes memory data = ""; // len < 4 triggers the ETH path
 
         bytes memory dispatchSig = _signDispatch(
-            address(safe), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         // The ETH path checks isAllowedRecipient[ctx.target]. attacker is NOT allowed.
         // This should revert with PermissionDenied.
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), attacker, 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), attacker, 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 3b. Manager tries to use transferFrom path to pull from an external victim ──
@@ -646,11 +647,11 @@ contract TemplateBypassTests is RedTeamBase {
 
         // M-6 fix: `from` must equal ctx.account. A different `from` is rejected.
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), mockToken, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(ttp), mockToken, 0, data, 0, deadline, MANAGER_KEY);
 
         // Permission now returns false because victim != ctx.account (safe).
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), mockToken, 0, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), mockToken, 0, data, dispatchSig, deadline);
     }
 
     // ── 3c. Selector collision: calldata that matches a known selector but decodes to attacker addresses ──
@@ -691,11 +692,11 @@ contract TemplateBypassTests is RedTeamBase {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bbp), protocol, 0, data, 0, deadline, MANAGER_KEY);
 
         // onBehalfOf != ctx.account — permission returns false → PermissionDenied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bbp)));
-        kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, data, dispatchSig, deadline);
     }
 
     // ── 3d. Extra-data appended after valid calldata to evade length checks ──
@@ -732,10 +733,10 @@ contract TemplateBypassTests is RedTeamBase {
         bytes memory extraData = bytes.concat(validData, bytes32(uint256(0xCAFE)), bytes32(uint256(0xBABE)));
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, extraData, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bbp), protocol, 0, extraData, 0, deadline, MANAGER_KEY);
 
         // Should succeed — trailing bytes are ignored by abi.decode
-        kernel.dispatch(address(safe), protocol, 0, extraData, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, extraData, dispatchSig, deadline);
     }
 
     // ── 3e. Zero-length data with a permission that only checks the selector (ctx.selector == bytes4(0)) ──
@@ -747,9 +748,9 @@ contract TemplateBypassTests is RedTeamBase {
         // alwaysTrue returns true regardless, so this should succeed
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
 
-        kernel.dispatch(address(safe), address(0xBEEF), 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, sig, deadline);
         // Dispatch succeeded with zero-length calldata — not a vulnerability since
         // alwaysTrue explicitly allows everything; real permissions would gate on selector.
     }
@@ -975,8 +976,8 @@ contract GovernanceAttackTests is RedTeamBase {
         _registerAlwaysTrue();
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
-        kernel.dispatch(address(safe), address(0xBEEF), 0, data, sig, deadline);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
+        kernel.dispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, sig, deadline);
     }
 
     // ── 5d. Attacker tries to accept governance when not pending ──
@@ -1022,10 +1023,10 @@ contract GovernanceAttackTests is RedTeamBase {
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.dispatch(address(safe), address(0xBEEF), 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, sig, deadline);
     }
 }
 
@@ -1074,22 +1075,22 @@ contract OracleManipulationTests is RedTeamBase {
         bytes memory data = abi.encodeWithSelector(
             AAVE_SEL, asset, uint256(7), uint256(2), uint16(0), address(safe)
         );
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
-        kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bbp), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, data, dispatchSig, deadline);
 
         // Borrow 8 units — above 75% LTV (ltvBps = 8*10000/10 = 8000 > 7500) → DENIED
         bytes memory data2 = abi.encodeWithSelector(
             AAVE_SEL, asset, uint256(8), uint256(2), uint16(0), address(safe)
         );
-        bytes memory dispatchSig2 = _signDispatch(address(safe), protocol, 0, data2, 1, deadline, MANAGER_KEY);
+        bytes memory dispatchSig2 = _signDispatch(address(safe), address(bbp), protocol, 0, data2, 1, deadline, MANAGER_KEY);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bbp)));
-        kernel.dispatch(address(safe), protocol, 0, data2, dispatchSig2, deadline);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, data2, dispatchSig2, deadline);
 
         // VULNERABILITY DEMO: inflate collateral via manipulable oracle → bypasses LTV guard
         collOracle.setPrice(1000); // inflate 100x: colValue = 1000
         // Now ltvBps = 8*10000/1000 = 80 ≤ 7500 → passes
-        bytes memory dispatchSig3 = _signDispatch(address(safe), protocol, 0, data2, 1, deadline, MANAGER_KEY);
-        kernel.dispatch(address(safe), protocol, 0, data2, dispatchSig3, deadline);
+        bytes memory dispatchSig3 = _signDispatch(address(safe), address(bbp), protocol, 0, data2, 1, deadline, MANAGER_KEY);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, data2, dispatchSig3, deadline);
         // Reaching here confirms: a manipulable oracle bypasses LTV enforcement.
         // This is a documented trust assumption in the protocol.
     }
@@ -1127,11 +1128,11 @@ contract OracleManipulationTests is RedTeamBase {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bbp), protocol, 0, data, 0, deadline, MANAGER_KEY);
 
         // colValue == 0 → _ltvCheck returns false → PermissionDenied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bbp)));
-        kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bbp), protocol, 0, data, dispatchSig, deadline);
     }
 
     // ── 6c. SharedDeFiBundle: LTV calculation discrepancy (bundle uses colValue directly, not normalised) ──
@@ -1218,12 +1219,12 @@ contract OracleManipulationTests is RedTeamBase {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), protocol, 0, data, 0, deadline, MANAGER_KEY);
 
         // With the non-normalised colValue in bundle, this should PASS (VULNERABILITY)
         // With correct normalisation, it should FAIL
         bool passed;
-        try kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline) {
+        try kernel.dispatch(address(safe), address(bundle), protocol, 0, data, dispatchSig, deadline) {
             passed = true;
         } catch {
             passed = false;
@@ -1371,9 +1372,9 @@ contract MaliciousTemplateTests is RedTeamBase {
         uint256 deadline = block.timestamp + 1 hours;
         address mockERC20 = address(0xE20E20E20);
         bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", attacker, 99 ether);
-        bytes memory sig  = _signDispatch(address(safe), mockERC20, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), mockERC20, 0, data, 0, deadline, MANAGER_KEY);
 
-        kernel.dispatch(address(safe), mockERC20, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(alwaysTrue), mockERC20, 0, data, sig, deadline);
         // Dispatch succeeded — permissionSigner + manager collusion = full access.
         // This is documented behavior: the permissionSigner is the trust anchor.
     }
@@ -1393,12 +1394,12 @@ contract MaliciousTemplateTests is RedTeamBase {
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(gasHog), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
 
         // The gas hog hits PERMISSION_GAS_CAP, _evaluatePermission returns false,
         // kernel reverts with PermissionDenied.
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(gasHog)));
-        kernel.dispatch(address(safe), address(0xBEEF), 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(gasHog), address(0xBEEF), 0, data, sig, deadline);
     }
 
     // ── 8b. Permission that returns true for the manager to front-run then revoke ──
@@ -1414,13 +1415,13 @@ contract MaliciousTemplateTests is RedTeamBase {
         bytes memory revokeSig = _signRevokePermission(address(safe), address(alwaysTrue), nonce, PERM_SIGNER_KEY);
         kernel.revokePermission(address(safe), address(alwaysTrue), revokeSig);
 
-        // Now try to dispatch — no permissions left
+        // Now try to dispatch — alwaysTrue was revoked, so PermissionNotRegistered fires.
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
-        bytes memory sig  = _signDispatch(address(safe), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory sig  = _signDispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, 0, deadline, MANAGER_KEY);
 
-        vm.expectRevert(abi.encodeWithSelector(SailKernel.NoPermissionsRegistered.selector, address(safe)));
-        kernel.dispatch(address(safe), address(0xBEEF), 0, data, sig, deadline);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(alwaysTrue)));
+        kernel.dispatch(address(safe), address(alwaysTrue), address(0xBEEF), 0, data, sig, deadline);
     }
 }
 

@@ -181,6 +181,7 @@ abstract contract RedTeamBase2 is Test {
 
     function _signDispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes memory data,
@@ -189,7 +190,7 @@ abstract contract RedTeamBase2 is Test {
         uint256 signerKey
     ) internal view returns (bytes memory) {
         bytes32 sh = keccak256(abi.encode(
-            kernel.DISPATCH_TYPEHASH(), account, target, value, keccak256(data), nonce, deadline
+            kernel.DISPATCH_TYPEHASH(), account, permission, target, value, keccak256(data), nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -468,12 +469,12 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         // 1-byte calldata — old code would have taken the ETH path; new code falls through
         bytes memory data = hex"aa";
         bytes memory dispatchSig = _signDispatch(
-            address(safe), address(0xBEEF), 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), address(0xBEEF), 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         // Must revert — 1-byte calldata is NOT the ETH path anymore
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), address(0xBEEF), 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), address(0xBEEF), 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 13b. 2-byte calldata also rejected ──
@@ -494,11 +495,11 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = hex"aabb"; // 2 bytes
         bytes memory dispatchSig = _signDispatch(
-            address(safe), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), attacker, 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), attacker, 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 13c. 3-byte calldata also rejected ──
@@ -519,11 +520,11 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = hex"aabbcc"; // 3 bytes
         bytes memory dispatchSig = _signDispatch(
-            address(safe), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), attacker, 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), attacker, 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 13d. Legitimate zero-byte ETH send to allowed recipient still passes ──
@@ -547,11 +548,11 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = ""; // exactly 0 bytes
         bytes memory dispatchSig = _signDispatch(
-            address(safe), address(0xBEEF), 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), address(0xBEEF), 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         // Should succeed — empty calldata + allowed recipient
-        kernel.dispatch(address(safe), address(0xBEEF), 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), address(0xBEEF), 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 13e. Exactly 4-byte calldata (invalid selector) — not ETH path, must fail ──
@@ -575,11 +576,11 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         // 4 bytes that don't match transfer(0xa9059cbb) or transferFrom(0x23b872dd)
         bytes memory data = hex"deadbeef";
         bytes memory dispatchSig = _signDispatch(
-            address(safe), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), attacker, 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), attacker, 1 ether, data, dispatchSig, deadline);
     }
 }
 
@@ -630,11 +631,11 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         bytes memory data = abi.encodeWithSelector(AAVE_SEL, asset, uint256(1), uint256(2), uint16(0), address(safe));
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), protocol, 0, data, 0, deadline, MANAGER_KEY);
 
         // colNorm = 1 / 1e8 = 0 → _ltvCheck returns false → denied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, data, dispatchSig, deadline);
     }
 
     // ── 14b. Attacker tries exact-boundary borrow after normalisation ──
@@ -682,23 +683,23 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
 
         // Borrow 750_000 → exactly 75% → should pass
         bytes memory data750k = abi.encodeWithSelector(AAVE_SEL, asset, uint256(750_000), uint256(2), uint16(0), address(safe));
-        bytes memory sig750k = _signDispatch(address(safe), protocol, 0, data750k, 0, deadline, MANAGER_KEY);
-        kernel.dispatch(address(safe), protocol, 0, data750k, sig750k, deadline); // Should pass
+        bytes memory sig750k = _signDispatch(address(safe), address(bundle), protocol, 0, data750k, 0, deadline, MANAGER_KEY);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, data750k, sig750k, deadline); // Should pass
 
         // Borrow 750_001 — ltvBps = mulDiv(750_001, 10_000, 1_000_000) = 7 (truncation!) — passes
         // NOTE: integer truncation means values just above 75% still pass. This is expected
         // Solidity mulDiv behaviour, not a bug introduced by the fix.
         bytes memory data750k1 = abi.encodeWithSelector(AAVE_SEL, asset, uint256(750_001), uint256(2), uint16(0), address(safe));
-        bytes memory sig750k1 = _signDispatch(address(safe), protocol, 0, data750k1, 1, deadline, MANAGER_KEY);
+        bytes memory sig750k1 = _signDispatch(address(safe), address(bundle), protocol, 0, data750k1, 1, deadline, MANAGER_KEY);
         // This passes due to integer truncation in mulDiv — protocol-level precision boundary
-        kernel.dispatch(address(safe), protocol, 0, data750k1, sig750k1, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, data750k1, sig750k1, deadline);
         console.log("NOTE: 750_001 borrow passes due to integer truncation in ltvBps calculation");
 
         // Borrow 10x over limit → ltvBps = 7_500_001 > 7_500 → denied
         bytes memory data10x = abi.encodeWithSelector(AAVE_SEL, asset, uint256(7_500_001), uint256(2), uint16(0), address(safe));
-        bytes memory sig10x = _signDispatch(address(safe), protocol, 0, data10x, 2, deadline, MANAGER_KEY);
+        bytes memory sig10x = _signDispatch(address(safe), address(bundle), protocol, 0, data10x, 2, deadline, MANAGER_KEY);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), protocol, 0, data10x, sig10x, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, data10x, sig10x, deadline);
     }
 
     // ── 14c. LTV check: borPrice == 0 → denied (fail-closed) ──
@@ -738,11 +739,11 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         bytes4 AAVE_SEL = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
         bytes memory data = abi.encodeWithSelector(AAVE_SEL, asset, uint256(1), uint256(2), uint16(0), address(safe));
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, data, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), protocol, 0, data, 0, deadline, MANAGER_KEY);
 
         // borPrice == 0 → _ltvCheck returns false
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), protocol, 0, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, data, dispatchSig, deadline);
     }
 }
 
@@ -894,10 +895,10 @@ contract AllowlistLengthTests is RedTeamBase2 {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), targetRouter, 0, swapData, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), targetRouter, 0, swapData, 0, deadline, MANAGER_KEY);
 
         uint256 gasBefore = gasleft();
-        kernel.dispatch(address(safe), targetRouter, 0, swapData, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), targetRouter, 0, swapData, dispatchSig, deadline);
         uint256 gasUsed = gasBefore - gasleft();
         console.log("Dispatch gas with 50-router allowlist:", gasUsed);
         assertTrue(gasUsed < 500_000, "Dispatch with 50-router allowlist should be well under 500k gas");
@@ -1085,13 +1086,14 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         bytes memory data = "";
 
         // Try to send ETH to attacker (NOT in TTP allowlist)
+        // Select ttp as the permission — ttp denies the attacker address
         bytes memory dispatchSig = _signDispatch(
-            address(safe), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
+            address(safe), address(ttp), attacker, 1 ether, data, 0, deadline, MANAGER_KEY
         );
 
-        // AlwaysTrue returns true but TTP returns false → denied
+        // TTP returns false (attacker not in allowlist) → denied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
-        kernel.dispatch(address(safe), attacker, 1 ether, data, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(ttp), attacker, 1 ether, data, dispatchSig, deadline);
     }
 
     // ── 18b. Manager registers TTP + Bundle: can an attacker use the bundle's borrow
@@ -1139,13 +1141,12 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         bytes memory borrowData = abi.encodeWithSelector(AAVE_SEL, asset, uint256(1000), uint256(2), uint16(0), address(safe));
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, borrowData, 0, deadline, MANAGER_KEY);
+        // Select ttp as the permission — ttp denies the Aave borrow selector
+        bytes memory dispatchSig = _signDispatch(address(safe), address(ttp), protocol, 0, borrowData, 0, deadline, MANAGER_KEY);
 
-        // TTP sees selector 0x...(Aave borrow), not transfer/transferFrom, not empty data → returns false
-        // So even though bundle approves, TTP denies → PermissionDenied
-        // (TTP denies: token not allowed, value=0 check passes, but token not allowed)
-        vm.expectRevert(); // Either TTP or bundle — depends on evaluation order
-        kernel.dispatch(address(safe), protocol, 0, borrowData, dispatchSig, deadline);
+        // TTP sees Aave borrow selector, not transfer/transferFrom, not empty data → returns false
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(ttp)));
+        kernel.dispatch(address(safe), address(ttp), protocol, 0, borrowData, dispatchSig, deadline);
     }
 
     // ── 18c. Manager registers two bundles (two SharedDeFiBundlePermission instances) ──
@@ -1202,11 +1203,12 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), router1, 0, swapData, 0, deadline, MANAGER_KEY);
+        // Select bundle2 — it only allows router2, so router1 is denied by bundle2
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle2), router1, 0, swapData, 0, deadline, MANAGER_KEY);
 
-        // bundle1 returns true (router1 allowed), bundle2 returns false (router1 not in its list) → denied
-        vm.expectRevert(); // bundle2 will deny
-        kernel.dispatch(address(safe), router1, 0, swapData, dispatchSig, deadline);
+        // bundle2 returns false (router1 not in its list) → denied
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle2)));
+        kernel.dispatch(address(safe), address(bundle2), router1, 0, swapData, dispatchSig, deadline);
     }
 }
 
@@ -1257,10 +1259,10 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, maliciousData, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), protocol, 0, maliciousData, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), protocol, 0, maliciousData, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, maliciousData, dispatchSig, deadline);
     }
 
     // ── 19b. Bundle swap: reordering to put attacker as `recipient` must be denied ──
@@ -1308,10 +1310,10 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), router, 0, swapData, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), router, 0, swapData, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), router, 0, swapData, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), router, 0, swapData, dispatchSig, deadline);
     }
 
     // ── 19c. Bundle: Morpho borrow with receiver != account must be denied ──
@@ -1353,10 +1355,10 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         );
 
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory dispatchSig = _signDispatch(address(safe), protocol, 0, malData, 0, deadline, MANAGER_KEY);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(bundle), protocol, 0, malData, 0, deadline, MANAGER_KEY);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle)));
-        kernel.dispatch(address(safe), protocol, 0, malData, dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(bundle), protocol, 0, malData, dispatchSig, deadline);
     }
 }
 
@@ -1416,11 +1418,11 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
         bytes memory sig  = _signDispatch(
-            address(unregisteredSafe), attacker, 0, data, 0, deadline, MANAGER_KEY
+            address(unregisteredSafe), address(alwaysTrue), attacker, 0, data, 0, deadline, MANAGER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountNotRegistered.selector, address(unregisteredSafe)));
-        kernel.dispatch(address(unregisteredSafe), attacker, 0, data, sig, deadline);
+        kernel.dispatch(address(unregisteredSafe), address(alwaysTrue), attacker, 0, data, sig, deadline);
     }
 
     // ── 20d. Manager cannot register an account — only the account itself can ──

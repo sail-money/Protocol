@@ -241,9 +241,9 @@ contract IntegrationTest is Test {
         bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
 
         // MockSafe must have received exactly one call with the swap calldata
         assertEq(mockSafe.callCount(), 1);
@@ -258,31 +258,31 @@ contract IntegrationTest is Test {
         bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), badRouter, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), badRouter, 0, swapData, nonce, deadline);
 
         // BoundedSwapPermission: isAllowedRouter[badRouter] = false → PermissionDenied
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swap)));
-        kernel.dispatch(address(mockSafe), badRouter, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), badRouter, 0, swapData, sig, deadline);
     }
 
     function test_Dispatch_WrongTokenIn_Reverts() public {
         bytes memory swapData = _v3Swap(WBTC, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swap)));
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_Dispatch_WrongTokenOut_Reverts() public {
         bytes memory swapData = _v3Swap(WETH, WBTC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swap)));
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_Dispatch_WrongRecipient_Reverts() public {
@@ -290,24 +290,24 @@ contract IntegrationTest is Test {
         bytes memory swapData = _v3Swap(WETH, USDC, badRecipient, 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swap)));
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_Dispatch_Replay_Reverts() public {
         bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         // First dispatch: succeeds (nonce = 0 → now 1)
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
 
         // Replay with stale nonce-0 signature → digest mismatch
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_Dispatch_RevokePermission_BlocksAllDispatch() public {
@@ -319,16 +319,16 @@ contract IntegrationTest is Test {
         );
         assertEq(kernel.getPermissions(address(mockSafe)).length, 0);
 
-        // With zero permissions the kernel enforces deny-by-default
+        // After revocation _permissionIndex[account][swap] == 0, so PermissionNotRegistered fires
         bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(
-            abi.encodeWithSelector(SailKernel.NoPermissionsRegistered.selector, address(mockSafe))
+            abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(swap))
         );
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -433,12 +433,12 @@ contract IntegrationTest is Test {
         bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(mockSafe))
         );
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
     }
 
     function test_SessionRevoke_AlreadyValidSwapNowBlocked() public {
@@ -447,8 +447,8 @@ contract IntegrationTest is Test {
         {
             uint256 deadline = block.timestamp + 1 hours;
             uint256 nonce    = kernel.managerNonces(address(mockSafe));
-            bytes memory sig = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce, deadline);
-            kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig, deadline);
+            bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
+            kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig, deadline);
         }
 
         // Revoke the session
@@ -461,12 +461,12 @@ contract IntegrationTest is Test {
         // Same swap (with fresh nonce) now reverts
         uint256 deadline2 = block.timestamp + 1 hours;
         uint256 nonce2    = kernel.managerNonces(address(mockSafe));
-        bytes memory sig2 = _signDispatch(address(mockSafe), ROUTER, 0, swapData, nonce2, deadline2);
+        bytes memory sig2 = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce2, deadline2);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(mockSafe))
         );
-        kernel.dispatch(address(mockSafe), ROUTER, 0, swapData, sig2, deadline2);
+        kernel.dispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, sig2, deadline2);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -509,6 +509,7 @@ contract IntegrationTest is Test {
 
     function _signDispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes memory data,
@@ -516,7 +517,7 @@ contract IntegrationTest is Test {
         uint256 deadline
     ) internal view returns (bytes memory) {
         bytes32 sh = keccak256(abi.encode(
-            kernel.DISPATCH_TYPEHASH(), account, target, value, keccak256(data), nonce, deadline
+            kernel.DISPATCH_TYPEHASH(), account, permission, target, value, keccak256(data), nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(MANAGER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

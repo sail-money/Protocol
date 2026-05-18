@@ -176,6 +176,7 @@ abstract contract FactoryTestBase is Test {
 
     function _signDispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes memory data,
@@ -183,7 +184,7 @@ abstract contract FactoryTestBase is Test {
         uint256 deadline
     ) internal view returns (bytes memory) {
         bytes32 sh = keccak256(abi.encode(
-            kernel.DISPATCH_TYPEHASH(), account, target, value, keccak256(data), nonce, deadline
+            kernel.DISPATCH_TYPEHASH(), account, permission, target, value, keccak256(data), nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(MANAGER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

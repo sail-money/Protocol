@@ -208,6 +208,7 @@ contract BatchDispatchBenchmark is Test {
             bytes32 sh = keccak256(abi.encode(
                 kernel.DISPATCH_TYPEHASH(),
                 address(safe),
+                address(allow),
                 calls[i].target,
                 calls[i].value,
                 keccak256(calls[i].data),
@@ -218,7 +219,7 @@ contract BatchDispatchBenchmark is Test {
             bytes memory sig = abi.encodePacked(r, s, v);
 
             uint256 gasBefore = gasleft();
-            kernel.dispatch(address(safe), calls[i].target, calls[i].value, calls[i].data, sig, deadline);
+            kernel.dispatch(address(safe), address(allow), calls[i].target, calls[i].value, calls[i].data, sig, deadline);
             totalUsed += gasBefore - gasleft();
         }
         emit log_named_uint("BENCH 3x single dispatch() (gas total)", totalUsed);

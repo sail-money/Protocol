@@ -85,9 +85,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     /// @notice EIP-712 type hash for manager dispatch authorisation.
-    ///         Type string: "Dispatch(address account,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
+    ///         Type string: "Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
     bytes32 public constant DISPATCH_TYPEHASH = keccak256(
-        "Dispatch(address account,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
+        "Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for single-permission registration.
@@ -259,11 +259,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Emitted on each successful dispatch.
     /// @dev    `dataHash` is keccak256(calldata) — the raw bytes are recoverable from the tx.
-    /// @param  account   The Safe account that executed the transaction.
-    /// @param  target    The call target.
-    /// @param  value     Native ETH forwarded with the call (wei).
-    /// @param  dataHash  keccak256 of the dispatched calldata.
-    event Dispatched(address indexed account, address indexed target, uint256 value, bytes32 dataHash);
+    /// @param  account     The Safe account that executed the transaction.
+    /// @param  permission  The registered permission that authorised the call.
+    /// @param  target      The call target.
+    /// @param  selector    Leading 4 bytes of calldata; bytes4(0) if calldata is shorter than 4 bytes.
+    /// @param  value       Native ETH forwarded with the call (wei).
+    event Dispatched(
+        address indexed account,
+        address indexed permission,
+        address target,
+        bytes4  selector,
+        uint256 value
+    );
 
     /// @notice Emitted on each successful batch dispatch.
     /// @param  account    The Safe account that executed the batch.
@@ -379,6 +386,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error DistributorBpsTooLarge(uint256 bps);
 
     /// @dev Thrown by `dispatch` when no permissions are registered (deny-by-default).
+    /// @dev Retained for ABI compatibility; no longer emitted by `dispatch` — the caller
+    ///      names one specific permission and receives `PermissionNotRegistered` if it is absent.
     error NoPermissionsRegistered(address account);
     /// @dev Thrown by `dispatch` / `collectFees` when the protocol is paused.
     error ProtocolPaused();
@@ -788,13 +797,25 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // 3. Manager dispatch
     // -------------------------------------------------------------------------
 
-    /// @notice Verify a manager signature, evaluate all registered permissions, and
+    /// @notice Verify a manager signature, evaluate the named permission, and
     ///         execute the transaction via the Safe module interface.
+    ///
+    // SELECTIVE authorization semantics: the manager signature names one
+    // registered permission, and only that permission evaluates the call.
+    // Changed from the prior conjunctive (AND) model where all registered
+    // permissions had to approve. The new model enables multi-template SMAs
+    // where unrelated permissions (e.g., Uniswap, Aave, Transfer) coexist
+    // on one account without falsely denying each other's calls. Layered
+    // defense via permission composition is not supported here — a separate
+    // guard mechanism may be added later if needed.
+    ///
     /// @dev    The manager nonce is consumed before any external interaction to prevent
-    ///         replay even if the Safe call reverts. Permissions are evaluated via staticcall
-    ///         with PERMISSION_GAS_CAP gas; a revert or gas exhaustion inside a permission
-    ///         is treated as denial. Zero registered permissions → deny (allowlist semantics).
+    ///         replay even if the Safe call reverts. The permission is evaluated via
+    ///         staticcall with PERMISSION_GAS_CAP gas; a revert or gas exhaustion inside a
+    ///         permission is treated as denial. The named permission must be pre-registered
+    ///         on the account; this is the permissionSigner's trust anchor.
     /// @param  account     The registered Safe account to execute through.
+    /// @param  permission  The registered permission that must authorise this call.
     /// @param  target      Call target address.
     /// @param  value       Native ETH to forward with the call (wei).
     /// @param  data        Calldata for the target call.
@@ -802,6 +823,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  deadline    Unix timestamp after which the signature is invalid.
     function dispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes calldata data,
@@ -817,11 +839,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
+        // O(1) membership check — revert if the named permission is not registered.
+        if (_permissionIndex[account][permission] == 0) revert PermissionNotRegistered(permission);
+
         uint256 nonce    = managerNonces[account];
         bytes32 dataHash = keccak256(data);
         bytes32 digest   = _hashTypedDataV4(keccak256(abi.encode(
             DISPATCH_TYPEHASH,
             account,
+            permission,
             target,
             value,
             dataHash,
@@ -831,29 +857,22 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
         managerNonces[account] = nonce + 1;
 
-        // Walk permissions — each evaluated via staticcall with gas cap.
-        // Zero registered permissions means deny by default (allowlist semantics).
-        address[] storage perms = _permissions[account];
-        uint256 len = perms.length;
-        if (len == 0) revert NoPermissionsRegistered(account);
+        bytes4 sel = data.length >= 4 ? bytes4(data[:4]) : bytes4(0);
         Context memory ctx = Context({
             account:        account,
             manager:        cfg.manager,
             submitter:      msg.sender,
             target:         target,
-            selector:       data.length >= 4 ? bytes4(data[:4]) : bytes4(0),
+            selector:       sel,
             value:          value,
             blockTimestamp: block.timestamp,
             blockNumber:    block.number
         });
-        for (uint256 i = 0; i < len;) {
-            if (!_evaluatePermission(perms[i], data, ctx)) revert PermissionDenied(perms[i]);
-            unchecked { ++i; }
-        }
+        if (!_evaluatePermission(permission, data, ctx)) revert PermissionDenied(permission);
 
         if (!ISafe(account).execTransactionFromModule(target, value, data, 0)) revert SafeExecutionFailed();
 
-        emit Dispatched(account, target, value, dataHash);
+        emit Dispatched(account, permission, target, sel, value);
     }
 
     /// @dev Invoke a single permission via staticcall with the configured gas cap.

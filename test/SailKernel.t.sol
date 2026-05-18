@@ -198,6 +198,7 @@ contract SailKernelTest is Test {
 
     function _signDispatch(
         address account,
+        address permission,
         address target,
         uint256 value,
         bytes memory data,
@@ -206,18 +207,18 @@ contract SailKernelTest is Test {
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(abi.encode(
             kernel.DISPATCH_TYPEHASH(),
-            account, target, value, keccak256(data), nonce, deadline
+            account, permission, target, value, keccak256(data), nonce, deadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(MANAGER_KEY, digest);
         return abi.encodePacked(r, s, v);
     }
 
-    function _dispatch(address target, uint256 value, bytes memory data) internal {
+    function _dispatch(address permission, address target, uint256 value, bytes memory data) internal {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), target, value, data, nonce, deadline);
-        kernel.dispatch(address(safe), target, value, data, sig, deadline);
+        bytes memory sig = _signDispatch(address(safe), permission, target, value, data, nonce, deadline);
+        kernel.dispatch(address(safe), permission, target, value, data, sig, deadline);
     }
 
     function _signerSig(bytes32 structHash) internal view returns (bytes memory) {
@@ -485,10 +486,10 @@ contract SailKernelTest is Test {
 
         uint256 deadline      = block.timestamp + 1 hours;
         uint256 dispatchNonce = kernel.managerNonces(address(safe));
-        bytes memory dispatchSig = _signDispatch(address(safe), address(0xABCD), 0, "", dispatchNonce, deadline);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchNonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(safe)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchSig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -496,20 +497,19 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_Dispatch_RevertsWithNoPermissions() public {
-        // Zero registered permissions → deny by default (allowlist semantics).
-        // A manager cannot dispatch until at least one permission is registered.
+        // perm exists but is not registered — PermissionNotRegistered.
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
-        vm.expectRevert(abi.encodeWithSelector(SailKernel.NoPermissionsRegistered.selector, address(safe)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(perm)));
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_SucceedsWithPassingPermission() public {
         _registerPermission(address(perm));
         perm.setResult(true);
-        _dispatch(address(0xABCD), 0, abi.encodeWithSignature("go()"));
+        _dispatch(address(perm), address(0xABCD), 0, abi.encodeWithSignature("go()"));
         assertEq(safe.callCount(), 1);
     }
 
@@ -519,10 +519,10 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(perm)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_TreatsRevertingPermissionAsDenied() public {
@@ -531,10 +531,10 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(rp), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(rp)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(rp), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_TreatsGasHogPermissionAsDenied() public {
@@ -543,40 +543,42 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(hog), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(hog)));
-        kernel.dispatch{gas: 5_000_000}(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch{gas: 5_000_000}(address(safe), address(hog), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_RevertsOnExpiredDeadline() public {
         uint256 deadline = block.timestamp - 1;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.DeadlineExpired.selector, deadline, block.timestamp));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_RevertsOnInvalidManagerSignature() public {
+        _registerPermission(address(perm));
+
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(
-            kernel.DISPATCH_TYPEHASH(), address(safe), address(0xABCD), uint256(0), keccak256(""), nonce, deadline
+            kernel.DISPATCH_TYPEHASH(), address(safe), address(perm), address(0xABCD), uint256(0), keccak256(""), nonce, deadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
 
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", abi.encodePacked(r, s, v), deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", abi.encodePacked(r, s, v), deadline);
     }
 
     function test_Dispatch_NonceIncrements() public {
         _registerPermission(address(perm));
         assertEq(kernel.managerNonces(address(safe)), 0);
-        _dispatch(address(0xABCD), 0, "");
+        _dispatch(address(perm), address(0xABCD), 0, "");
         assertEq(kernel.managerNonces(address(safe)), 1);
-        _dispatch(address(0xABCD), 0, "");
+        _dispatch(address(perm), address(0xABCD), 0, "");
         assertEq(kernel.managerNonces(address(safe)), 2);
     }
 
@@ -584,12 +586,12 @@ contract SailKernelTest is Test {
         _registerPermission(address(perm));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
 
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_RevertsIfSafeReturnsFalse() public {
@@ -597,22 +599,22 @@ contract SailKernelTest is Test {
         safe.setSuccess(false);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(SailKernel.SafeExecutionFailed.selector);
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_Dispatch_RevertsOnUnregisteredAccount() public {
         address unknown = address(new MockSafe());
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _signDispatch(unknown, address(0xABCD), 0, "", 0, deadline);
+        bytes memory sig = _signDispatch(unknown, address(perm), address(0xABCD), 0, "", 0, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountNotRegistered.selector, unknown));
-        kernel.dispatch(unknown, address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(unknown, address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
-    function test_Dispatch_MultiplePermissionsAllMustPass() public {
+    function test_Dispatch_SelectivePermission_SelectingDenierReverts() public {
         _registerPermission(address(perm));
         MockPermission perm2 = new MockPermission();
         _registerPermission(address(perm2));
@@ -620,12 +622,25 @@ contract SailKernelTest is Test {
         perm.setResult(true);
         perm2.setResult(false);
 
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        // Selecting the denying permission (perm2) → PermissionDenied
+        {
+            uint256 deadline = block.timestamp + 1 hours;
+            uint256 nonce    = kernel.managerNonces(address(safe));
+            bytes memory sig = _signDispatch(address(safe), address(perm2), address(0xABCD), 0, "", nonce, deadline);
 
-        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(perm2)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+            vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(perm2)));
+            kernel.dispatch(address(safe), address(perm2), address(0xABCD), 0, "", sig, deadline);
+        }
+
+        // Selecting the allowing permission (perm) → succeeds
+        {
+            uint256 deadline = block.timestamp + 1 hours;
+            uint256 nonce    = kernel.managerNonces(address(safe));
+            bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
+
+            kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
+            assertEq(safe.callCount(), 1);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -665,7 +680,7 @@ contract SailKernelTest is Test {
             type(uint256).max, amtIn, minOut, uint160(0)
         );
 
-        _dispatch(router, 0, swapData);
+        _dispatch(address(swapPerm), router, 0, swapData);
         assertEq(safe.callCount(), 1);
     }
 
@@ -694,10 +709,10 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), router, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(swapPerm), router, 0, swapData, nonce, deadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(swapPerm)));
-        kernel.dispatch(address(safe), router, 0, swapData, sig, deadline);
+        kernel.dispatch(address(safe), address(swapPerm), router, 0, swapData, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -922,10 +937,10 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
 
         vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_CollectFees_RevertsWhenPaused() public {
@@ -962,7 +977,7 @@ contract SailKernelTest is Test {
 
         vm.warp(block.timestamp + 72 hours + 1);
 
-        _dispatch(address(0xABCD), 0, abi.encodeWithSignature("go()"));
+        _dispatch(address(perm), address(0xABCD), 0, abi.encodeWithSignature("go()"));
         assertEq(safe.callCount(), 1);
     }
 
@@ -993,7 +1008,7 @@ contract SailKernelTest is Test {
         vm.prank(EMERGENCY_ADMIN);
         gov.unpause();
 
-        _dispatch(address(0xABCD), 0, abi.encodeWithSignature("go()"));
+        _dispatch(address(perm), address(0xABCD), 0, abi.encodeWithSignature("go()"));
         assertEq(safe.callCount(), 1);
     }
 
@@ -1015,7 +1030,7 @@ contract SailKernelTest is Test {
         assertTrue(_sessionActive());
 
         // Dispatch now works
-        _dispatch(address(0xABCD), 0, "");
+        _dispatch(address(perm), address(0xABCD), 0, "");
         assertEq(safe.callCount(), 1);
     }
 
@@ -1026,9 +1041,9 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(safe)));
-        kernel.dispatch(address(safe), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
     }
 
     function test_ActivateSession_RevertsOnBadSig() public {
@@ -1161,8 +1176,8 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xABCD), ethValue, "", nonce, deadline);
-        kernel.dispatch(address(safe), address(0xABCD), ethValue, "", sig, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), ethValue, "", nonce, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), ethValue, "", sig, deadline);
 
         assertEq(safe.callCount(), 1);
         (, uint256 v,,) = safe.getCall(0);
@@ -1176,9 +1191,9 @@ contract SailKernelTest is Test {
         uint256 nonce    = kernel.managerNonces(address(safe));
 
         // Sign with value = 0 but dispatch with value = 1 — must revert
-        bytes memory sigForZero = _signDispatch(address(safe), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sigForZero = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe), address(0xABCD), 1 ether, "", sigForZero, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 1 ether, "", sigForZero, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1206,12 +1221,12 @@ contract SailKernelTest is Test {
         // Build dispatch sig using the backing EOA — kernel verifies via ERC1271
         uint256 deadline = block.timestamp + 1 hours;
         uint256 dispNonce = kernel.managerNonces(address(safe2));
-        bytes32 dSh = keccak256(abi.encode(kernel.DISPATCH_TYPEHASH(), address(safe2), address(0xABCD), uint256(0), keccak256(""), dispNonce, deadline));
+        bytes32 dSh = keccak256(abi.encode(kernel.DISPATCH_TYPEHASH(), address(safe2), address(perm), address(0xABCD), uint256(0), keccak256(""), dispNonce, deadline));
         bytes32 dDigest = kernel.hashTypedDataV4(dSh);
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(backingKey, dDigest);
         bytes memory dispSig = abi.encodePacked(r2, s2, v2);
 
-        kernel.dispatch(address(safe2), address(0xABCD), 0, "", dispSig, deadline);
+        kernel.dispatch(address(safe2), address(perm), address(0xABCD), 0, "", dispSig, deadline);
         assertEq(safe2.callCount(), 1);
     }
 
@@ -1231,12 +1246,12 @@ contract SailKernelTest is Test {
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 dispNonce = kernel.managerNonces(address(safe2));
-        bytes32 dSh = keccak256(abi.encode(kernel.DISPATCH_TYPEHASH(), address(safe2), address(0xABCD), uint256(0), keccak256(""), dispNonce, deadline));
+        bytes32 dSh = keccak256(abi.encode(kernel.DISPATCH_TYPEHASH(), address(safe2), address(perm), address(0xABCD), uint256(0), keccak256(""), dispNonce, deadline));
         // Sign with WRONG key — ERC1271 returns 0 magic
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(0xBAD, kernel.hashTypedDataV4(dSh));
 
         vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
-        kernel.dispatch(address(safe2), address(0xABCD), 0, "", abi.encodePacked(r2, s2, v2), deadline);
+        kernel.dispatch(address(safe2), address(perm), address(0xABCD), 0, "", abi.encodePacked(r2, s2, v2), deadline);
     }
 
     function test_ERC1271_PermissionSigner_SignatureAccepted() public {

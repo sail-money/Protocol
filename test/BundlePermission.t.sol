@@ -73,12 +73,12 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory data = abi.encodeWithSignature("setOwner(address)", address(0xBAD));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(0xCAFE), 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), address(0xCAFE), 0, data, nonce, deadline);
 
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), address(0xCAFE), 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(bundle), address(0xCAFE), 0, data, sig, deadline);
     }
 
     function test_Bundle_DisabledDomain_RejectsThatDomain() public {
@@ -97,11 +97,11 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, swapData, sig, deadline);
+        kernel.dispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, swapData, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -115,11 +115,11 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory data = _v3Swap(WETH, USDC, address(safe), 10 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, data, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, data, sig, deadline);
     }
 
     function test_Bundle_Borrow_OverLtv_Blocked() public {
@@ -128,11 +128,11 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory data = _aaveBorrow(USDC, 8_000, address(safe));
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), AAVE_V3_POOL, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), AAVE_V3_POOL, 0, data, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), AAVE_V3_POOL, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(bundle), AAVE_V3_POOL, 0, data, sig, deadline);
     }
 
     function test_Bundle_Transfer_NonWhitelistedRecipient_Blocked() public {
@@ -142,11 +142,11 @@ contract BundlePermissionTest is FactoryTestBase {
         );
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), USDC, 0, data, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), USDC, 0, data, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), USDC, 0, data, sig, deadline);
+        kernel.dispatch(address(safe), address(bundle), USDC, 0, data, sig, deadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -166,11 +166,11 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory dataB = _v3Swap(WETH, USDC, address(safeB), 1 ether, 0);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safeB));
-        bytes memory sig = _signDispatch(address(safeB), UNI_V3_ROUTER, 0, dataB, nonce, deadline);
+        bytes memory sig = _signDispatch(address(safeB), address(bundle), UNI_V3_ROUTER, 0, dataB, nonce, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safeB), UNI_V3_ROUTER, 0, dataB, sig, deadline);
+        kernel.dispatch(address(safeB), address(bundle), UNI_V3_ROUTER, 0, dataB, sig, deadline);
 
         // But Safe B can still transfer
         _dispatch(address(safeB), USDC, 0,
@@ -198,11 +198,11 @@ contract BundlePermissionTest is FactoryTestBase {
         bytes memory data = _v3Swap(WETH, USDC, address(safe), 4 ether, 0);
         uint256 dl = block.timestamp + 1 hours;
         uint256 nonce = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), UNI_V3_ROUTER, 0, data, nonce, dl);
+        bytes memory sig = _signDispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, data, nonce, dl);
         vm.expectRevert(
             abi.encodeWithSelector(SailKernel.PermissionDenied.selector, address(bundle))
         );
-        kernel.dispatch(address(safe), UNI_V3_ROUTER, 0, data, sig, dl);
+        kernel.dispatch(address(safe), address(bundle), UNI_V3_ROUTER, 0, data, sig, dl);
 
         // But transfer still works (untouched config)
         _dispatch(address(safe), USDC, 0,
@@ -355,8 +355,8 @@ contract BundlePermissionTest is FactoryTestBase {
     function _dispatch(address account, address target, uint256 value, bytes memory data) internal {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(account);
-        bytes memory sig = _signDispatch(account, target, value, data, nonce, deadline);
-        kernel.dispatch(account, target, value, data, sig, deadline);
+        bytes memory sig = _signDispatch(account, address(bundle), target, value, data, nonce, deadline);
+        kernel.dispatch(account, address(bundle), target, value, data, sig, deadline);
     }
 
     function _v3Swap(
