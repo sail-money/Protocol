@@ -106,7 +106,13 @@ struct Context {
 }
 ```
 
-Permissions are called via `staticcall` with a per-permission gas cap. Reentrancy is structurally impossible — `staticcall` prohibits state changes. A permission that exceeds its gas cap or reverts is treated as a `false` result. Dispatch succeeds only if every registered permission returns `true`.
+Permissions are called via `staticcall` with a per-permission gas cap. Reentrancy is structurally impossible — `staticcall` prohibits state changes. A permission that exceeds its gas cap or reverts is treated as a `false` result. Each dispatch names one registered permission as the authorizer; the kernel evaluates that permission alone. Dispatch succeeds only if that permission returns `true`.
+
+A second dispatch path, `dispatchBatch()`, accepts an ordered array of calls and a single batch permission (implementing `IBatchPermission`) that validates the entire sequence before execution. Any subcall failure reverts the whole batch atomically. This covers strategies requiring temporary ERC20 approvals — the batch permission enforces the approve/execute/reset shape as a unit — and any other multi-step workflow requiring atomicity.
+
+Templates may optionally implement `IPermissionIntrospection` to expose a stable `permissionId`, version, metadata URI, and capability identifiers from the `SailCapabilities` library. This allows indexers, UIs, and the Sail Marketplace to discover template types and capabilities without maintaining a separate registry of known addresses.
+
+Templates operating under a known agent identity may optionally implement `IAgentIdentityResolver` to associate the manager with an external identity registry, chain, agent ID, and signing wallet. This is metadata only — the kernel does not read or verify agent identity.
 
 ### Shared multi-tenant templates (recommended)
 
