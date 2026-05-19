@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
+import {CloneInitializable}      from "../templates/base/CloneInitializable.sol";
 
 interface ISailKernelFactory {
     function registerPermission(address account, address permission, bytes calldata sig)
@@ -63,6 +64,7 @@ contract PermissionFactory {
     error LengthMismatch();
     error RefundFailed();
     error ZeroAddress();
+    error InitDataTooShort();
     error CloneInitFailed();
 
     constructor(address _kernel) {
@@ -179,7 +181,9 @@ contract PermissionFactory {
     // For standalone (single-account) templates that use initialize() instead of
     // configure(). The caller supplies:
     //   - impl:      the logic contract address (from deployments/<chainId>/templates.standalone.json)
-    //   - salt:      deterministic salt; recommended: keccak256(abi.encode(account, impl, nonce))
+    //   - salt:      deterministic salt; recommended:
+    //                keccak256(abi.encode(account, impl, perAccountNonce))
+    //                to give each account its own salt space and avoid collisions.
     //   - initData:  ABI-encoded initialize(...) call (selector + args)
     //   - kernelSig: permission-signer signature for kernel.registerPermission
     //
@@ -197,13 +201,20 @@ contract PermissionFactory {
         bytes calldata kernelSig
     ) external payable returns (address clone) {
         if (impl == address(0)) revert ZeroAddress();
+        if (initData.length < 4) revert InitDataTooShort();
 
         uint256 preBalance = address(this).balance - msg.value;
 
         clone = Clones.cloneDeterministic(impl, salt);
 
-        (bool ok,) = clone.call(initData);
-        if (!ok) revert CloneInitFailed();
+        (bool ok, bytes memory retdata) = clone.call(initData);
+        if (!ok) _bubbleCloneInitRevert(retdata);
+
+        try CloneInitializable(clone).initialized() returns (bool isInitialized) {
+            if (!isInitialized) revert CloneInitFailed();
+        } catch {
+            revert CloneInitFailed();
+        }
 
         kernel.registerPermission{value: msg.value}(account, clone, kernelSig);
         _refundExcess(preBalance);
@@ -245,5 +256,12 @@ contract PermissionFactory {
         if (excess == 0) return;
         (bool ok,) = msg.sender.call{value: excess}("");
         if (!ok) revert RefundFailed();
+    }
+
+    function _bubbleCloneInitRevert(bytes memory retdata) private pure {
+        if (retdata.length == 0) revert CloneInitFailed();
+        assembly {
+            revert(add(retdata, 0x20), mload(retdata))
+        }
     }
 }
