@@ -46,17 +46,20 @@ Each permission evaluation receives exactly 100 000 gas. Consequences:
 
 ---
 
-## AND-Semantics — Compromise Can Only Deny
+## Selective Authorization — Bounded Compromise
 
-The permission set operates as an AND-gate. A compromised or malicious permission can:
-- Return `false` on calls it should allow (denial-of-service against the manager).
+Under selective dispatch, each `dispatch()` call names one registered permission as the authorizer. The blast radius of a compromised permission is bounded along two dimensions.
+
+**Scope:** a compromised permission can (incorrectly) authorize calls only when the manager names it as the authorizer for a specific dispatch. It cannot affect dispatches authorized by any other registered permission on the same account.
+
+**Blast radius:** a compromised permission affects only accounts that have registered it, and only for the call shapes its (broken) `evaluate()` incorrectly allows. Other accounts, and dispatches named under different permissions on the same account, are unaffected.
 
 A compromised permission **cannot**:
-- Return `true` on calls blocked by another permission (privilege escalation).
-- Modify state during evaluation.
-- Cause the kernel to execute a transaction it would not otherwise execute.
+- Modify state during evaluation (`staticcall` enforces this structurally).
+- Exceed the per-call gas cap.
+- Influence dispatches authorized by a different named permission.
 
-The worst-case impact of a single compromised permission is that dispatch calls are blocked for accounts using it, until the permissionSigner revokes it.
+The worst-case impact is bounded to the specific set of calls the compromised `evaluate()` would allow, and only on accounts that have registered it. The `permissionSigner` can revoke it in a single transaction to immediately contain the damage.
 
 ---
 

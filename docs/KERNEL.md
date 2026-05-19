@@ -308,29 +308,32 @@ struct AccountConfig {
 
 ---
 
-### `dispatch(account, target, value, data, managerSig, deadline)`
+### `dispatch(account, permission, target, value, data, managerSig, deadline)`
 
 - **Access:** Anyone (manager signature required; `nonReentrant`, `whenNotPaused`)
-- **What it does:** The core execution path.
+- **What it does:** The single-permission execution path.
   1. Verifies the account is registered and the session is active.
   2. Checks `deadline`.
-  3. Consumes `managerNonces[account]++`.
-  4. Verifies the EIP-712 `Dispatch` signature from the account's manager.
-  5. Evaluates all registered permissions via staticcall (100 000 gas each). Zero permissions → `NoPermissionsRegistered`.
-  6. Calls `ISafe(account).execTransactionFromModule(target, value, data, 0)`.
+  3. Verifies the named `permission` is registered for the account (O(1) `_permissionIndex` check) — reverts `PermissionNotRegistered` if absent.
+  4. Verifies the EIP-712 `Dispatch` signature from the account's manager over `(account, permission, target, value, keccak256(data), nonce, deadline)`.
+  5. Increments `managerNonces[account]`.
+  6. Evaluates `permission.evaluate(data, ctx)` via `staticcall` under `PERMISSION_GAS_CAP`; reverts `PermissionDenied` if the call returns `false`, reverts, or exhausts gas.
+  7. Calls `ISafe(account).execTransactionFromModule(target, value, data, 0)`.
+  8. Emits `Dispatched(account, permission, target, selector, value)`.
 - **Parameters:**
 
 | Parameter | Description |
 |---|---|
 | `account` | The registered Safe to execute through |
+| `permission` | A permission registered for `account`; evaluated as the sole authorizer for this dispatch |
 | `target` | Call target address |
 | `value` | Native ETH to forward (wei) |
 | `data` | Calldata for the target |
-| `managerSig` | EIP-712 signature over `Dispatch` struct by the manager |
+| `managerSig` | EIP-712 signature over `(account, permission, target, value, keccak256(data), nonce, deadline)` |
 | `deadline` | Unix timestamp — signature expires after this |
 
-- **Events:** `Dispatched(account, target, value, keccak256(data))`
-- **Errors:** `AccountNotRegistered`, `SessionInactive`, `DeadlineExpired`, `InvalidManagerSignature`, `NoPermissionsRegistered`, `PermissionDenied(permission)`, `SafeExecutionFailed`, `ProtocolPaused`
+- **Events:** `Dispatched(account indexed, permission indexed, target, selector, value)`
+- **Errors:** `AccountNotRegistered`, `SessionInactive`, `DeadlineExpired`, `PermissionNotRegistered(permission)`, `InvalidManagerSignature`, `PermissionDenied(permission)`, `SafeExecutionFailed`, `ProtocolPaused`
 
 ---
 
@@ -401,7 +404,7 @@ struct AccountConfig {
 | `SessionRevoked(account)` | Session suspended |
 | `SessionActivated(account)` | Session re-enabled |
 | `FeePolicyUpdated(account, newFeePolicy)` | Fee policy changed |
-| `Dispatched(account, target, value, dataHash)` | Successful dispatch |
+| `Dispatched(account indexed, permission indexed, target, selector, value)` | Successful dispatch |
 | `FeesCollected(account, feeToken, grossFee, protocolCut, distributorCut, managerTake)` | Fee collection |
 | `DepositRecorded(account, amount, cumulative)` | Deposit recorded |
 | `WithdrawalRecorded(account, amount, cumulative)` | Withdrawal recorded |
@@ -435,5 +438,5 @@ struct AccountConfig {
 | `NotPermissionSigner()` | Caller is not the account's permissionSigner |
 | `ZeroAddress()` | A required address argument is `address(0)` |
 | `DistributorBpsTooLarge(bps)` | `distributorBps` returned by the fee policy exceeds 10 000 |
-| `NoPermissionsRegistered(account)` | `dispatch` called with zero permissions registered (deny-by-default) |
+| `NoPermissionsRegistered(account)` | Retained for ABI compatibility; no longer emitted by `dispatch`. The caller now names a specific permission and receives `PermissionNotRegistered` if it is absent. |
 | `ProtocolPaused()` | `dispatch` or `collectFees` called while the protocol is paused |

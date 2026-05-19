@@ -4,7 +4,7 @@
 
 Sail is a minimal account-abstraction primitive for on-chain Separately Managed Accounts (SMAs). It gives a fund manager a signed mandate to execute transactions through a client's [Safe](https://safe.global/) multisig, subject to a set of on-chain constraints called permissions.
 
-The key insight is that custody never leaves the Safe. The manager does not hold the assets; they hold a cryptographic mandate that the kernel verifies at execution time. Every transaction the manager submits is evaluated against all registered permissions before the Safe executes it. If any permission denies the call, nothing happens.
+The key insight is that custody never leaves the Safe. The manager does not hold the assets; they hold a cryptographic mandate that the kernel verifies at execution time. Every transaction the manager submits names one registered permission as the authorizer; the kernel evaluates that permission before the Safe executes the call. If the named permission denies the call, nothing happens.
 
 ---
 
@@ -49,13 +49,11 @@ SailKernel.dispatch()
   ├─ 4. consume managerNonces[account]++
   ├─ 5. verify EIP-712 manager signature (ECDSA or ERC-1271)
   │
-  ├─ 6. PERMISSION LOOP ──────────────────────────────────────────────┐
-  │       for each permission in _permissions[account]:               │
-  │         staticcall permission.evaluate(txData, ctx)               │
-  │         gas: PERMISSION_GAS_CAP (100 000)                         │
-  │         revert / OOG treated as false                             │
-  │         AND-semantics: ALL must return true                       │
-  │         zero permissions → NoPermissionsRegistered (deny)         │
+  ├─ 6. SELECTIVE EVALUATION ─────────────────────────────────────────┐
+  │       named permission must be registered (_permissionIndex O(1)) │
+  │       staticcall permission.evaluate(txData, ctx)                 │
+  │       gas: PERMISSION_GAS_CAP (100 000)                           │
+  │       revert / OOG / false → PermissionDenied (deny)             │
   └─────────────────────────────────────────────────────────────────── ┘
   │
   └─ 7. ISafe(account).execTransactionFromModule(target, value, data, 0)
@@ -65,13 +63,15 @@ SailKernel.dispatch()
 
 ---
 
-## AND-Semantics and Deny-by-Default
+## Selective Authorization and Deny-by-Default
 
-The permission set operates as an AND-gate: every registered permission must return `true` for a dispatch to proceed. If any permission returns `false` (or reverts, or exhausts its gas budget), the kernel reverts with `PermissionDenied`.
+Each `dispatch()` call names one registered permission as the authorizer. The kernel evaluates only that named permission via `staticcall` under a per-call gas cap; other registered permissions on the same account are not consulted.
 
-A consequence of AND-semantics is that a buggy or compromised permission can only ever *deny* calls — it cannot grant capabilities beyond the intersection of all permissions in the set. A compromised permission cannot escalate privileges.
+The mandate is the union of registered permissions; each dispatch selects one as its authorizer. This allows unrelated templates to coexist on one account without falsely denying each other — a swap permission, a borrow permission, and a transfer permission can all be registered, and each call selects the appropriate one.
 
-**Deny-by-default:** an account with zero registered permissions will always revert with `NoPermissionsRegistered`. There is no implicit allow-all state.
+**Fail-closed:** a permission that returns `false`, reverts, exhausts its gas budget, or returns malformed data causes the dispatch to revert with `PermissionDenied`. There is no partial-allow path.
+
+**Deny-by-default:** if the named permission is not registered for the account, the kernel reverts with `PermissionNotRegistered` before evaluation. There is no implicit allow-all state.
 
 ---
 

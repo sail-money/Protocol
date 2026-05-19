@@ -112,9 +112,9 @@ for event in query("Dispatched", order="asc"):
         dispatchCount[pid] += 1
 ```
 
-> **Note:** a dispatch is attributed to every registered template simultaneously.
-> If an account has two templates registered, the dispatch increments both counters.
-> This matches the kernel's AND-semantics: all registered permissions evaluate each dispatch.
+> **Note:** under selective dispatch, each `Dispatched` event carries the `permission` field
+> identifying the named authorizer. A dispatch is attributed to exactly that one permission.
+> If an account has two templates registered, only the named one's counter is incremented.
 
 ---
 
