@@ -37,9 +37,9 @@ struct Context {
 ///         reads or verifies agent identity.
 interface IPermission {
     /// @notice Decide whether a manager-submitted transaction is permitted.
-    /// @dev    Called by the kernel once per registered permission per dispatch.
-    ///         ALL registered permissions must return true for the transaction to proceed —
-    ///         the kernel uses AND-semantics across the permission set.
+    /// @dev    Called by the kernel during dispatch to evaluate the named permission.
+    ///         In `dispatch`, the manager names ONE specific registered permission to evaluate
+    ///         the call. Other permissions on the account are not consulted.
     /// @param  txData  Raw calldata of the transaction being dispatched.
     /// @param  ctx     Execution context snapshot (see Context struct above).
     /// @return         True if the transaction is permitted; false to block it.

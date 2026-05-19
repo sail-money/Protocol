@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import {IPermission, Context}                from "../interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../interfaces/IBatchPermission.sol";
+import {IPermissionIntrospection}             from "../interfaces/IPermissionIntrospection.sol";
 import {IFeePolicy}                            from "../interfaces/IFeePolicy.sol";
 import {SailGovernance}        from "../governance/SailGovernance.sol";
 import {ECDSA}                 from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -35,7 +36,7 @@ interface ISafe {
 ///         permission contracts. When a manager submits a signed transaction, the
 ///         kernel:
 ///           1. Verifies the manager's EIP-712 signature and nonce.
-///           2. Evaluates every registered permission (all must return true).
+///           2. Evaluates the named registered permission (only the selected permission must return true).
 ///           3. Executes the transaction via Safe's module interface.
 ///
 ///         Key design properties:
@@ -86,6 +87,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice EIP-712 type hash for manager dispatch authorisation.
     ///         Type string: "Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
+    /// @dev BREAKING CHANGE from v1: `permission` field added. Any pre-signed dispatch
+    ///      messages created against the v1 typehash are permanently invalid after this upgrade.
+    ///      Off-chain systems (keeper bots, SDK integrations) must re-generate signatures.
     bytes32 public constant DISPATCH_TYPEHASH = keccak256(
         "Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
     );
@@ -161,6 +165,20 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address feePolicy;
         /// @dev When false, all dispatch calls for this account are blocked.
         bool    sessionActive;
+    }
+
+    /// @notice Enriched permission descriptor returned by getPermissionsWithInfo.
+    struct PermissionInfo {
+        /// @dev Contract address of the permission.
+        address permission;
+        /// @dev True if the permission implements IBatchPermission.isBatchPermission().
+        bool    isBatch;
+        /// @dev True if the permission implements IPermissionIntrospection.
+        bool    hasIntrospection;
+        /// @dev From IPermissionIntrospection.permissionId(); bytes32(0) if not supported.
+        bytes32 permissionId;
+        /// @dev From IPermissionIntrospection.permissionVersion(); bytes32(0) if not supported.
+        bytes32 permissionVersion;
     }
 
     /// @notice Per-account configuration.
@@ -385,10 +403,6 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `collectFees` when `distributorBps` returned by the policy exceeds 10 000.
     error DistributorBpsTooLarge(uint256 bps);
 
-    /// @dev Thrown by `dispatch` when no permissions are registered (deny-by-default).
-    /// @dev Retained for ABI compatibility; no longer emitted by `dispatch` — the caller
-    ///      names one specific permission and receives `PermissionNotRegistered` if it is absent.
-    error NoPermissionsRegistered(address account);
     /// @dev Thrown by `dispatch` / `collectFees` when the protocol is paused.
     error ProtocolPaused();
 
@@ -422,6 +436,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `dispatchBatch` when a subcall targets the kernel itself —
     ///      a defensive guard preventing self-targeted reentrancy attempts.
     error KernelSelfTarget(uint256 index);
+
+    /// @dev Thrown by `dispatchBatch` when a subcall targets the zero address.
+    error BatchZeroTarget(uint256 index);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -943,19 +960,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // 3. Permission must be registered for this account
         if (_permissionIndex[account][permission] == 0) revert PermissionNotRegistered(permission);
 
-        // 4. Permission must implement IBatchPermission. Detection via staticcall
-        //    is stricter than try/catch — guarantees no state mutation regardless of
-        //    what the target claims about its function modifiers.
-        {
-            (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
-                abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
-            );
-            if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
-                revert PermissionNotBatchAware(permission);
-            }
-        }
-
-        // 5. Verify manager signature over the canonical callsHash
+        // 4. Verify manager signature over the canonical callsHash
         bytes32 callsHash = keccak256(abi.encode(calls));
         uint256 nonce     = batchNonces[account];
         bytes32 digest    = _hashTypedDataV4(keccak256(abi.encode(
@@ -967,10 +972,27 @@ contract SailKernel is EIP712, ReentrancyGuard {
             deadline
         )));
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
+        // Nonce is consumed here — before isBatchPermission detection, preflight, and evaluateBatch.
+        // A failure at any subsequent step (PermissionNotBatchAware, KernelSelfTarget, BatchPermissionDenied)
+        // still advances the nonce. This is consistent with dispatch() consuming the manager nonce before
+        // permission evaluation. Re-submission requires a fresh signature with the new nonce.
         batchNonces[account] = nonce + 1;
 
-        // 6. Pre-flight: no subcall may target the kernel itself
+        // 5. Permission must implement IBatchPermission. Detection via staticcall
+        //    is stricter than try/catch — guarantees no state mutation regardless of
+        //    what the target claims about its function modifiers.
+        {
+            (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
+                abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
+            );
+            if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
+                revert PermissionNotBatchAware(permission);
+            }
+        }
+
+        // 6. Pre-flight: no subcall may target the zero address or the kernel itself
         for (uint256 i = 0; i < len;) {
+            if (calls[i].target == address(0))    revert BatchZeroTarget(i);
             if (calls[i].target == address(this)) revert KernelSelfTarget(i);
             unchecked { ++i; }
         }
@@ -1011,6 +1033,102 @@ contract SailKernel is EIP712, ReentrancyGuard {
         (bool success, bytes memory ret) = permission.staticcall{gas: BATCH_EVAL_GAS_CAP}(callData);
         if (!success || ret.length < 32) return false;
         return abi.decode(ret, (bool));
+    }
+
+    // -------------------------------------------------------------------------
+    // 3c. Permission introspection views
+    // -------------------------------------------------------------------------
+
+    /// @notice Return the full permission list for an account with enriched metadata.
+    /// @dev    Reads IPermissionIntrospection and IBatchPermission.isBatchPermission()
+    ///         on each registered permission via try/catch. A non-implementing permission
+    ///         returns zero/false for the corresponding fields.
+    ///
+    ///         `hasIntrospection` is true when `permissionId()` succeeds AND returns
+    ///         a non-zero value (a zero permissionId indicates a non-compliant or unset
+    ///         implementation; see IPermissionIntrospection.permissionId()).
+    ///
+    ///         Intended for off-chain use only. Each permission may make up to 3 external
+    ///         view calls; call with a generous gas limit on accounts with many permissions.
+    ///         MUST NOT be called from dispatch — use isPermissionRegistered() for O(1) checks.
+    /// @param  account The Safe account to query.
+    /// @return infos   Array of PermissionInfo, one per registered permission, in registration order.
+    function getPermissionsWithInfo(address account) external view returns (PermissionInfo[] memory infos) {
+        address[] storage perms = _permissions[account];
+        uint256 len = perms.length;
+        infos = new PermissionInfo[](len);
+        for (uint256 i; i < len; i++) {
+            address perm = perms[i];
+            infos[i].permission = perm;
+            try IBatchPermission(perm).isBatchPermission() returns (bool b) {
+                infos[i].isBatch = b;
+            } catch {}
+            try IPermissionIntrospection(perm).permissionId() returns (bytes32 pid) {
+                if (pid != bytes32(0)) {
+                    infos[i].hasIntrospection = true;
+                    infos[i].permissionId = pid;
+                    try IPermissionIntrospection(perm).permissionVersion() returns (bytes32 pv) {
+                        infos[i].permissionVersion = pv;
+                    } catch {}
+                }
+            } catch {}
+        }
+    }
+
+    /// @notice Simulate whether a batch dispatch would be approved without executing it.
+    /// @dev    Runs the same validation as dispatchBatch EXCEPT signature verification
+    ///         (no sig available in a simulation context) and Safe module execution.
+    ///         Useful for off-chain pre-flight checks (keeper bots, UI previews).
+    ///
+    ///         Return values:
+    ///           approved = true  → batch would pass evaluateBatch
+    ///           approved = false → batch would be denied; `reason` has a short descriptor
+    ///
+    ///         Does NOT check: account registration, session active, deadline, or sig.
+    ///         Callers must verify those separately.
+    ///
+    /// @param  account    The registered Safe account.
+    /// @param  permission The batch-aware permission to evaluate.
+    /// @param  calls      The call sequence to evaluate.
+    /// @return approved   True if the batch permission would authorise the call sequence.
+    /// @return reason     Short denial reason string; empty if approved.
+    function previewBatch(
+        address account,
+        address permission,
+        Call[] calldata calls
+    ) external view returns (bool approved, string memory reason) {
+        if (calls.length == 0)               return (false, "EmptyBatch");
+        if (calls.length > MAX_BATCH_LENGTH) return (false, "BatchTooLong");
+        if (!registered[account])            return (false, "AccountNotRegistered");
+        if (_permissionIndex[account][permission] == 0) return (false, "PermissionNotRegistered");
+
+        for (uint256 i; i < calls.length; i++) {
+            if (calls[i].target == address(0))    return (false, "BatchZeroTarget");
+            if (calls[i].target == address(this)) return (false, "KernelSelfTarget");
+        }
+
+        (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
+            abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
+        );
+        if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
+            return (false, "PermissionNotBatchAware");
+        }
+
+        bytes32 callsHash = keccak256(abi.encode(calls));
+        BatchContext memory ctx = BatchContext({
+            account:        account,
+            manager:        configs[account].manager,
+            submitter:      address(0),   // no submitter in simulation; permissions enforcing submitter whitelists will return false
+            permission:     permission,
+            batchHash:      callsHash,
+            blockTimestamp: block.timestamp,
+            blockNumber:    block.number
+        });
+
+        if (!_evaluateBatchPermission(permission, calls, ctx)) {
+            return (false, "BatchPermissionDenied");
+        }
+        return (true, "");
     }
 
     // -------------------------------------------------------------------------

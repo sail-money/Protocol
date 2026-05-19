@@ -3,9 +3,11 @@ pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../../interfaces/IPermission.sol";
 import {IConfigurablePermission} from "../../interfaces/IConfigurablePermission.sol";
+import {AgentIdentityRef, IAccountAgentIdentityResolver} from "../../interfaces/IAgentIdentityResolver.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Subset of SailKernel that templates need to read.
 interface ISailKernelView {
@@ -23,19 +25,25 @@ interface ISailKernelView {
 ///         Auth: configure() requires an EIP-712 sig from the account's permissionSigner
 ///         (read from the kernel). configureDirect() requires msg.sender to equal the
 ///         permissionSigner. Both support ECDSA and ERC-1271 signers.
-abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
+abstract contract BaseSharedPermission is IConfigurablePermission, IAccountAgentIdentityResolver, EIP712, ReentrancyGuard {
     bytes4 private constant ERC1271_MAGIC = 0x1626ba7e;
 
     bytes32 public constant CONFIGURE_TYPEHASH =
         keccak256("Configure(address account,bytes32 paramsHash,uint256 nonce,uint256 deadline)");
+
+    bytes32 public constant SET_IDENTITY_TYPEHASH =
+        keccak256("SetAgentIdentity(address account,bytes32 identityHash,uint256 nonce,uint256 deadline)");
 
     ISailKernelView public immutable kernel;
 
     mapping(address account => uint256) public configNonces;
     mapping(address account => bool)    public isConfigured;
 
+    mapping(address account => AgentIdentityRef) private _agentIdentities;
+
     // ── events ────────────────────────────────────────────────────────────────
     event Configured(address indexed account, uint256 nonce, bytes32 paramsHash);
+    event AgentIdentitySet(address indexed account, uint256 agentId, address agentWallet);
 
     // ── errors ────────────────────────────────────────────────────────────────
     error InvalidSignature();
@@ -59,7 +67,7 @@ abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
         bytes calldata params,
         uint256 deadline,
         bytes calldata sig
-    ) external {
+    ) external nonReentrant {
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
 
@@ -87,7 +95,7 @@ abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
     }
 
     /// @inheritdoc IConfigurablePermission
-    function configureDirect(address account, bytes calldata params) external {
+    function configureDirect(address account, bytes calldata params) external nonReentrant {
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
         (address permSigner,,,) = kernel.configs(account);
         if (msg.sender != permSigner) revert NotPermissionSigner(msg.sender, permSigner);
@@ -101,6 +109,56 @@ abstract contract BaseSharedPermission is IConfigurablePermission, EIP712 {
     /// @notice Exposed for off-chain sig construction.
     function hashTypedDataV4(bytes32 structHash) external view returns (bytes32) {
         return _hashTypedDataV4(structHash);
+    }
+
+    // ── IAccountAgentIdentityResolver ─────────────────────────────────────────
+
+    /// @inheritdoc IAccountAgentIdentityResolver
+    function agentIdentityFor(address account) external view returns (AgentIdentityRef memory) {
+        return _agentIdentities[account];
+    }
+
+    /// @notice Set the agent identity for an account using an EIP-712 signature.
+    /// @param  account  The registered Safe account.
+    /// @param  ref      The AgentIdentityRef to store.
+    /// @param  deadline Unix timestamp after which the signature is invalid.
+    /// @param  sig      EIP-712 signature over SetAgentIdentity struct by permissionSigner.
+    function setAgentIdentity(
+        address account,
+        AgentIdentityRef calldata ref,
+        uint256 deadline,
+        bytes calldata sig
+    ) external nonReentrant {
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+        if (!kernel.registered(account)) revert AccountNotRegistered(account);
+
+        uint256 nonce = configNonces[account];
+        bytes32 identityHash = keccak256(abi.encode(ref));
+        bytes32 structHash = keccak256(abi.encode(SET_IDENTITY_TYPEHASH, account, identityHash, nonce, deadline));
+        bytes32 digest = _hashTypedDataV4(structHash);
+
+        (address permSigner,,,) = kernel.configs(account);
+        if (!_verifySig(permSigner, digest, sig)) revert InvalidSignature();
+
+        configNonces[account] = nonce + 1;
+        _agentIdentities[account] = ref;
+        emit AgentIdentitySet(account, ref.agentId, ref.agentWallet);
+    }
+
+    /// @notice Set the agent identity for an account directly (no signature required).
+    /// @dev    Caller must be the account's permissionSigner.
+    /// @param  account  The registered Safe account.
+    /// @param  ref      The AgentIdentityRef to store.
+    /// @dev Increments `configNonces[account]` — callers must track nonce state if combining
+    ///      with concurrent `configure` or `setAgentIdentity` calls for the same account.
+    function setAgentIdentityDirect(address account, AgentIdentityRef calldata ref) external nonReentrant {
+        if (!kernel.registered(account)) revert AccountNotRegistered(account);
+        (address permSigner,,,) = kernel.configs(account);
+        if (msg.sender != permSigner) revert NotPermissionSigner(msg.sender, permSigner);
+
+        configNonces[account]++;
+        _agentIdentities[account] = ref;
+        emit AgentIdentitySet(account, ref.agentId, ref.agentWallet);
     }
 
     // ── hooks for subclasses ──────────────────────────────────────────────────

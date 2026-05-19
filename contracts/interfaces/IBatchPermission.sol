@@ -42,13 +42,10 @@ struct BatchContext {
 ///         A batch dispatch is gated by exactly ONE batch-aware permission, named
 ///         explicitly in the manager's signature.
 ///
-///         ONLY THE NAMED PERMISSION EVALUATES. This is a deliberate divergence from
-///         single dispatch. In single dispatch (`SailKernel.dispatch`), every IPermission
-///         registered on the account is consulted and ALL must return true (AND-semantics).
-///         In batch dispatch, the manager picks one batch-aware permission to validate
-///         the entire call sequence; the other permissions registered on the account
-///         are NOT consulted. The selected permission owns full responsibility for
-///         validating every subcall in the batch.
+///         ONLY THE NAMED PERMISSION EVALUATES. Both `dispatch` and `dispatchBatch` use
+///         selective authorization: the manager names ONE registered permission, and only
+///         that permission is consulted. In batch dispatch, the selected batch-aware
+///         permission owns full responsibility for validating every subcall in the batch.
 ///
 ///         The named permission MUST still be registered on the account, just like any
 ///         other permission. Registration is the trust anchor — the permissionSigner has

@@ -31,6 +31,9 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
     // Constants
     // -------------------------------------------------------------------------
 
+    /// @dev Maximum number of entries in any allowlist array.
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     /// @dev ERC-20 `approve(address,uint256)` selector.
     bytes4 private constant APPROVE_SELECTOR = 0x095ea7b3;
 
@@ -83,6 +86,7 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
 
     error TokensAndAmountsLengthMismatch(uint256 tokensLen, uint256 amountsLen);
     error EmptyAllowlist();
+    error AllowlistTooLong();
 
     constructor(address _kernel)
         BaseSharedPermission(_kernel, "SharedApproveAndCallBatchPermission", "1")
@@ -102,6 +106,13 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
 
     function _applyConfig(address account, bytes calldata params) internal override {
         Config memory cfg = abi.decode(params, (Config));
+
+        if (
+            cfg.tokens.length            > MAX_ALLOWLIST_LENGTH ||
+            cfg.spenders.length          > MAX_ALLOWLIST_LENGTH ||
+            cfg.consumingTargets.length  > MAX_ALLOWLIST_LENGTH ||
+            cfg.consumingSelectors.length > MAX_ALLOWLIST_LENGTH
+        ) revert AllowlistTooLong();
 
         if (cfg.tokens.length != cfg.maxApprovalAmounts.length) {
             revert TokensAndAmountsLengthMismatch(cfg.tokens.length, cfg.maxApprovalAmounts.length);
@@ -205,6 +216,7 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
 
         // ── calls[1] ── consuming call on allowlisted (target, selector) ──────
         Call calldata c1 = calls[1];
+        if (c1.value != 0) return false;
         if (!isConsumingTarget[account][c1.target]) return false;
         if (c1.data.length < CONSUMING_MIN_LEN) return false;
         bytes4 sel = bytes4(c1.data[0:4]);
