@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}                    from "forge-std/Test.sol";
 import {TransferTargetPermission} from "../contracts/templates/TransferTargetPermission.sol";
 import {Context}                 from "../contracts/interfaces/IPermission.sol";
+import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract TransferTargetPermissionTest is Test {
     TransferTargetPermission perm;
@@ -33,7 +34,7 @@ contract TransferTargetPermissionTest is Test {
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
 
-        perm = new TransferTargetPermission();
+        perm = TransferTargetPermission(Clones.clone(address(new TransferTargetPermission())));
         perm.initialize(recipients, tokens, MAX_AMOUNT, SIGNER);
     }
 
@@ -107,7 +108,7 @@ contract TransferTargetPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty = new address[](0);
-        TransferTargetPermission _tmp = new TransferTargetPermission();
+        TransferTargetPermission _tmp = TransferTargetPermission(Clones.clone(address(new TransferTargetPermission())));
         vm.expectRevert(TransferTargetPermission.ZeroAddress.selector);
         _tmp.initialize(empty, empty, MAX_AMOUNT, address(0));
     }

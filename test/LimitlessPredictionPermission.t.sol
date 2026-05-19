@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {LimitlessPredictionPermission} from "../contracts/templates/LimitlessPredictionPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract LimitlessPredictionPermissionTest is Test {
     LimitlessPredictionPermission perm;
@@ -56,7 +57,7 @@ contract LimitlessPredictionPermissionTest is Test {
         markets[1] = MARKET_NO;
         markets[2] = MARKET_YES2;
 
-        perm = new LimitlessPredictionPermission();
+        perm = LimitlessPredictionPermission(Clones.clone(address(new LimitlessPredictionPermission())));
         perm.initialize(
             EXCHANGE,
             markets,
@@ -127,14 +128,14 @@ contract LimitlessPredictionPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroExchange() public {
         uint256[] memory markets = new uint256[](0);
-        LimitlessPredictionPermission _tmp = new LimitlessPredictionPermission();
+        LimitlessPredictionPermission _tmp = LimitlessPredictionPermission(Clones.clone(address(new LimitlessPredictionPermission())));
         vm.expectRevert(LimitlessPredictionPermission.ZeroAddress.selector);
         _tmp.initialize(address(0), markets, MAX_SIZE, true, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint256[] memory markets = new uint256[](0);
-        LimitlessPredictionPermission _tmp = new LimitlessPredictionPermission();
+        LimitlessPredictionPermission _tmp = LimitlessPredictionPermission(Clones.clone(address(new LimitlessPredictionPermission())));
         vm.expectRevert(LimitlessPredictionPermission.ZeroAddress.selector);
         _tmp.initialize(EXCHANGE, markets, MAX_SIZE, true, true, address(0));
     }

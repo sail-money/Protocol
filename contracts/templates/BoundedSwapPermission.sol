@@ -138,7 +138,7 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedRouters     DEX router addresses to pre-populate the router allowlist.

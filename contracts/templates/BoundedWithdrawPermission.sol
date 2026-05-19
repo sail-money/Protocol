@@ -83,7 +83,7 @@ contract BoundedWithdrawPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  safe               The Safe address that must receive all tokens.

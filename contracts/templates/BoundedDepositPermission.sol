@@ -113,7 +113,7 @@ contract BoundedDepositPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedTargets     Vault / lending pool addresses to pre-populate the allowlist.

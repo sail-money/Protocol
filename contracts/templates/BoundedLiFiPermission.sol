@@ -61,6 +61,13 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 /// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
 contract BoundedLiFiPermission is IPermission, CloneInitializable {
     // -------------------------------------------------------------------------
+    // Clone identity
+    // -------------------------------------------------------------------------
+
+    /// @notice Signals that each clone of this template is bound to a single Safe account.
+    bool public constant IS_SINGLE_ACCOUNT = true;
+
+    // -------------------------------------------------------------------------
     // Calldata layout
     // -------------------------------------------------------------------------
 
@@ -129,7 +136,7 @@ contract BoundedLiFiPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedDiamonds      LiFi diamond addresses (one per chain you support).

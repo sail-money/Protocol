@@ -72,7 +72,7 @@ contract GainsNetworkPerpPermission is IPermission, CloneInitializable {
 
     // ── constructor / initialize ──────────────────────────────────────────────
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     function initialize(

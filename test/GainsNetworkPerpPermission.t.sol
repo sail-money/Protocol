@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {GainsNetworkPerpPermission} from "../contracts/templates/GainsNetworkPerpPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test harness
@@ -41,7 +42,7 @@ contract GainsNetworkPerpPermissionTest is Test {
         pairs[1] = PAIR_ETH;
         pairs[2] = PAIR_LINK;
 
-        perm = new GainsNetworkPerpPermission();
+        perm = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         perm.initialize(
             GTRADE_ROUTER,
             pairs,
@@ -136,14 +137,14 @@ contract GainsNetworkPerpPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroRouter() public {
         uint256[] memory pairs = new uint256[](0);
-        GainsNetworkPerpPermission _tmp = new GainsNetworkPerpPermission();
+        GainsNetworkPerpPermission _tmp = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         vm.expectRevert(GainsNetworkPerpPermission.ZeroAddress.selector);
         _tmp.initialize(address(0), pairs, true, true, MAX_SIZE_DAI, MAX_LEVERAGE, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint256[] memory pairs = new uint256[](0);
-        GainsNetworkPerpPermission _tmp = new GainsNetworkPerpPermission();
+        GainsNetworkPerpPermission _tmp = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         vm.expectRevert(GainsNetworkPerpPermission.ZeroAddress.selector);
         _tmp.initialize(GTRADE_ROUTER, pairs, true, true, MAX_SIZE_DAI, MAX_LEVERAGE, address(0));
     }
@@ -243,7 +244,7 @@ contract GainsNetworkPerpPermissionTest is Test {
         // Redeploy with allowLong=false, allowShort=true
         uint256[] memory pairs = new uint256[](1);
         pairs[0] = PAIR_BTC;
-        GainsNetworkPerpPermission p = new GainsNetworkPerpPermission();
+        GainsNetworkPerpPermission p = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         p.initialize(GTRADE_ROUTER, pairs, false, true, MAX_SIZE_DAI, MAX_LEVERAGE, SIGNER);
         bytes memory data = _openTrade(SAFE, PAIR_BTC, 10_000e18, true /* long */, 10);
         assertFalse(p.evaluate(data, _ctx(data)));
@@ -253,7 +254,7 @@ contract GainsNetworkPerpPermissionTest is Test {
         // Redeploy with allowLong=true, allowShort=false
         uint256[] memory pairs = new uint256[](1);
         pairs[0] = PAIR_BTC;
-        GainsNetworkPerpPermission p = new GainsNetworkPerpPermission();
+        GainsNetworkPerpPermission p = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         p.initialize(GTRADE_ROUTER, pairs, true, false, MAX_SIZE_DAI, MAX_LEVERAGE, SIGNER);
         bytes memory data = _openTrade(SAFE, PAIR_BTC, 10_000e18, false /* short */, 10);
         assertFalse(p.evaluate(data, _ctx(data)));
@@ -263,7 +264,7 @@ contract GainsNetworkPerpPermissionTest is Test {
         // Redeploy with allowLong=true, allowShort=false
         uint256[] memory pairs = new uint256[](1);
         pairs[0] = PAIR_BTC;
-        GainsNetworkPerpPermission p = new GainsNetworkPerpPermission();
+        GainsNetworkPerpPermission p = GainsNetworkPerpPermission(Clones.clone(address(new GainsNetworkPerpPermission())));
         p.initialize(GTRADE_ROUTER, pairs, true, false, MAX_SIZE_DAI, MAX_LEVERAGE, SIGNER);
         bytes memory data = _openTrade(SAFE, PAIR_BTC, 10_000e18, true /* long */, 10);
         assertTrue(p.evaluate(data, _ctx(data)));

@@ -144,7 +144,7 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedProtocols   Lending protocol addresses to pre-populate the allowlist.
@@ -155,6 +155,11 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     /// @param  _collateralOracle  Oracle for the Safe's collateral value. address(0) skips LTV.
     /// @param  _borrowOracle      Oracle for borrow asset price. address(0) skips LTV.
     /// @param  _permissionSigner  Address permitted to update mutable parameters.
+    /// @dev    Oracle decimal alignment is verified at initialization only if both oracles
+    ///         successfully respond to a zero-address probe. If either oracle reverts on
+    ///         zero-address input (e.g., it requires a real asset), the decimal check is
+    ///         silently skipped — callers must ensure both oracles use the same denomination
+    ///         and decimal precision, or the runtime LTV calculation will be silently wrong.
     function initialize(
         address[] memory allowedProtocols,
         address[] memory allowedAssets,

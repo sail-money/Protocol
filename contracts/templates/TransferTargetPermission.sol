@@ -103,7 +103,7 @@ contract TransferTargetPermission is IPermission, CloneInitializable {
     // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    constructor() {}
+    constructor() { _disableInitializers(); }
 
     /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedRecipients  Addresses the manager may send tokens or ETH to.

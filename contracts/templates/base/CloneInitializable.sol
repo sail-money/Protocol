@@ -8,18 +8,21 @@ pragma solidity 0.8.26;
 ///         and sets `_initialized = true`. All subsequent calls revert with
 ///         `AlreadyInitialized`.
 ///
-///         `_disableInitializers()` is provided for logic contracts that want to
-///         lock themselves so `initialize()` cannot be called directly on the
-///         implementation address. For non-upgradeable, calldata-validation-only
-///         templates (like the Sail permission templates) this is optional: a
-///         clone `delegatecall`s the logic's bytecode but reads/writes its own
-///         storage, so any state change on the logic contract address is isolated
-///         and harmless. Call `_disableInitializers()` in the logic constructor
-///         if you prefer belt-and-suspenders hygiene; omit it to allow the logic
-///         contract to be tested directly with `new Template()` + `initialize()`.
+///         Logic (implementation) contracts MUST call `_disableInitializers()` in
+///         their constructor to permanently lock the implementation address. Without
+///         this, an attacker can call `initialize()` directly on the logic contract,
+///         setting arbitrary state on its storage (storage layout conflicts aside,
+///         this is a hygiene hazard and a footgun for off-chain tooling that reads
+///         the logic address as a canonical reference).
 ///
 ///         This keeps the implementation minimal and avoids pulling in OZ Initializable
 ///         (which uses an upgradeable storage layout incompatible with simple clones).
+///
+/// @dev    Storage layout: `_initialized` is `bool` at slot 0. Inheriting contracts
+///         must account for this — their first declared `bool` field will pack into
+///         the same slot as `_initialized`. To avoid accidental aliasing, place the
+///         first storage variable on a type boundary that does not pack with `bool`
+///         (e.g., start with `address`, `uint256`, or an explicit gap).
 abstract contract CloneInitializable {
     bool private _initialized;
 

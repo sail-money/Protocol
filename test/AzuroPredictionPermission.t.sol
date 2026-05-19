@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {AzuroPredictionPermission} from "../contracts/templates/AzuroPredictionPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract AzuroPredictionPermissionTest is Test {
     AzuroPredictionPermission perm;
@@ -58,7 +59,7 @@ contract AzuroPredictionPermissionTest is Test {
         conditions[1] = COND_TENNIS;
         conditions[2] = COND_CRYPTO;
 
-        perm = new AzuroPredictionPermission();
+        perm = AzuroPredictionPermission(Clones.clone(address(new AzuroPredictionPermission())));
         perm.initialize(
             CORE,
             LP,
@@ -163,21 +164,21 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroCore() public {
         uint256[] memory conds = new uint256[](0);
-        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
+        AzuroPredictionPermission _tmp = AzuroPredictionPermission(Clones.clone(address(new AzuroPredictionPermission())));
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
         _tmp.initialize(address(0), LP, conds, MAX_PAYOUT, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroLP() public {
         uint256[] memory conds = new uint256[](0);
-        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
+        AzuroPredictionPermission _tmp = AzuroPredictionPermission(Clones.clone(address(new AzuroPredictionPermission())));
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
         _tmp.initialize(CORE, address(0), conds, MAX_PAYOUT, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint256[] memory conds = new uint256[](0);
-        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
+        AzuroPredictionPermission _tmp = AzuroPredictionPermission(Clones.clone(address(new AzuroPredictionPermission())));
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
         _tmp.initialize(CORE, LP, conds, MAX_PAYOUT, true, address(0));
     }

@@ -16,6 +16,7 @@ pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
 import {SailGovernance}          from "../../contracts/governance/SailGovernance.sol";
@@ -597,7 +598,7 @@ contract TemplateBypassTests is RedTeamBase {
         recipients[0] = address(0xBEEF); // only beef is allowed
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission();
+        TransferTargetPermission ttp = TransferTargetPermission(Clones.clone(address(new TransferTargetPermission())));
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         // Register the permission
@@ -631,7 +632,7 @@ contract TemplateBypassTests is RedTeamBase {
         address mockToken = address(0x5678);
         tokens[0] = mockToken;
 
-        TransferTargetPermission ttp = new TransferTargetPermission();
+        TransferTargetPermission ttp = TransferTargetPermission(Clones.clone(address(new TransferTargetPermission())));
         ttp.initialize(recipients, tokens, 1000 ether, permSigner);
 
         // Register the permission
@@ -664,7 +665,7 @@ contract TemplateBypassTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        BoundedBorrowPermission bbp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         bbp.initialize(
             protocols, assets,
             1_000_000 ether, // large cap
@@ -712,7 +713,7 @@ contract TemplateBypassTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        BoundedBorrowPermission bbp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         bbp.initialize(
             protocols, assets,
             1_000_000 ether,
@@ -1055,7 +1056,7 @@ contract OracleManipulationTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        BoundedBorrowPermission bbp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         bbp.initialize(
             protocols, assets,
             1_000_000 ether,
@@ -1110,7 +1111,7 @@ contract OracleManipulationTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        BoundedBorrowPermission bbp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         bbp.initialize(
             protocols, assets,
             1_000_000 ether,
