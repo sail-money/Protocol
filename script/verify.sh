@@ -62,17 +62,20 @@ fi
 
 : "${ETHERSCAN_API_KEY:?ETHERSCAN_API_KEY must be set}"
 
-declare -A CHAIN_IDS=(
-  [mainnet]=1
-  [sepolia]=11155111
-  [base]=8453
-  [base_sepolia]=84532
-  [arbitrum]=42161
-  [optimism]=10
-)
-CHAIN_ID="${CHAIN_IDS[$CHAIN]:-}"
+chain_id_for() {
+  case "$1" in
+    mainnet)      echo 1 ;;
+    sepolia)      echo 11155111 ;;
+    base)         echo 8453 ;;
+    base_sepolia) echo 84532 ;;
+    arbitrum)     echo 42161 ;;
+    optimism)     echo 10 ;;
+    *)            echo "" ;;
+  esac
+}
+CHAIN_ID="$(chain_id_for "$CHAIN")"
 if [[ -z "$CHAIN_ID" ]]; then
-  echo "error: unknown chain '$CHAIN'. Add it to CHAIN_IDS in verify.sh." >&2
+  echo "error: unknown chain '$CHAIN'. Add it to chain_id_for() in verify.sh." >&2
   exit 1
 fi
 
@@ -256,24 +259,22 @@ verify_shared_templates() {
   local kernel_args
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 
-  declare -A SHARED_TEMPLATES=(
-    [sharedAmmLiquidity]="contracts/templates/shared/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
-    [sharedApproveAndCallBatch]="contracts/templates/shared/SharedApproveAndCallBatchPermission.sol:SharedApproveAndCallBatchPermission"
-    [sharedBoundedBorrow]="contracts/templates/shared/SharedBoundedBorrowPermission.sol:SharedBoundedBorrowPermission"
-    [sharedBoundedSwap]="contracts/templates/shared/SharedBoundedSwapPermission.sol:SharedBoundedSwapPermission"
-    [sharedDeFiBundle]="contracts/templates/shared/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
-    [sharedPendle]="contracts/templates/shared/SharedPendlePermission.sol:SharedPendlePermission"
-    [sharedTransferTarget]="contracts/templates/shared/SharedTransferTargetPermission.sol:SharedTransferTargetPermission"
+  local pairs=(
+    "sharedAmmLiquidity|contracts/templates/shared/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
+    "sharedApproveAndCallBatch|contracts/templates/shared/SharedApproveAndCallBatchPermission.sol:SharedApproveAndCallBatchPermission"
+    "sharedBoundedBorrow|contracts/templates/shared/SharedBoundedBorrowPermission.sol:SharedBoundedBorrowPermission"
+    "sharedBoundedSwap|contracts/templates/shared/SharedBoundedSwapPermission.sol:SharedBoundedSwapPermission"
+    "sharedDeFiBundle|contracts/templates/shared/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
+    "sharedPendle|contracts/templates/shared/SharedPendlePermission.sol:SharedPendlePermission"
+    "sharedTransferTarget|contracts/templates/shared/SharedTransferTargetPermission.sol:SharedTransferTargetPermission"
   )
 
-  for key in "${!SHARED_TEMPLATES[@]}"; do
+  for pair in "${pairs[@]}"; do
+    local key="${pair%%|*}"
+    local contract="${pair#*|}"
     local address
     address=$(jq_read "$m" ".${key}")
-    verify_contract \
-      "$key" \
-      "${SHARED_TEMPLATES[$key]}" \
-      "$address" \
-      "$kernel_args"
+    verify_contract "$key" "$contract" "$address" "$kernel_args"
   done
 }
 
@@ -291,29 +292,27 @@ verify_standalone_templates() {
   echo "=== verifying templates-standalone (chain $CHAIN_ID) ==="
 
   # Standalone logic contracts have no constructor args — verification is trivial.
-  declare -A STANDALONE_TEMPLATES=(
-    [azuroPrediction]="contracts/templates/AzuroPredictionPermission.sol:AzuroPredictionPermission"
-    [boundedApprove]="contracts/templates/BoundedApprovePermission.sol:BoundedApprovePermission"
-    [boundedBorrow]="contracts/templates/BoundedBorrowPermission.sol:BoundedBorrowPermission"
-    [boundedDeposit]="contracts/templates/BoundedDepositPermission.sol:BoundedDepositPermission"
-    [boundedLiFi]="contracts/templates/BoundedLiFiPermission.sol:BoundedLiFiPermission"
-    [boundedSwap]="contracts/templates/BoundedSwapPermission.sol:BoundedSwapPermission"
-    [boundedWithdraw]="contracts/templates/BoundedWithdrawPermission.sol:BoundedWithdrawPermission"
-    [gmxPerp]="contracts/templates/GMXPerpPermission.sol:GMXPerpPermission"
-    [gainsNetworkPerp]="contracts/templates/GainsNetworkPerpPermission.sol:GainsNetworkPerpPermission"
-    [limitlessPrediction]="contracts/templates/LimitlessPredictionPermission.sol:LimitlessPredictionPermission"
-    [synthetixPerp]="contracts/templates/SynthetixPerpPermission.sol:SynthetixPerpPermission"
-    [transferTarget]="contracts/templates/TransferTargetPermission.sol:TransferTargetPermission"
+  local pairs=(
+    "azuroPrediction|contracts/templates/AzuroPredictionPermission.sol:AzuroPredictionPermission"
+    "boundedApprove|contracts/templates/BoundedApprovePermission.sol:BoundedApprovePermission"
+    "boundedBorrow|contracts/templates/BoundedBorrowPermission.sol:BoundedBorrowPermission"
+    "boundedDeposit|contracts/templates/BoundedDepositPermission.sol:BoundedDepositPermission"
+    "boundedLiFi|contracts/templates/BoundedLiFiPermission.sol:BoundedLiFiPermission"
+    "boundedSwap|contracts/templates/BoundedSwapPermission.sol:BoundedSwapPermission"
+    "boundedWithdraw|contracts/templates/BoundedWithdrawPermission.sol:BoundedWithdrawPermission"
+    "gmxPerp|contracts/templates/GMXPerpPermission.sol:GMXPerpPermission"
+    "gainsNetworkPerp|contracts/templates/GainsNetworkPerpPermission.sol:GainsNetworkPerpPermission"
+    "limitlessPrediction|contracts/templates/LimitlessPredictionPermission.sol:LimitlessPredictionPermission"
+    "synthetixPerp|contracts/templates/SynthetixPerpPermission.sol:SynthetixPerpPermission"
+    "transferTarget|contracts/templates/TransferTargetPermission.sol:TransferTargetPermission"
   )
 
-  for key in "${!STANDALONE_TEMPLATES[@]}"; do
+  for pair in "${pairs[@]}"; do
+    local key="${pair%%|*}"
+    local contract="${pair#*|}"
     local address
     address=$(jq_read "$m" ".${key}")
-    verify_contract \
-      "$key" \
-      "${STANDALONE_TEMPLATES[$key]}" \
-      "$address" \
-      ""
+    verify_contract "$key" "$contract" "$address" ""
   done
 }
 

@@ -76,17 +76,21 @@ fi
 
 cd "$(dirname "$0")/.."
 
-# Resolve chainId from foundry.toml rpc alias via cast. Falls back to known IDs
-# so the archive path is deterministic before any RPC call happens.
-declare -A CHAIN_IDS=(
-  [mainnet]=1
-  [sepolia]=11155111
-  [base]=8453
-  [base_sepolia]=84532
-  [arbitrum]=42161
-  [optimism]=10
-)
-CHAIN_ID="${CHAIN_IDS[$CHAIN]:-}"
+# Resolve chainId from foundry.toml rpc alias. Falls back to cast for unknown
+# aliases. Uses a case statement instead of `declare -A` so the script works on
+# macOS's bash 3.2.
+chain_id_for() {
+  case "$1" in
+    mainnet)      echo 1 ;;
+    sepolia)      echo 11155111 ;;
+    base)         echo 8453 ;;
+    base_sepolia) echo 84532 ;;
+    arbitrum)     echo 42161 ;;
+    optimism)     echo 10 ;;
+    *)            echo "" ;;
+  esac
+}
+CHAIN_ID="$(chain_id_for "$CHAIN")"
 if [[ -z "$CHAIN_ID" ]]; then
   # Unknown alias — try cast as a best-effort fallback.
   if command -v cast >/dev/null 2>&1; then
@@ -94,7 +98,7 @@ if [[ -z "$CHAIN_ID" ]]; then
   fi
 fi
 if [[ -z "$CHAIN_ID" ]]; then
-  echo "error: could not resolve chainId for '$CHAIN'. Add it to CHAIN_IDS in deploy.sh." >&2
+  echo "error: could not resolve chainId for '$CHAIN'. Add it to chain_id_for() in deploy.sh." >&2
   exit 1
 fi
 
@@ -102,24 +106,32 @@ CHAIN_DIR="deployments/${CHAIN_ID}"
 mkdir -p "$CHAIN_DIR"
 
 # Map target name -> script contract spec.
-declare -A TARGET_TO_SCRIPT=(
-  [core]="script/core/DeployCore.s.sol:DeployCore"
-  [templates-shared]="script/templates/DeploySharedTemplates.s.sol:DeploySharedTemplates"
-  [templates-standalone]="script/templates/DeployStandaloneTemplates.s.sol:DeployStandaloneTemplates"
-)
+script_for_target() {
+  case "$1" in
+    core)                 echo "script/core/DeployCore.s.sol:DeployCore" ;;
+    templates-shared)     echo "script/templates/DeploySharedTemplates.s.sol:DeploySharedTemplates" ;;
+    templates-standalone) echo "script/templates/DeployStandaloneTemplates.s.sol:DeployStandaloneTemplates" ;;
+    *)                    echo "" ;;
+  esac
+}
 
-# Map target name -> manifest file (for fresh-snapshot bookkeeping).
-declare -A TARGET_TO_MANIFEST=(
-  [core]="${CHAIN_DIR}/core.json"
-  [templates-shared]="${CHAIN_DIR}/templates.shared.json"
-  [templates-standalone]="${CHAIN_DIR}/templates.standalone.json"
-)
+# Map target name -> manifest file.
+manifest_for_target() {
+  case "$1" in
+    core)                 echo "${CHAIN_DIR}/core.json" ;;
+    templates-shared)     echo "${CHAIN_DIR}/templates.shared.json" ;;
+    templates-standalone) echo "${CHAIN_DIR}/templates.standalone.json" ;;
+    *)                    echo "" ;;
+  esac
+}
+
+KNOWN_TARGETS="core templates-shared templates-standalone"
 
 # Validate every requested target before doing anything.
 IFS=',' read -r -a TARGET_LIST <<< "$TARGETS"
 for t in "${TARGET_LIST[@]}"; do
-  if [[ -z "${TARGET_TO_SCRIPT[$t]:-}" ]]; then
-    echo "error: unknown target '$t'. Known: ${!TARGET_TO_SCRIPT[*]}" >&2
+  if [[ -z "$(script_for_target "$t")" ]]; then
+    echo "error: unknown target '$t'. Known: $KNOWN_TARGETS" >&2
     exit 1
   fi
 done
@@ -130,7 +142,7 @@ if [[ $FRESH -eq 1 ]]; then
   ARCHIVE_DIR="${CHAIN_DIR}/_archive/${STAMP}"
   ARCHIVED=0
   for t in "${TARGET_LIST[@]}"; do
-    M="${TARGET_TO_MANIFEST[$t]}"
+    M="$(manifest_for_target "$t")"
     if [[ -f "$M" ]]; then
       mkdir -p "$ARCHIVE_DIR"
       mv "$M" "$ARCHIVE_DIR/"
@@ -146,7 +158,7 @@ fi
 echo "+ chain=$CHAIN ($CHAIN_ID) targets=$TARGETS fresh=$FRESH dry_run=$DRY_RUN"
 
 for t in "${TARGET_LIST[@]}"; do
-  SCRIPT_SPEC="${TARGET_TO_SCRIPT[$t]}"
+  SCRIPT_SPEC="$(script_for_target "$t")"
   ARGS=(forge script "$SCRIPT_SPEC" --rpc-url "$CHAIN" --slow)
   if [[ $DRY_RUN -eq 0 ]]; then
     ARGS+=(--broadcast)

@@ -21,7 +21,7 @@ import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
 ///           INITIAL_GOVERNANCE        default: deployer
 ///           FEE_MANAGER               default: deployer
 ///           DISTRIBUTOR               default: address(0)
-///           MAX_PERMISSION_FEE_WEI    default: 0.01 ether
+///           MAX_PERMISSION_FEE_WEI    default: 0.001 ether (constitutional cap in SailGovernance)
 ///           INITIAL_PERMISSION_REGISTRATION_FEE  default: 0
 ///           MGMT_FEE_BPS              default: 200
 ///           PERF_FEE_BPS              default: 1000
@@ -107,7 +107,8 @@ contract DeployCore is Script {
         c.emergencyAdmin        = _envAddrOr("EMERGENCY_ADMIN",      c.deployer);
         c.feeManager            = _envAddrOr("FEE_MANAGER",          c.deployer);
         c.distributor           = _envAddrOr("DISTRIBUTOR",          address(0));
-        c.maxPermissionFeeWei              = _envUintOr("MAX_PERMISSION_FEE_WEI", 0.01 ether);
+        // Constitutional cap in SailGovernance is 0.001 ether — keep the default at-or-below.
+        c.maxPermissionFeeWei              = _envUintOr("MAX_PERMISSION_FEE_WEI", 0.001 ether);
         c.initialPermissionRegistrationFee = _envUintOrZero("INITIAL_PERMISSION_REGISTRATION_FEE");
         c.managementFeeBps      = _envUintOr("MGMT_FEE_BPS",            200);
         c.performanceFeeBps     = _envUintOr("PERF_FEE_BPS",          1_000);
