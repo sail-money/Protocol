@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @notice Gates Limitless CTF Exchange `fillOrder` calls so the manager can
 ///         only fill prediction-market orders where the Safe is the maker,
@@ -13,10 +14,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           fillOrder((address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint8,bytes),uint256)
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract LimitlessPredictionPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract LimitlessPredictionPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // fillOrder((address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint8,bytes),uint256)
@@ -62,7 +61,7 @@ contract LimitlessPredictionPermission is IPermission {
 
     // ── state ─────────────────────────────────────────────────────────────────
 
-    address public immutable limitlessExchange;
+    address public limitlessExchange;
 
     mapping(uint256 tokenId => bool) public isAllowedMarket;
 
@@ -88,16 +87,19 @@ contract LimitlessPredictionPermission is IPermission {
         _;
     }
 
-    // ── constructor ───────────────────────────────────────────────────────────
+    // ── constructor / initialize ──────────────────────────────────────────────
 
-    constructor(
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    function initialize(
         address _limitlessExchange,
         uint256[] memory allowedMarketIds,
         uint256 _maxPositionSize,
         bool _allowLong,
         bool _allowShort,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_limitlessExchange == address(0)) revert ZeroAddress();
         if (_permissionSigner  == address(0)) revert ZeroAddress();
 

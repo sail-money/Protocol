@@ -22,7 +22,8 @@ contract BoundedWithdrawPermissionTest is Test {
         address[] memory tokens = new address[](2);
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
-        perm = new BoundedWithdrawPermission(SAFE, tokens, MAX_AMOUNT, SIGNER);
+        perm = new BoundedWithdrawPermission();
+        perm.initialize(SAFE, tokens, MAX_AMOUNT, SIGNER);
     }
 
     // ── calldata helpers ──────────────────────────────────────────────────────
@@ -84,14 +85,16 @@ contract BoundedWithdrawPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSafe() public {
         address[] memory tokens = new address[](0);
+        BoundedWithdrawPermission _tmp = new BoundedWithdrawPermission();
         vm.expectRevert(BoundedWithdrawPermission.ZeroAddress.selector);
-        new BoundedWithdrawPermission(address(0), tokens, MAX_AMOUNT, SIGNER);
+        _tmp.initialize(address(0), tokens, MAX_AMOUNT, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory tokens = new address[](0);
+        BoundedWithdrawPermission _tmp = new BoundedWithdrawPermission();
         vm.expectRevert(BoundedWithdrawPermission.ZeroAddress.selector);
-        new BoundedWithdrawPermission(SAFE, tokens, MAX_AMOUNT, address(0));
+        _tmp.initialize(SAFE, tokens, MAX_AMOUNT, address(0));
     }
 
     // ── discriminator ─────────────────────────────────────────────────────────

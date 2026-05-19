@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @notice Gates Synthetix V3 perps interactions so the manager can only trade
 ///         on approved markets, within a size cap, and in permitted directions;
@@ -10,10 +11,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         Supported selectors:
 ///           commitOrder(uint128,uint128,int128,uint128,uint256,bytes32,address)
 ///           modifyCollateral(uint128,uint128,int256)
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract SynthetixPerpPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract SynthetixPerpPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // commitOrder(uint128 accountId, uint128 marketId, int128 sizeDelta,
@@ -31,8 +30,8 @@ contract SynthetixPerpPermission is IPermission {
     // selector(4) + 3 params × 32 = 100
     uint256 private constant LEN_MODIFY_COLLATERAL = 100;
 
-    // ── immutable ─────────────────────────────────────────────────────────────
-    address public immutable perpsMarketProxy;
+    // ── state ─────────────────────────────────────────────────────────────────
+    address public perpsMarketProxy;
 
     // ── allowlists ────────────────────────────────────────────────────────────
     /// @notice Markets allowed in commitOrder calls.
@@ -65,7 +64,12 @@ contract SynthetixPerpPermission is IPermission {
         _;
     }
 
-    constructor(
+    // ── constructor / initialize ──────────────────────────────────────────────
+
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    function initialize(
         address _perpsMarketProxy,
         uint128[] memory allowedMarketIds,
         int128  _maxAbsoluteSizeDelta,
@@ -74,7 +78,7 @@ contract SynthetixPerpPermission is IPermission {
         uint128[] memory allowedCollateralSynthMarketIds,
         address _permissionSigner,
         uint256 _maxWithdrawalPerTx
-    ) {
+    ) external initializer {
         if (_perpsMarketProxy == address(0)) revert ZeroAddress();
         if (_permissionSigner  == address(0)) revert ZeroAddress();
         if (_maxAbsoluteSizeDelta < 0)        revert NegativeMaxSizeDelta();

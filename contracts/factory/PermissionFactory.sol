@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
+import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
 
 interface ISailKernelFactory {
@@ -47,10 +48,22 @@ contract PermissionFactory {
     event Replaced(address indexed account, address indexed oldTemplate, address indexed newTemplate);
     event Detached(address indexed account, address indexed template);
     event BatchDetached(address indexed account, address[] templates);
+    /// @notice Emitted when a clone template is deployed and registered in a single transaction.
+    /// @param account    The Safe account the clone is registered for.
+    /// @param impl       The logic contract that was cloned.
+    /// @param clone      The freshly deployed EIP-1167 proxy instance.
+    /// @param salt       The salt used for deterministic cloning.
+    event CloneDeployedAndAttached(
+        address indexed account,
+        address indexed impl,
+        address indexed clone,
+        bytes32 salt
+    );
 
     error LengthMismatch();
     error RefundFailed();
     error ZeroAddress();
+    error CloneInitFailed();
 
     constructor(address _kernel) {
         if (_kernel == address(0)) revert ZeroAddress();
@@ -158,6 +171,50 @@ contract PermissionFactory {
         kernel.replacePermission{value: msg.value}(account, oldTemplate, newTemplate, kernelReplaceSig);
         _refundExcess(preBalance);
         emit Replaced(account, oldTemplate, newTemplate);
+    }
+
+    // -------------------------------------------------------------------------
+    // deployAndAttach: clone a standalone template, initialize, register — one tx
+    //
+    // For standalone (single-account) templates that use initialize() instead of
+    // configure(). The caller supplies:
+    //   - impl:      the logic contract address (from deployments/<chainId>/templates.standalone.json)
+    //   - salt:      deterministic salt; recommended: keccak256(abi.encode(account, impl, nonce))
+    //   - initData:  ABI-encoded initialize(...) call (selector + args)
+    //   - kernelSig: permission-signer signature for kernel.registerPermission
+    //
+    // The clone address is deterministic and can be predicted off-chain via
+    // predictCloneAddress(impl, salt) before the transaction is sent.
+    // -------------------------------------------------------------------------
+
+    /// @notice Deploy an EIP-1167 clone of `impl`, call `initData` on it, then
+    ///         register it with the kernel for `account` — all in one transaction.
+    function deployAndAttach(
+        address account,
+        address impl,
+        bytes32 salt,
+        bytes calldata initData,
+        bytes calldata kernelSig
+    ) external payable returns (address clone) {
+        if (impl == address(0)) revert ZeroAddress();
+
+        uint256 preBalance = address(this).balance - msg.value;
+
+        clone = Clones.cloneDeterministic(impl, salt);
+
+        (bool ok,) = clone.call(initData);
+        if (!ok) revert CloneInitFailed();
+
+        kernel.registerPermission{value: msg.value}(account, clone, kernelSig);
+        _refundExcess(preBalance);
+
+        emit CloneDeployedAndAttached(account, impl, clone, salt);
+    }
+
+    /// @notice Predict the address of a clone before it is deployed.
+    ///         Use this off-chain to pre-compute the permission address for signing.
+    function predictCloneAddress(address impl, bytes32 salt) external view returns (address) {
+        return Clones.predictDeterministicAddress(impl, salt, address(this));
     }
 
     // -------------------------------------------------------------------------

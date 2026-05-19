@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  BoundedWithdrawPermission
 /// @notice Gates ERC-20 withdrawals so the recipient is always the designated Safe,
@@ -15,10 +16,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         preventing a manager from pulling tokens from arbitrary addresses that may have
 ///         previously approved the Safe.
 /// @custom:security-contact security@sail.money
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract BoundedWithdrawPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedWithdrawPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
@@ -32,11 +31,11 @@ contract BoundedWithdrawPermission is IPermission {
     bytes4 private constant TRANSFERFROM_SELECTOR = 0x23b872dd;
 
     // -------------------------------------------------------------------------
-    // Immutable state
+    // State
     // -------------------------------------------------------------------------
 
     /// @notice The only address permitted to receive tokens (the owner's Safe).
-    address public immutable allowedRecipient;
+    address public allowedRecipient;
 
     // -------------------------------------------------------------------------
     // Allowlist and parameters
@@ -81,21 +80,23 @@ contract BoundedWithdrawPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with a fixed recipient Safe, token allowlist, cap, and signer.
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  safe               The Safe address that must receive all tokens.
-    ///                            Immutable after deployment.
+    ///                            Set once at initialization; not changeable afterward.
     /// @param  allowedTokens      ERC-20 addresses to pre-populate the token allowlist.
     /// @param  _maxAmountPerTx    Initial per-transaction amount cap.
     /// @param  _permissionSigner  Address permitted to call `setMaxAmountPerTx`.
-    constructor(
+    function initialize(
         address safe,
         address[] memory allowedTokens,
         uint256 _maxAmountPerTx,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (safe == address(0) || _permissionSigner == address(0)) revert ZeroAddress();
         allowedRecipient = safe;
         maxAmountPerTx   = _maxAmountPerTx;

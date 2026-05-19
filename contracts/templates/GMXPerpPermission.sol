@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @notice Gates GMX V2 ExchangeRouter `createOrder` calls so the manager can
 ///         only open/increase perp positions through approved markets, with
@@ -10,10 +11,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           0x0b686a6a  createOrder  (GMX V2 ExchangeRouter)
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract GMXPerpPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract GMXPerpPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // createOrder((addresses,numbers,orderType,decreasePositionSwapType,isLong,shouldUnwrapNativeToken,referralCode))
@@ -70,7 +69,7 @@ contract GMXPerpPermission is IPermission {
 
     // ── state ─────────────────────────────────────────────────────────────────
 
-    address public immutable exchangeRouter;
+    address public exchangeRouter;
 
     mapping(address market     => bool) public isAllowedMarket;
     mapping(address collateral => bool) public isAllowedCollateral;
@@ -97,9 +96,12 @@ contract GMXPerpPermission is IPermission {
         _;
     }
 
-    // ── constructor ───────────────────────────────────────────────────────────
+    // ── constructor / initialize ──────────────────────────────────────────────
 
-    constructor(
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    function initialize(
         address _exchangeRouter,
         address[] memory allowedMarkets,
         address[] memory allowedCollateralTokens,
@@ -107,7 +109,7 @@ contract GMXPerpPermission is IPermission {
         bool _allowShort,
         uint256 _maxPositionSizeUsd,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_exchangeRouter  == address(0)) revert ZeroAddress();
         if (_permissionSigner == address(0)) revert ZeroAddress();
 

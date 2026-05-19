@@ -457,9 +457,8 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         recipients[0] = address(0xBEEF);
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
@@ -484,9 +483,8 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         recipients[0] = attacker;
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
@@ -509,9 +507,8 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         recipients[0] = attacker;
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
@@ -534,9 +531,8 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         recipients[0] = address(0xBEEF);
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
@@ -564,9 +560,8 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         recipients[0] = attacker;
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
@@ -1069,9 +1064,8 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         recipients[0] = address(0xBEEF); // only beef allowed
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         // Register BOTH alwaysTrue and ttp
         uint256 nonce1 = kernel.signerNonces(address(safe));
@@ -1107,9 +1101,8 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
 
         // TTP: only allows ETH sends to 0xBEEF
         address[] memory ttpRecipients = new address[](1); ttpRecipients[0] = address(0xBEEF);
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            ttpRecipients, new address[](0), 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(ttpRecipients, new address[](0), 10 ether, permSigner);
 
         SharedDeFiBundlePermission bundle = new SharedDeFiBundlePermission(address(kernel));
 

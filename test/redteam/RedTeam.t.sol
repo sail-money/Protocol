@@ -597,9 +597,8 @@ contract TemplateBypassTests is RedTeamBase {
         recipients[0] = address(0xBEEF); // only beef is allowed
         address[] memory tokens = new address[](0);
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 10 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         // Register the permission
         uint256 nonce = kernel.signerNonces(address(safe));
@@ -632,9 +631,8 @@ contract TemplateBypassTests is RedTeamBase {
         address mockToken = address(0x5678);
         tokens[0] = mockToken;
 
-        TransferTargetPermission ttp = new TransferTargetPermission(
-            recipients, tokens, 1000 ether, permSigner
-        );
+        TransferTargetPermission ttp = new TransferTargetPermission();
+        ttp.initialize(recipients, tokens, 1000 ether, permSigner);
 
         // Register the permission
         uint256 nonce = kernel.signerNonces(address(safe));
@@ -666,7 +664,8 @@ contract TemplateBypassTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission(
+        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        bbp.initialize(
             protocols, assets,
             1_000_000 ether, // large cap
             0,               // no LTV
@@ -713,7 +712,8 @@ contract TemplateBypassTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission(
+        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        bbp.initialize(
             protocols, assets,
             1_000_000 ether,
             0, address(0), address(0),
@@ -1055,7 +1055,8 @@ contract OracleManipulationTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission(
+        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        bbp.initialize(
             protocols, assets,
             1_000_000 ether,
             7_500,               // 75% LTV
@@ -1109,7 +1110,8 @@ contract OracleManipulationTests is RedTeamBase {
         address[] memory assets = new address[](1);
         assets[0] = asset;
 
-        BoundedBorrowPermission bbp = new BoundedBorrowPermission(
+        BoundedBorrowPermission bbp = new BoundedBorrowPermission();
+        bbp.initialize(
             protocols, assets,
             1_000_000 ether,
             7_500,

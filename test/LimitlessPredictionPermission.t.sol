@@ -56,7 +56,8 @@ contract LimitlessPredictionPermissionTest is Test {
         markets[1] = MARKET_NO;
         markets[2] = MARKET_YES2;
 
-        perm = new LimitlessPredictionPermission(
+        perm = new LimitlessPredictionPermission();
+        perm.initialize(
             EXCHANGE,
             markets,
             MAX_SIZE,
@@ -126,14 +127,16 @@ contract LimitlessPredictionPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroExchange() public {
         uint256[] memory markets = new uint256[](0);
+        LimitlessPredictionPermission _tmp = new LimitlessPredictionPermission();
         vm.expectRevert(LimitlessPredictionPermission.ZeroAddress.selector);
-        new LimitlessPredictionPermission(address(0), markets, MAX_SIZE, true, true, SIGNER);
+        _tmp.initialize(address(0), markets, MAX_SIZE, true, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint256[] memory markets = new uint256[](0);
+        LimitlessPredictionPermission _tmp = new LimitlessPredictionPermission();
         vm.expectRevert(LimitlessPredictionPermission.ZeroAddress.selector);
-        new LimitlessPredictionPermission(EXCHANGE, markets, MAX_SIZE, true, true, address(0));
+        _tmp.initialize(EXCHANGE, markets, MAX_SIZE, true, true, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

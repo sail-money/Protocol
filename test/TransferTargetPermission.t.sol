@@ -33,7 +33,8 @@ contract TransferTargetPermissionTest is Test {
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
 
-        perm = new TransferTargetPermission(recipients, tokens, MAX_AMOUNT, SIGNER);
+        perm = new TransferTargetPermission();
+        perm.initialize(recipients, tokens, MAX_AMOUNT, SIGNER);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -106,8 +107,9 @@ contract TransferTargetPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty = new address[](0);
+        TransferTargetPermission _tmp = new TransferTargetPermission();
         vm.expectRevert(TransferTargetPermission.ZeroAddress.selector);
-        new TransferTargetPermission(empty, empty, MAX_AMOUNT, address(0));
+        _tmp.initialize(empty, empty, MAX_AMOUNT, address(0));
     }
 
     // ── discriminator ─────────────────────────────────────────────────────────

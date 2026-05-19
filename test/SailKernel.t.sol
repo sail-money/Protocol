@@ -663,9 +663,8 @@ contract SailKernelTest is Test {
         uint256 maxAmt    = 1_000e18;
         uint256 slipBps   = 200; // 2%
 
-        BoundedSwapPermission swapPerm = new BoundedSwapPermission(
-            routers, tIn, tOut, maxAmt, slipBps, address(oracle), permSigner
-        );
+        BoundedSwapPermission swapPerm = new BoundedSwapPermission();
+        swapPerm.initialize(routers, tIn, tOut, maxAmt, slipBps, address(oracle), permSigner);
 
         _registerPermission(address(swapPerm));
 
@@ -695,9 +694,8 @@ contract SailKernelTest is Test {
         address[] memory tIn     = new address[](1); tIn[0]     = tokenIn;
         address[] memory tOut    = new address[](1); tOut[0]    = tokenOut;
 
-        BoundedSwapPermission swapPerm = new BoundedSwapPermission(
-            routers, tIn, tOut, 1_000e18, 200, address(oracle), permSigner
-        );
+        BoundedSwapPermission swapPerm = new BoundedSwapPermission();
+        swapPerm.initialize(routers, tIn, tOut, 1_000e18, 200, address(oracle), permSigner);
         _registerPermission(address(swapPerm));
 
         // amountOutMin = 1 violates the oracle-derived floor (196e18).

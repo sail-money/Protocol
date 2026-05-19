@@ -58,7 +58,8 @@ contract AzuroPredictionPermissionTest is Test {
         conditions[1] = COND_TENNIS;
         conditions[2] = COND_CRYPTO;
 
-        perm = new AzuroPredictionPermission(
+        perm = new AzuroPredictionPermission();
+        perm.initialize(
             CORE,
             LP,
             conditions,
@@ -162,20 +163,23 @@ contract AzuroPredictionPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroCore() public {
         uint256[] memory conds = new uint256[](0);
+        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
-        new AzuroPredictionPermission(address(0), LP, conds, MAX_PAYOUT, true, SIGNER);
+        _tmp.initialize(address(0), LP, conds, MAX_PAYOUT, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroLP() public {
         uint256[] memory conds = new uint256[](0);
+        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
-        new AzuroPredictionPermission(CORE, address(0), conds, MAX_PAYOUT, true, SIGNER);
+        _tmp.initialize(CORE, address(0), conds, MAX_PAYOUT, true, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint256[] memory conds = new uint256[](0);
+        AzuroPredictionPermission _tmp = new AzuroPredictionPermission();
         vm.expectRevert(AzuroPredictionPermission.ZeroAddress.selector);
-        new AzuroPredictionPermission(CORE, LP, conds, MAX_PAYOUT, true, address(0));
+        _tmp.initialize(CORE, LP, conds, MAX_PAYOUT, true, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

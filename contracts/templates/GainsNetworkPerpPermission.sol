@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @notice Gates Gains Network (gTrade) perpetual trades so the manager can only
 ///         open/close positions through the canonical gTradeRouter, on approved
@@ -11,10 +12,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         Supported selectors:
 ///           OPEN_TRADE   openTrade((address,uint256,uint256,uint256,uint256,bool,uint256,uint256,uint256),uint8,uint256,uint256,address)
 ///           CLOSE_TRADE  closeTrade(uint256,uint256)
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract GainsNetworkPerpPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract GainsNetworkPerpPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // openTrade((address,uint256,uint256,uint256,uint256,bool,uint256,uint256,uint256),uint8,uint256,uint256,address)
@@ -45,8 +44,8 @@ contract GainsNetworkPerpPermission is IPermission {
         uint256 sl;
     }
 
-    // ── immutables ────────────────────────────────────────────────────────────
-    address public immutable gTradeRouter;
+    // ── state ─────────────────────────────────────────────────────────────────
+    address public gTradeRouter;
 
     // ── allowlists ────────────────────────────────────────────────────────────
     mapping(uint256 pairIndex => bool) public isAllowedPair;
@@ -71,7 +70,12 @@ contract GainsNetworkPerpPermission is IPermission {
         _;
     }
 
-    constructor(
+    // ── constructor / initialize ──────────────────────────────────────────────
+
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    function initialize(
         address _gTradeRouter,
         uint256[] memory allowedPairIndexes,
         bool    _allowLong,
@@ -79,7 +83,7 @@ contract GainsNetworkPerpPermission is IPermission {
         uint256 _maxPositionSizeDai,
         uint256 _maxLeverageX,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_gTradeRouter    == address(0)) revert ZeroAddress();
         if (_permissionSigner == address(0)) revert ZeroAddress();
 

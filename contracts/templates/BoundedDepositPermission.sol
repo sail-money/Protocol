@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  BoundedDepositPermission
 /// @notice Gates ERC-20 deposits into lending and vault protocols.
@@ -23,10 +24,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         `isAllowedTarget` allowlist. Operators must ensure each allowed target
 ///         only accepts tokens they intend to permit.
 /// @custom:security-contact security@sail.money
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract BoundedDepositPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedDepositPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
@@ -111,20 +110,22 @@ contract BoundedDepositPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with a set of allowed targets, tokens, a cap, and a signer.
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedTargets     Vault / lending pool addresses to pre-populate the allowlist.
     /// @param  allowedTokens      ERC-20 token addresses to pre-populate the token allowlist.
     /// @param  _maxAmountPerTx    Initial per-transaction amount / shares cap.
     /// @param  _permissionSigner  Address permitted to call `setMaxAmountPerTx`.
-    constructor(
+    function initialize(
         address[] memory allowedTargets,
         address[] memory allowedTokens,
         uint256 _maxAmountPerTx,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         maxAmountPerTx   = _maxAmountPerTx;
         permissionSigner = _permissionSigner;

@@ -1,34 +1,51 @@
 #!/usr/bin/env bash
-# Sail core protocol deployment wrapper.
+# Sail protocol deployment orchestrator.
 #
 # Usage:
-#   script/deploy.sh <chain> [--no-verify] [--dry-run] [-- <extra forge args>]
+#   script/deploy.sh <chain> [--target <t1,t2,...>] [--fresh] [--no-verify] [--dry-run] [-- <extra forge args>]
 #
 # <chain> is one of the keys in foundry.toml [rpc_endpoints]:
 #   mainnet | sepolia | base | base_sepolia | arbitrum | optimism
 #   plasma  | hyperliquid | unichain
 #
+# Targets (comma-separated; default: core,templates-shared,templates-standalone):
+#   core                  — SailKernel, Governance, PermissionFactory, StandardFeePolicy, SafeModuleEnabler
+#   templates-shared      — 7 Shared* permission singletons bound to the kernel
+#   templates-standalone  — 12 standalone permission logic contracts (EIP-1167 clone implementations)
+#
+# Flags:
+#   --fresh           Snapshot existing manifests under deployments/<chainId>/_archive/<date>/
+#                     before writing new ones. Required when redeploying over a tracked manifest.
+#   --no-verify       Skip Etherscan verification (forge --verify).
+#   --dry-run         Simulate without broadcasting; manifests are NOT written.
+#
 # Examples:
 #   script/deploy.sh base_sepolia
-#   script/deploy.sh base_sepolia --dry-run
-#   script/deploy.sh base --no-verify
+#   script/deploy.sh base --fresh
+#   script/deploy.sh base --target templates-shared
+#   script/deploy.sh base --target core --dry-run
 
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "usage: $0 <chain> [--no-verify] [--dry-run] [-- <extra forge args>]" >&2
+  echo "usage: $0 <chain> [--target <t1,t2,...>] [--fresh] [--no-verify] [--dry-run] [-- <extra forge args>]" >&2
   exit 1
 fi
 
 CHAIN="$1"; shift
+TARGETS="core,templates-shared,templates-standalone"
 NO_VERIFY=0
 DRY_RUN=0
+FRESH=0
 EXTRA=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --target)    TARGETS="$2"; shift 2 ;;
+    --target=*)  TARGETS="${1#--target=}"; shift ;;
+    --fresh)     FRESH=1; shift ;;
     --no-verify) NO_VERIFY=1; shift ;;
-    --dry-run)   DRY_RUN=1;   shift ;;
+    --dry-run)   DRY_RUN=1; shift ;;
     --)          shift; EXTRA=("$@"); break ;;
     *)           EXTRA+=("$1"); shift ;;
   esac
@@ -48,22 +65,101 @@ fi
 : "${DEPLOYER_PRIVATE_KEY:?DEPLOYER_PRIVATE_KEY must be set}"
 : "${DEPLOYER_ADDRESS:?DEPLOYER_ADDRESS must be set}"
 
-cd "$(dirname "$0")/.."
-mkdir -p deployments
-
-ARGS=(forge script script/Deploy.s.sol:Deploy --rpc-url "$CHAIN" --slow)
-
-if [[ $DRY_RUN -eq 0 ]]; then
-  ARGS+=(--broadcast)
-  if [[ $NO_VERIFY -eq 0 ]]; then
-    ARGS+=(--verify)
+# Pin the deploy to a git commit so manifests carry provenance.
+if command -v git >/dev/null 2>&1; then
+  GIT_COMMIT="$(git -C "$(dirname "$0")/.." rev-parse HEAD 2>/dev/null || echo "")"
+  if [[ -n "${GIT_COMMIT}" ]] && ! git -C "$(dirname "$0")/.." diff --quiet 2>/dev/null; then
+    GIT_COMMIT="${GIT_COMMIT}-dirty"
   fi
+  export GIT_COMMIT
 fi
 
-ARGS+=("${EXTRA[@]+"${EXTRA[@]}"}")
+cd "$(dirname "$0")/.."
 
-echo "+ ${ARGS[*]}"
-"${ARGS[@]}"
+# Resolve chainId from foundry.toml rpc alias via cast. Falls back to known IDs
+# so the archive path is deterministic before any RPC call happens.
+declare -A CHAIN_IDS=(
+  [mainnet]=1
+  [sepolia]=11155111
+  [base]=8453
+  [base_sepolia]=84532
+  [arbitrum]=42161
+  [optimism]=10
+)
+CHAIN_ID="${CHAIN_IDS[$CHAIN]:-}"
+if [[ -z "$CHAIN_ID" ]]; then
+  # Unknown alias — try cast as a best-effort fallback.
+  if command -v cast >/dev/null 2>&1; then
+    CHAIN_ID="$(cast chain-id --rpc-url "$CHAIN" 2>/dev/null || echo "")"
+  fi
+fi
+if [[ -z "$CHAIN_ID" ]]; then
+  echo "error: could not resolve chainId for '$CHAIN'. Add it to CHAIN_IDS in deploy.sh." >&2
+  exit 1
+fi
+
+CHAIN_DIR="deployments/${CHAIN_ID}"
+mkdir -p "$CHAIN_DIR"
+
+# Map target name -> script contract spec.
+declare -A TARGET_TO_SCRIPT=(
+  [core]="script/core/DeployCore.s.sol:DeployCore"
+  [templates-shared]="script/templates/DeploySharedTemplates.s.sol:DeploySharedTemplates"
+  [templates-standalone]="script/templates/DeployStandaloneTemplates.s.sol:DeployStandaloneTemplates"
+)
+
+# Map target name -> manifest file (for fresh-snapshot bookkeeping).
+declare -A TARGET_TO_MANIFEST=(
+  [core]="${CHAIN_DIR}/core.json"
+  [templates-shared]="${CHAIN_DIR}/templates.shared.json"
+  [templates-standalone]="${CHAIN_DIR}/templates.standalone.json"
+)
+
+# Validate every requested target before doing anything.
+IFS=',' read -r -a TARGET_LIST <<< "$TARGETS"
+for t in "${TARGET_LIST[@]}"; do
+  if [[ -z "${TARGET_TO_SCRIPT[$t]:-}" ]]; then
+    echo "error: unknown target '$t'. Known: ${!TARGET_TO_SCRIPT[*]}" >&2
+    exit 1
+  fi
+done
+
+# --fresh: snapshot existing manifests for the requested targets under _archive/<date>/.
+if [[ $FRESH -eq 1 ]]; then
+  STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+  ARCHIVE_DIR="${CHAIN_DIR}/_archive/${STAMP}"
+  ARCHIVED=0
+  for t in "${TARGET_LIST[@]}"; do
+    M="${TARGET_TO_MANIFEST[$t]}"
+    if [[ -f "$M" ]]; then
+      mkdir -p "$ARCHIVE_DIR"
+      mv "$M" "$ARCHIVE_DIR/"
+      ARCHIVED=$((ARCHIVED + 1))
+    fi
+  done
+  if [[ $ARCHIVED -gt 0 ]]; then
+    echo "+ archived $ARCHIVED manifest(s) to $ARCHIVE_DIR"
+  fi
+  export SAIL_DEPLOY_FRESH=1
+fi
+
+echo "+ chain=$CHAIN ($CHAIN_ID) targets=$TARGETS fresh=$FRESH dry_run=$DRY_RUN"
+
+for t in "${TARGET_LIST[@]}"; do
+  SCRIPT_SPEC="${TARGET_TO_SCRIPT[$t]}"
+  ARGS=(forge script "$SCRIPT_SPEC" --rpc-url "$CHAIN" --slow)
+  if [[ $DRY_RUN -eq 0 ]]; then
+    ARGS+=(--broadcast)
+    if [[ $NO_VERIFY -eq 0 ]]; then
+      ARGS+=(--verify)
+    fi
+  fi
+  ARGS+=("${EXTRA[@]+"${EXTRA[@]}"}")
+  echo
+  echo "▶ target=$t"
+  echo "+ ${ARGS[*]}"
+  "${ARGS[@]}"
+done
 
 echo
-echo "done. Artifact: deployments/<chainId>.json"
+echo "done. Artifacts under $CHAIN_DIR/"

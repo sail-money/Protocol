@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {IPermission, Context} from "../interfaces/IPermission.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  BoundedSwapPermission
 /// @notice Gates DEX swaps so the manager can only trade through approved routers,
@@ -25,10 +26,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         `isAllowedTokenIn`/`isAllowedTokenOut` — only path[0] and path[last] are
 ///         checked. Operators must ensure the full path is acceptable.
 /// @custom:security-contact security@sail.money
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract BoundedSwapPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedSwapPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
@@ -136,10 +135,12 @@ contract BoundedSwapPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with allowlists, swap cap, optional oracle config, and signer.
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedRouters     DEX router addresses to pre-populate the router allowlist.
     /// @param  allowedTokensIn    Input token addresses to pre-populate `isAllowedTokenIn`.
     /// @param  allowedTokensOut   Output token addresses to pre-populate `isAllowedTokenOut`.
@@ -147,7 +148,7 @@ contract BoundedSwapPermission is IPermission {
     /// @param  _maxSlippageBps    Initial slippage tolerance (0–9 999 bps). 0 = oracle disabled.
     /// @param  _priceOracle       Oracle address; address(0) = oracle disabled.
     /// @param  _permissionSigner  Address permitted to update mutable settings.
-    constructor(
+    function initialize(
         address[] memory allowedRouters,
         address[] memory allowedTokensIn,
         address[] memory allowedTokensOut,
@@ -155,7 +156,7 @@ contract BoundedSwapPermission is IPermission {
         uint256 _maxSlippageBps,
         address _priceOracle,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         // 9_999 max: 10_000 would compute oracleMinOut = 0 when oracle is set,
         // silently bypassing the oracle floor. Use slippage = 0 to explicitly disable.

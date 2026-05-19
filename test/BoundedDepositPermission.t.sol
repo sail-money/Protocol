@@ -29,7 +29,8 @@ contract BoundedDepositPermissionTest is Test {
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
 
-        perm = new BoundedDepositPermission(targets, tokens, MAX_AMOUNT, SIGNER);
+        perm = new BoundedDepositPermission();
+        perm.initialize(targets, tokens, MAX_AMOUNT, SIGNER);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -95,8 +96,9 @@ contract BoundedDepositPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty = new address[](0);
+        BoundedDepositPermission _tmp = new BoundedDepositPermission();
         vm.expectRevert(BoundedDepositPermission.ZeroAddress.selector);
-        new BoundedDepositPermission(empty, empty, MAX_AMOUNT, address(0));
+        _tmp.initialize(empty, empty, MAX_AMOUNT, address(0));
     }
 
     // ── discriminator ─────────────────────────────────────────────────────────

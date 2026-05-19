@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  BoundedApprovePermission
 /// @notice Gates ERC-20 `approve` calls so the manager can only grant allowance
@@ -30,7 +31,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         is later found to be misbehaving: operators can rotate the allowlist
 ///         and revoke prior approvals by registering a follow-up approve(spender, 0).
 /// @custom:security-contact security@sail.money
-contract BoundedApprovePermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedApprovePermission is IPermission, CloneInitializable {
     // -------------------------------------------------------------------------
     // Selector
     // -------------------------------------------------------------------------
@@ -96,20 +98,22 @@ contract BoundedApprovePermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with token/spender allowlists, a per-tx cap, and a signer.
+    constructor() {}
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedTokens     ERC-20 tokens that may be approved through this permission.
     /// @param  allowedSpenders   Contract addresses that may receive allowance from the Safe.
     /// @param  _maxAmountPerTx   Initial per-transaction amount cap (use type(uint256).max for unlimited).
     /// @param  _permissionSigner Address permitted to call `setMaxAmountPerTx`.
-    constructor(
+    function initialize(
         address[] memory allowedTokens,
         address[] memory allowedSpenders,
         uint256 _maxAmountPerTx,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         maxAmountPerTx   = _maxAmountPerTx;
         permissionSigner = _permissionSigner;
