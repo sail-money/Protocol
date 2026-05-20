@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {BoundedLiFiPermission} from "../contracts/templates/BoundedLiFiPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BoundedLiFiPermissionTest is Test {
     BoundedLiFiPermission internal perm;
@@ -32,7 +33,8 @@ contract BoundedLiFiPermissionTest is Test {
         sels[0] = SWAP_SINGLE_V3;
         sels[1] = SWAP_MULTI_V3;
 
-        perm = new BoundedLiFiPermission(diamonds, sels, MAX_MIN, PERM_SIGNER);
+        perm = BoundedLiFiPermission(Clones.clone(address(new BoundedLiFiPermission())));
+        perm.initialize(diamonds, sels, MAX_MIN, PERM_SIGNER);
     }
 
     // -------------------------------------------------------------------------
@@ -94,8 +96,9 @@ contract BoundedLiFiPermissionTest is Test {
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty;
         bytes4[]  memory emptySels;
+        BoundedLiFiPermission _tmp = BoundedLiFiPermission(Clones.clone(address(new BoundedLiFiPermission())));
         vm.expectRevert(BoundedLiFiPermission.ZeroAddress.selector);
-        new BoundedLiFiPermission(empty, emptySels, 0, address(0));
+        _tmp.initialize(empty, emptySels, 0, address(0));
     }
 
     function test_Discriminator() public view {

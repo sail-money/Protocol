@@ -7,6 +7,7 @@ import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import "../contracts/templates/BoundedSwapPermission.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MockSafe — records every execTransactionFromModule call; forwards ETH
@@ -114,10 +115,8 @@ contract IntegrationTest is Test {
         address[] memory routers   = _arr1(ROUTER);
         address[] memory tokensIn  = _arr1(WETH);
         address[] memory tokensOut = _arr1(USDC);
-        swap = new BoundedSwapPermission(
-            routers, tokensIn, tokensOut,
-            10 ether, 200, address(0), permSigner
-        );
+        swap = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        swap.initialize(routers, tokensIn, tokensOut, 10 ether, 200, address(0), permSigner);
 
         // 5. StandardFeePolicy: 2% mgmt / 20% perf / DEAD distributor / 5% dist share
         feePolicy = new StandardFeePolicy(

@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  BoundedLiFiPermission
 /// @notice Gates LiFi aggregator swap calls so the manager can only route the
@@ -57,7 +58,15 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///             moves funds to another chain where Sail's permission framework
 ///             does not extend).
 /// @custom:security-contact security@sail.money
-contract BoundedLiFiPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedLiFiPermission is IPermission, CloneInitializable {
+    // -------------------------------------------------------------------------
+    // Clone identity
+    // -------------------------------------------------------------------------
+
+    /// @notice Signals that each clone of this template is bound to a single Safe account.
+    bool public constant IS_SINGLE_ACCOUNT = true;
+
     // -------------------------------------------------------------------------
     // Calldata layout
     // -------------------------------------------------------------------------
@@ -124,20 +133,22 @@ contract BoundedLiFiPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with allowlisted LiFi diamonds, selectors, output cap, and a signer.
+    constructor() { _disableInitializers(); }
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedDiamonds      LiFi diamond addresses (one per chain you support).
     /// @param  allowedSelectors     LiFi function selectors the manager may invoke.
     /// @param  _maxMinAmountPerTx   Initial cap on `_minAmount` field per call.
     /// @param  _permissionSigner    Address permitted to update mutable settings.
-    constructor(
+    function initialize(
         address[] memory allowedDiamonds,
         bytes4[]  memory allowedSelectors,
         uint256          _maxMinAmountPerTx,
         address          _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         maxMinAmountPerTx = _maxMinAmountPerTx;
         permissionSigner  = _permissionSigner;

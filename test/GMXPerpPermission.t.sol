@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {GMXPerpPermission} from "../contracts/templates/GMXPerpPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local struct mirrors (used only for abi.encode in helpers)
@@ -68,7 +69,8 @@ contract GMXPerpPermissionTest is Test {
         collaterals[0] = COLLATERAL_USDC;
         collaterals[1] = COLLATERAL_WETH;
 
-        perm = new GMXPerpPermission(
+        perm = GMXPerpPermission(Clones.clone(address(new GMXPerpPermission())));
+        perm.initialize(
             EXCHANGE_ROUTER,
             markets,
             collaterals,
@@ -164,14 +166,16 @@ contract GMXPerpPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroRouter() public {
         address[] memory e = new address[](0);
+        GMXPerpPermission _tmp = GMXPerpPermission(Clones.clone(address(new GMXPerpPermission())));
         vm.expectRevert(GMXPerpPermission.ZeroAddress.selector);
-        new GMXPerpPermission(address(0), e, e, true, true, MAX_SIZE, SIGNER);
+        _tmp.initialize(address(0), e, e, true, true, MAX_SIZE, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory e = new address[](0);
+        GMXPerpPermission _tmp = GMXPerpPermission(Clones.clone(address(new GMXPerpPermission())));
         vm.expectRevert(GMXPerpPermission.ZeroAddress.selector);
-        new GMXPerpPermission(EXCHANGE_ROUTER, e, e, true, true, MAX_SIZE, address(0));
+        _tmp.initialize(EXCHANGE_ROUTER, e, e, true, true, MAX_SIZE, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

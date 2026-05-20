@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable} from "./base/CloneInitializable.sol";
 
 /// @title  TransferTargetPermission
 /// @notice Gates ERC-20 token transfers and plain ETH sends to an operator-controlled
@@ -31,10 +32,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///         addresses after deployment. Operators should use a multisig or time-locked
 ///         address as `permissionSigner` in production.
 /// @custom:security-contact security@sail.money
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract TransferTargetPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract TransferTargetPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
@@ -101,21 +100,23 @@ contract TransferTargetPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with initial allowlists, a cap, and a signer.
+    constructor() { _disableInitializers(); }
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedRecipients  Addresses the manager may send tokens or ETH to.
     /// @param  allowedTokens      ERC-20 token addresses the manager may transfer.
     ///                            Not applied to plain ETH sends.
     /// @param  _maxAmountPerTx    Initial per-transaction amount cap (inclusive).
     /// @param  _permissionSigner  Address permitted to update the allowlist and cap.
-    constructor(
+    function initialize(
         address[] memory allowedRecipients,
         address[] memory allowedTokens,
         uint256 _maxAmountPerTx,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         maxAmountPerTx   = _maxAmountPerTx;
         permissionSigner = _permissionSigner;

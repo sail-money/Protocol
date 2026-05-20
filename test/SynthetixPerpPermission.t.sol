@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {SynthetixPerpPermission} from "../contracts/templates/SynthetixPerpPermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract SynthetixPerpPermissionTest is Test {
     SynthetixPerpPermission perm;
@@ -42,7 +43,8 @@ contract SynthetixPerpPermissionTest is Test {
         synths[0] = SYNTH_SUSD;
         synths[1] = SYNTH_ETH;
 
-        perm = new SynthetixPerpPermission(
+        perm = SynthetixPerpPermission(Clones.clone(address(new SynthetixPerpPermission())));
+        perm.initialize(
             PERPS_PROXY,
             markets,
             MAX_SIZE,
@@ -121,22 +123,25 @@ contract SynthetixPerpPermissionTest is Test {
     function test_Constructor_RevertsOnZeroProxy() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
+        SynthetixPerpPermission _tmp = SynthetixPerpPermission(Clones.clone(address(new SynthetixPerpPermission())));
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(address(0), markets, MAX_SIZE, true, true, synths, SIGNER, type(uint256).max);
+        _tmp.initialize(address(0), markets, MAX_SIZE, true, true, synths, SIGNER, type(uint256).max);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
+        SynthetixPerpPermission _tmp = SynthetixPerpPermission(Clones.clone(address(new SynthetixPerpPermission())));
         vm.expectRevert(SynthetixPerpPermission.ZeroAddress.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0), type(uint256).max);
+        _tmp.initialize(PERPS_PROXY, markets, MAX_SIZE, true, true, synths, address(0), type(uint256).max);
     }
 
     function test_Constructor_RevertsOnNegativeMaxSize() public {
         uint128[] memory markets = new uint128[](0);
         uint128[] memory synths  = new uint128[](0);
+        SynthetixPerpPermission _tmp = SynthetixPerpPermission(Clones.clone(address(new SynthetixPerpPermission())));
         vm.expectRevert(SynthetixPerpPermission.NegativeMaxSizeDelta.selector);
-        new SynthetixPerpPermission(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER, type(uint256).max);
+        _tmp.initialize(PERPS_PROXY, markets, int128(-1), true, true, synths, SIGNER, type(uint256).max);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

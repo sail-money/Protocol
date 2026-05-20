@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
+import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ReentrancyGuard}         from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
+import {CloneInitializable}      from "../templates/base/CloneInitializable.sol";
 
 interface ISailKernelFactory {
     function registerPermission(address account, address permission, bytes calldata sig)
@@ -38,7 +41,11 @@ interface ISailKernelFactory {
 ///         Anyone can deploy a template that implements IConfigurablePermission and have
 ///         it work with this factory immediately — no allowlist, no registry. Reputation
 ///         is an off-chain concern.
-contract PermissionFactory {
+///
+/// @dev    Force-sent ETH (via selfdestruct or coinbase) accrues to `address(this).balance`
+///         and is unrecoverable — no sweep function exists. This is an accepted residual
+///         given that `receive()` already blocks direct ETH deposits.
+contract PermissionFactory is ReentrancyGuard {
     ISailKernelFactory public immutable kernel;
 
     event Attached(address indexed account, address indexed template, bytes32 paramsHash);
@@ -47,10 +54,23 @@ contract PermissionFactory {
     event Replaced(address indexed account, address indexed oldTemplate, address indexed newTemplate);
     event Detached(address indexed account, address indexed template);
     event BatchDetached(address indexed account, address[] templates);
+    /// @notice Emitted when a clone template is deployed and registered in a single transaction.
+    /// @param account    The Safe account the clone is registered for.
+    /// @param impl       The logic contract that was cloned.
+    /// @param clone      The freshly deployed EIP-1167 proxy instance.
+    /// @param salt       The salt used for deterministic cloning.
+    event CloneDeployedAndAttached(
+        address indexed account,
+        address indexed impl,
+        address indexed clone,
+        bytes32 salt
+    );
 
     error LengthMismatch();
     error RefundFailed();
     error ZeroAddress();
+    error InitDataTooShort();
+    error CloneInitFailed();
 
     constructor(address _kernel) {
         if (_kernel == address(0)) revert ZeroAddress();
@@ -75,7 +95,7 @@ contract PermissionFactory {
         uint256 configureDeadline,
         bytes calldata configureSig,
         bytes calldata kernelSig
-    ) external payable {
+    ) external payable nonReentrant {
         uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(template).configure(account, params, configureDeadline, configureSig);
         kernel.registerPermission{value: msg.value}(account, template, kernelSig);
@@ -95,7 +115,7 @@ contract PermissionFactory {
         bytes[] calldata configureSigs,
         uint256 kernelDeadline,
         bytes calldata kernelBatchSig
-    ) external payable {
+    ) external payable nonReentrant {
         uint256 n = templates.length;
         if (n != params.length)             revert LengthMismatch();
         if (n != configureDeadlines.length) revert LengthMismatch();
@@ -150,7 +170,7 @@ contract PermissionFactory {
         uint256 configureDeadline,
         bytes calldata configureSig,
         bytes calldata kernelReplaceSig
-    ) external payable {
+    ) external payable nonReentrant {
         uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(newTemplate).configure(
             account, newParams, configureDeadline, configureSig
@@ -158,6 +178,69 @@ contract PermissionFactory {
         kernel.replacePermission{value: msg.value}(account, oldTemplate, newTemplate, kernelReplaceSig);
         _refundExcess(preBalance);
         emit Replaced(account, oldTemplate, newTemplate);
+    }
+
+    // -------------------------------------------------------------------------
+    // deployAndAttach: clone a standalone template, initialize, register — one tx
+    //
+    // For standalone (single-account) templates that use initialize() instead of
+    // configure(). The caller supplies:
+    //   - impl:      the logic contract address (from deployments/<chainId>/templates.standalone.json)
+    //   - salt:      caller-chosen entropy; the factory namespaces it internally as
+    //                keccak256(abi.encode(msg.sender, salt)) to prevent cross-caller
+    //                salt squatting. Use keccak256(abi.encode(account, impl, perAccountNonce))
+    //                as the raw salt to give each account its own address space.
+    //   - initData:  ABI-encoded initialize(...) call (selector + args)
+    //   - kernelSig: permission-signer signature for kernel.registerPermission
+    //
+    // The clone address is deterministic and can be predicted off-chain via
+    // predictCloneAddress(impl, salt) — call it from the same EOA that will send
+    // deployAndAttach, because the factory namespaces by msg.sender.
+    // -------------------------------------------------------------------------
+
+    /// @notice Deploy an EIP-1167 clone of `impl`, call `initData` on it, then
+    ///         register it with the kernel for `account` — all in one transaction.
+    /// @dev    Salt is namespaced by msg.sender to prevent squatting. Call
+    ///         `predictCloneAddress` from the same EOA before signing `kernelSig`.
+    ///         `initialized()` is a liveness guard only — third-party `impl` contracts
+    ///         that implement `initialized()` incorrectly can still pass this check
+    ///         while remaining misconfigured. Verify `initData` correctness off-chain.
+    function deployAndAttach(
+        address account,
+        address impl,
+        bytes32 salt,
+        bytes calldata initData,
+        bytes calldata kernelSig
+    ) external payable nonReentrant returns (address clone) {
+        if (impl == address(0)) revert ZeroAddress();
+        if (initData.length < 4) revert InitDataTooShort();
+
+        uint256 preBalance = address(this).balance - msg.value;
+
+        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, salt));
+        clone = Clones.cloneDeterministic(impl, namespacedSalt);
+
+        (bool ok, bytes memory retdata) = clone.call(initData);
+        if (!ok) _bubbleCloneInitRevert(retdata);
+
+        try CloneInitializable(clone).initialized() returns (bool isInitialized) {
+            if (!isInitialized) revert CloneInitFailed();
+        } catch {
+            revert CloneInitFailed();
+        }
+
+        kernel.registerPermission{value: msg.value}(account, clone, kernelSig);
+        _refundExcess(preBalance);
+
+        emit CloneDeployedAndAttached(account, impl, clone, namespacedSalt);
+    }
+
+    /// @notice Predict the address of a clone before it is deployed.
+    ///         Must be called from the same EOA that will call `deployAndAttach`,
+    ///         because the factory namespaces the salt by msg.sender.
+    function predictCloneAddress(address impl, bytes32 salt) external view returns (address) {
+        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, salt));
+        return Clones.predictDeterministicAddress(impl, namespacedSalt, address(this));
     }
 
     // -------------------------------------------------------------------------
@@ -188,5 +271,12 @@ contract PermissionFactory {
         if (excess == 0) return;
         (bool ok,) = msg.sender.call{value: excess}("");
         if (!ok) revert RefundFailed();
+    }
+
+    function _bubbleCloneInitRevert(bytes memory retdata) private pure {
+        if (retdata.length == 0) revert CloneInitFailed();
+        assembly {
+            revert(add(retdata, 0x20), mload(retdata))
+        }
     }
 }

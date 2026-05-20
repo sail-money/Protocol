@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}                    from "forge-std/Test.sol";
 import {BoundedDepositPermission} from "../contracts/templates/BoundedDepositPermission.sol";
 import {Context}                 from "../contracts/interfaces/IPermission.sol";
+import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BoundedDepositPermissionTest is Test {
     BoundedDepositPermission perm;
@@ -29,7 +30,8 @@ contract BoundedDepositPermissionTest is Test {
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
 
-        perm = new BoundedDepositPermission(targets, tokens, MAX_AMOUNT, SIGNER);
+        perm = BoundedDepositPermission(Clones.clone(address(new BoundedDepositPermission())));
+        perm.initialize(targets, tokens, MAX_AMOUNT, SIGNER);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -95,8 +97,9 @@ contract BoundedDepositPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty = new address[](0);
+        BoundedDepositPermission _tmp = BoundedDepositPermission(Clones.clone(address(new BoundedDepositPermission())));
         vm.expectRevert(BoundedDepositPermission.ZeroAddress.selector);
-        new BoundedDepositPermission(empty, empty, MAX_AMOUNT, address(0));
+        _tmp.initialize(empty, empty, MAX_AMOUNT, address(0));
     }
 
     // ── discriminator ─────────────────────────────────────────────────────────

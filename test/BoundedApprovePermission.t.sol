@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {BoundedApprovePermission} from "../contracts/templates/BoundedApprovePermission.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BoundedApprovePermissionTest is Test {
     BoundedApprovePermission internal perm;
@@ -27,7 +28,8 @@ contract BoundedApprovePermissionTest is Test {
         tokens[0] = USDC;  tokens[1] = WETH;
         address[] memory spenders = new address[](2);
         spenders[0] = UNI_ROUTER; spenders[1] = AAVE_POOL;
-        perm = new BoundedApprovePermission(tokens, spenders, CAP, PERM_SIGNER);
+        perm = BoundedApprovePermission(Clones.clone(address(new BoundedApprovePermission())));
+        perm.initialize(tokens, spenders, CAP, PERM_SIGNER);
     }
 
     // -------------------------------------------------------------------------
@@ -68,8 +70,9 @@ contract BoundedApprovePermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory empty;
+        BoundedApprovePermission _tmp = BoundedApprovePermission(Clones.clone(address(new BoundedApprovePermission())));
         vm.expectRevert(BoundedApprovePermission.ZeroAddress.selector);
-        new BoundedApprovePermission(empty, empty, 0, address(0));
+        _tmp.initialize(empty, empty, 0, address(0));
     }
 
     function test_Discriminator() public view {
@@ -100,9 +103,8 @@ contract BoundedApprovePermissionTest is Test {
         // Reset perm with infinite cap.
         address[] memory tokens   = new address[](1); tokens[0]   = USDC;
         address[] memory spenders = new address[](1); spenders[0] = UNI_ROUTER;
-        BoundedApprovePermission infinitePerm = new BoundedApprovePermission(
-            tokens, spenders, type(uint256).max, PERM_SIGNER
-        );
+        BoundedApprovePermission infinitePerm = BoundedApprovePermission(Clones.clone(address(new BoundedApprovePermission())));
+        infinitePerm.initialize(tokens, spenders, type(uint256).max, PERM_SIGNER);
         bytes memory data = _approve(UNI_ROUTER, type(uint256).max);
         assertTrue(infinitePerm.evaluate(data, _ctx(USDC, data)));
     }

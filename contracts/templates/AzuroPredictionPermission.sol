@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @notice Gates Azuro V3 Core `betFor` calls so the manager can only place
 ///         prediction-market bets on behalf of the Safe account, within an
@@ -10,10 +11,8 @@ import {IPermission, Context} from "../interfaces/IPermission.sol";
 ///
 ///         Supported selector:
 ///           betFor((address,(uint256,uint256,uint8,uint64[],uint128[],uint128,uint8)[],uint8,address,bytes,bytes,bytes)[])
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract AzuroPredictionPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract AzuroPredictionPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // betFor((address,(uint256,uint256,uint8,uint64[],uint128[],uint128,uint8)[],uint8,address,bytes,bytes,bytes)[])
@@ -50,12 +49,12 @@ contract AzuroPredictionPermission is IPermission {
 
     // ── state ─────────────────────────────────────────────────────────────────
 
-    address public immutable azuroCore;
+    address public azuroCore;
 
     /// @notice The Azuro LP pool this permission is bound to.
     ///         `evaluate` verifies that the first argument of `betFor` matches this address,
     ///         ensuring bets are only placed through the expected LP pool.
-    address public immutable azuroLP;
+    address public azuroLP;
 
     mapping(uint256 conditionId => bool) public isAllowedCondition;
 
@@ -80,16 +79,19 @@ contract AzuroPredictionPermission is IPermission {
         _;
     }
 
-    // ── constructor ───────────────────────────────────────────────────────────
+    // ── constructor / initialize ──────────────────────────────────────────────
 
-    constructor(
+    constructor() { _disableInitializers(); }
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    function initialize(
         address _azuroCore,
         address _azuroLP,
         uint256[] memory allowedConditionIds,
         uint128 _maxPayoutLimit,
         bool _allowComboBets,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_azuroCore       == address(0)) revert ZeroAddress();
         if (_azuroLP         == address(0)) revert ZeroAddress();
         if (_permissionSigner == address(0)) revert ZeroAddress();

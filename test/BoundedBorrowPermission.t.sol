@@ -6,6 +6,7 @@ import {BoundedBorrowPermission} from "../contracts/templates/BoundedBorrowPermi
 import {IOracle} from "../contracts/interfaces/IOracle.sol";
 import {Context} from "../contracts/interfaces/IPermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -75,7 +76,8 @@ contract BoundedBorrowPermissionTest is Test {
         address[] memory protocols = _arr3(AAVE, MORPHO, COMPOUND);
         address[] memory assets    = _arr3(USDC, WETH, COMPOUND);
 
-        perm = new BoundedBorrowPermission(
+        perm = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        perm.initialize(
             protocols, assets,
             MAX_AMOUNT, MAX_LTV,
             address(colOracle), address(borOracle),
@@ -158,25 +160,29 @@ contract BoundedBorrowPermissionTest is Test {
 
     function test_Constructor_RevertsZeroSigner() public {
         address[] memory e = new address[](0);
+        BoundedBorrowPermission _tmp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         vm.expectRevert(BoundedBorrowPermission.ZeroAddress.selector);
-        new BoundedBorrowPermission(e, e, 0, 0, address(0), address(0), address(0));
+        _tmp.initialize(e, e, 0, 0, address(0), address(0), address(0));
     }
 
     function test_Constructor_RevertsLtvAboveCap() public {
         address[] memory e = new address[](0);
+        BoundedBorrowPermission _tmp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         vm.expectRevert(abi.encodeWithSelector(BoundedBorrowPermission.LtvBpsTooLarge.selector, 10_001));
-        new BoundedBorrowPermission(e, e, 0, 10_001, address(0), address(0), SIGNER);
+        _tmp.initialize(e, e, 0, 10_001, address(0), address(0), SIGNER);
     }
 
     function test_Constructor_AtExactMaxLtv() public {
         address[] memory e = new address[](0);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(e, e, 0, 10_000, address(0), address(0), SIGNER);
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(e, e, 0, 10_000, address(0), address(0), SIGNER);
         assertEq(p.maxLtvBps(), 10_000);
     }
 
     function test_Constructor_NoOracles() public {
         address[] memory e = new address[](0);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(e, e, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER);
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(e, e, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER);
         assertEq(p.collateralOracle(), address(0));
         assertEq(p.borrowOracle(),     address(0));
     }
@@ -188,8 +194,9 @@ contract BoundedBorrowPermissionTest is Test {
         BorrowMockOracle borO = new BorrowMockOracle();
         colO.setPrice(address(0), address(0), 1, 0);
         borO.setPrice(address(0), address(0), 1, 8);
+        BoundedBorrowPermission _tmp = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
         vm.expectRevert(abi.encodeWithSelector(BoundedBorrowPermission.OracleDecimalMismatch.selector, uint8(0), uint8(8)));
-        new BoundedBorrowPermission(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
+        _tmp.initialize(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
     }
 
     function test_Constructor_OracleDecimalsMatchingPasses() public {
@@ -198,7 +205,8 @@ contract BoundedBorrowPermissionTest is Test {
         BorrowMockOracle borO = new BorrowMockOracle();
         colO.setPrice(address(0), address(0), 1, 8);
         borO.setPrice(address(0), address(0), 1, 8);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(e, e, MAX_AMOUNT, MAX_LTV, address(colO), address(borO), SIGNER);
         assertEq(p.collateralOracle(), address(colO));
     }
 
@@ -221,9 +229,8 @@ contract BoundedBorrowPermissionTest is Test {
         // Skip LTV by deploying no-oracle perm
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
         assertTrue(p.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
@@ -243,9 +250,8 @@ contract BoundedBorrowPermissionTest is Test {
     function test_Aave_NoOracles_GoldenPath() public {
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
         assertTrue(p.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
@@ -454,9 +460,8 @@ contract BoundedBorrowPermissionTest is Test {
         // Deploy without oracles; any valid borrow amount passes LTV
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(0), SIGNER);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
         assertTrue(p.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
@@ -465,9 +470,8 @@ contract BoundedBorrowPermissionTest is Test {
         // Only collateralOracle set; borrowOracle = address(0) → LTV check disabled
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(colOracle), address(0), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(colOracle), address(0), SIGNER);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
         assertTrue(p.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
@@ -475,9 +479,8 @@ contract BoundedBorrowPermissionTest is Test {
     function test_Oracle_OnlyBorrowSet_LtvCheckSkipped() public {
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(borOracle), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(0), address(borOracle), SIGNER);
         bytes memory data = _aave(USDC, MAX_AMOUNT, SAFE);
         assertTrue(p.evaluate(data, _ctx(AAVE, SEL_AAVE)));
     }
@@ -491,9 +494,8 @@ contract BoundedBorrowPermissionTest is Test {
 
         address[] memory protocols = _arr1(AAVE);
         address[] memory assets    = _arr1(USDC);
-        BoundedBorrowPermission p = new BoundedBorrowPermission(
-            protocols, assets, MAX_AMOUNT, MAX_LTV, address(col18), address(bor18), SIGNER
-        );
+        BoundedBorrowPermission p = BoundedBorrowPermission(Clones.clone(address(new BoundedBorrowPermission())));
+        p.initialize(protocols, assets, MAX_AMOUNT, MAX_LTV, address(col18), address(bor18), SIGNER);
 
         // ltvBps = amount * borPrice * 10_000 / colValue
         //        = amount * 1e18 * 10_000 / 100e18  (1e18 factors cancel → amount * 100)

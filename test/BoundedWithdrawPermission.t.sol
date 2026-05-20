@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}                     from "forge-std/Test.sol";
 import {BoundedWithdrawPermission} from "../contracts/templates/BoundedWithdrawPermission.sol";
 import {Context}                  from "../contracts/interfaces/IPermission.sol";
+import {Clones}                   from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BoundedWithdrawPermissionTest is Test {
     BoundedWithdrawPermission perm;
@@ -22,7 +23,8 @@ contract BoundedWithdrawPermissionTest is Test {
         address[] memory tokens = new address[](2);
         tokens[0] = TOKEN_A;
         tokens[1] = TOKEN_B;
-        perm = new BoundedWithdrawPermission(SAFE, tokens, MAX_AMOUNT, SIGNER);
+        perm = BoundedWithdrawPermission(Clones.clone(address(new BoundedWithdrawPermission())));
+        perm.initialize(SAFE, tokens, MAX_AMOUNT, SIGNER);
     }
 
     // ── calldata helpers ──────────────────────────────────────────────────────
@@ -84,14 +86,16 @@ contract BoundedWithdrawPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSafe() public {
         address[] memory tokens = new address[](0);
+        BoundedWithdrawPermission _tmp = BoundedWithdrawPermission(Clones.clone(address(new BoundedWithdrawPermission())));
         vm.expectRevert(BoundedWithdrawPermission.ZeroAddress.selector);
-        new BoundedWithdrawPermission(address(0), tokens, MAX_AMOUNT, SIGNER);
+        _tmp.initialize(address(0), tokens, MAX_AMOUNT, SIGNER);
     }
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory tokens = new address[](0);
+        BoundedWithdrawPermission _tmp = BoundedWithdrawPermission(Clones.clone(address(new BoundedWithdrawPermission())));
         vm.expectRevert(BoundedWithdrawPermission.ZeroAddress.selector);
-        new BoundedWithdrawPermission(SAFE, tokens, MAX_AMOUNT, address(0));
+        _tmp.initialize(SAFE, tokens, MAX_AMOUNT, address(0));
     }
 
     // ── discriminator ─────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import {BoundedSwapPermission} from "../contracts/templates/BoundedSwapPermissio
 import {IOracle}               from "../contracts/interfaces/IOracle.sol";
 import {Context}               from "../contracts/interfaces/IPermission.sol";
 import {Math}                  from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Clones}                from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock oracle
@@ -59,7 +60,8 @@ contract BoundedSwapPermissionTest is Test {
         oracle = new MockOracle();
         oracle.setPrice(TOKEN_IN, TOKEN_OUT, ORACLE_PRICE, ORACLE_DECIMALS);
 
-        perm = new BoundedSwapPermission(
+        perm = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        perm.initialize(
             _arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT),
             MAX_AMOUNT, SLIPPAGE_BPS, address(oracle), SIGNER
         );
@@ -152,20 +154,23 @@ contract BoundedSwapPermissionTest is Test {
 
     function test_Constructor_RevertsOnZeroSigner() public {
         address[] memory e = new address[](0);
+        BoundedSwapPermission _tmp = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
         vm.expectRevert(BoundedSwapPermission.ZeroAddress.selector);
-        new BoundedSwapPermission(e, e, e, 0, 0, address(0), address(0));
+        _tmp.initialize(e, e, e, 0, 0, address(0), address(0));
     }
 
     function test_Constructor_RevertsOnExcessiveSlippage() public {
         address[] memory e = new address[](0);
+        BoundedSwapPermission _tmp = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
         vm.expectRevert(abi.encodeWithSelector(BoundedSwapPermission.SlippageBpsTooLarge.selector, 10_001));
-        new BoundedSwapPermission(e, e, e, 0, 10_001, address(0), SIGNER);
+        _tmp.initialize(e, e, e, 0, 10_001, address(0), SIGNER);
     }
 
     function test_Constructor_RevertsOn10000Slippage() public {
         address[] memory e = new address[](0);
+        BoundedSwapPermission _tmp = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
         vm.expectRevert(abi.encodeWithSelector(BoundedSwapPermission.SlippageBpsTooLarge.selector, 10_000));
-        new BoundedSwapPermission(e, e, e, 0, 10_000, address(0), SIGNER);
+        _tmp.initialize(e, e, e, 0, 10_000, address(0), SIGNER);
     }
 
     function test_Discriminator() public view {
@@ -177,9 +182,8 @@ contract BoundedSwapPermissionTest is Test {
     // ═════════════════════════════════════════════════════════════════════════
 
     function test_V3_GoldenPath_NoOracle() public {
-        BoundedSwapPermission p = new BoundedSwapPermission(
-            _arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(0), SIGNER
-        );
+        BoundedSwapPermission p = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        p.initialize(_arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(0), SIGNER);
         bytes memory data = _v3(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, 1);
         assertTrue(p.evaluate(data, _ctx(ROUTER, data)));
     }
@@ -270,17 +274,15 @@ contract BoundedSwapPermissionTest is Test {
     // ═════════════════════════════════════════════════════════════════════════
 
     function test_V3_OracleDisabled_NoAddress() public {
-        BoundedSwapPermission p = new BoundedSwapPermission(
-            _arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, SLIPPAGE_BPS, address(0), SIGNER
-        );
+        BoundedSwapPermission p = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        p.initialize(_arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, SLIPPAGE_BPS, address(0), SIGNER);
         bytes memory data = _v3(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, 1);
         assertTrue(p.evaluate(data, _ctx(ROUTER, data)));
     }
 
     function test_V3_OracleDisabled_ZeroSlippageBps() public {
-        BoundedSwapPermission p = new BoundedSwapPermission(
-            _arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(oracle), SIGNER
-        );
+        BoundedSwapPermission p = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        p.initialize(_arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(oracle), SIGNER);
         bytes memory data = _v3(TOKEN_IN, TOKEN_OUT, SAFE, AMOUNT_IN, 1);
         assertTrue(p.evaluate(data, _ctx(ROUTER, data)));
     }
@@ -315,9 +317,8 @@ contract BoundedSwapPermissionTest is Test {
     // ═════════════════════════════════════════════════════════════════════════
 
     function test_V2_GoldenPath_NoOracle() public {
-        BoundedSwapPermission p = new BoundedSwapPermission(
-            _arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(0), SIGNER
-        );
+        BoundedSwapPermission p = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
+        p.initialize(_arr1(ROUTER), _arr1(TOKEN_IN), _arr1(TOKEN_OUT), MAX_AMOUNT, 0, address(0), SIGNER);
         bytes memory data = _v2(AMOUNT_IN, 1, _path2(TOKEN_IN, TOKEN_OUT), SAFE);
         assertTrue(p.evaluate(data, _ctx(ROUTER, data)));
     }

@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {IPermission, Context} from "../interfaces/IPermission.sol";
 import {IOracle}              from "../interfaces/IOracle.sol";
 import {Math}                 from "@openzeppelin/contracts/utils/math/Math.sol";
+import {CloneInitializable}   from "./base/CloneInitializable.sol";
 
 /// @title  BoundedBorrowPermission
 /// @notice Gates ERC-20 borrows from lending protocols.
@@ -31,10 +32,8 @@ import {Math}                 from "@openzeppelin/contracts/utils/math/Math.sol"
 ///         Oracle decimal values above 77 are not supported — 10^78 overflows uint256.
 ///         The LTV check skips such oracles (treats them as unset).
 /// @custom:security-contact security@sail.money
-/// @dev SINGLE-ACCOUNT TEMPLATE: This template instance should serve a single account.
-///      Deploy a separate instance per account. Using one instance for multiple accounts
-///      allows any account's permissionSigner to control all accounts sharing the template.
-contract BoundedBorrowPermission is IPermission {
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+contract BoundedBorrowPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
     // -------------------------------------------------------------------------
@@ -142,10 +141,12 @@ contract BoundedBorrowPermission is IPermission {
     }
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor / Initialize
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy with a set of allowed protocols, assets, caps, optional oracles, and a signer.
+    constructor() { _disableInitializers(); }
+
+    /// @notice Called once by PermissionFactory after cloning the logic contract.
     /// @param  allowedProtocols   Lending protocol addresses to pre-populate the allowlist.
     /// @param  allowedAssets      ERC-20 / cToken addresses to pre-populate the asset allowlist.
     /// @param  _maxAmountPerTx    Initial per-transaction borrow amount cap (inclusive).
@@ -154,7 +155,12 @@ contract BoundedBorrowPermission is IPermission {
     /// @param  _collateralOracle  Oracle for the Safe's collateral value. address(0) skips LTV.
     /// @param  _borrowOracle      Oracle for borrow asset price. address(0) skips LTV.
     /// @param  _permissionSigner  Address permitted to update mutable parameters.
-    constructor(
+    /// @dev    Oracle decimal alignment is verified at initialization only if both oracles
+    ///         successfully respond to a zero-address probe. If either oracle reverts on
+    ///         zero-address input (e.g., it requires a real asset), the decimal check is
+    ///         silently skipped — callers must ensure both oracles use the same denomination
+    ///         and decimal precision, or the runtime LTV calculation will be silently wrong.
+    function initialize(
         address[] memory allowedProtocols,
         address[] memory allowedAssets,
         uint256 _maxAmountPerTx,
@@ -162,7 +168,7 @@ contract BoundedBorrowPermission is IPermission {
         address _collateralOracle,
         address _borrowOracle,
         address _permissionSigner
-    ) {
+    ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         if (_maxLtvBps > 10_000) revert LtvBpsTooLarge(_maxLtvBps);
 
