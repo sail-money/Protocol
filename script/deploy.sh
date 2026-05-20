@@ -159,7 +159,13 @@ echo "+ chain=$CHAIN ($CHAIN_ID) targets=$TARGETS fresh=$FRESH dry_run=$DRY_RUN"
 
 for t in "${TARGET_LIST[@]}"; do
   SCRIPT_SPEC="$(script_for_target "$t")"
-  ARGS=(forge script "$SCRIPT_SPEC" --rpc-url "$CHAIN" --slow)
+  # --sender forces forge to read the broadcaster's live nonce from the RPC at
+  # simulation start. Without it, foundry starts the simulated broadcaster at
+  # nonce 0; when the deployer already has on-chain history (e.g. the second
+  # target in a multi-target deploy, or any redeploy), the broadcast then fails
+  # with "EOA nonce changed unexpectedly. Expected 0 got N from provider."
+  # See reports/sail-protocol-base-mainnet-permission-e2e-2026-05-20.md §11.
+  ARGS=(forge script "$SCRIPT_SPEC" --rpc-url "$CHAIN" --sender "$DEPLOYER_ADDRESS" --slow)
   if [[ $DRY_RUN -eq 0 ]]; then
     ARGS+=(--broadcast)
     if [[ $NO_VERIFY -eq 0 ]]; then
