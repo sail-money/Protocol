@@ -11,7 +11,7 @@ import {CloneInitializable}   from "./base/CloneInitializable.sol";
 ///
 ///         Supported selector:
 ///           betFor((address,(uint256,uint256,uint8,uint64[],uint128[],uint128,uint8)[],uint8,address,bytes,bytes,bytes)[])
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract AzuroPredictionPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -83,7 +83,7 @@ contract AzuroPredictionPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     function initialize(
         address _azuroCore,
         address _azuroLP,

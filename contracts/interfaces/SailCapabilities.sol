@@ -34,7 +34,7 @@ library SailCapabilities {
         keccak256("sail.capability.transfer-target.v1");
 
     /// @notice Capability declared by SharedDeFiBundlePermission.
-    ///         Composite template combining swap, borrow, and transfer into one permission.
+    ///         Gates swap, borrow, and transfer operations through a single composite permission.
     bytes32 internal constant DEFI_BUNDLE =
         keccak256("sail.capability.defi-bundle.v1");
 

@@ -6,7 +6,7 @@ pragma solidity 0.8.26;
 //
 // Covers new attack surface introduced by the 13 post-v1 security fixes:
 //   • collectFees: recipient now pulled from IFeePolicy.feeRecipient()
-//   • PermissionFactory.receive() reverts unless msg.sender == kernel
+//   • MandateFactory.receive() reverts unless msg.sender == kernel
 //   • TransferTargetPermission: ETH path requires txData.length == 0 (not < 4)
 //   • SharedDeFiBundlePermission._ltvCheck: colValue now normalised by colDec
 //   • MAX_ALLOWLIST_LENGTH = 50 (OOG / duplicate checks)
@@ -26,7 +26,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {SailKernel}                  from "../../contracts/core/SailKernel.sol";
 import {SailGovernance}              from "../../contracts/governance/SailGovernance.sol";
-import {PermissionFactory}           from "../../contracts/factory/PermissionFactory.sol";
+import {MandateFactory}           from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}           from "../../contracts/policies/StandardFeePolicy.sol";
 import {TransferTargetPermission}    from "../../contracts/templates/TransferTargetPermission.sol";
 import {BoundedBorrowPermission}     from "../../contracts/templates/BoundedBorrowPermission.sol";
@@ -117,7 +117,7 @@ abstract contract RedTeamBase2 is Test {
 
     SailGovernance    internal gov;
     SailKernel        internal kernel;
-    PermissionFactory internal factory;
+    MandateFactory internal factory;
     MockSafe2         internal safe;
     AlwaysTruePerm2   internal alwaysTrue;
 
@@ -136,7 +136,7 @@ abstract contract RedTeamBase2 is Test {
         vm.stopPrank();
 
         kernel  = new SailKernel(address(gov), TREASURY);
-        factory = new PermissionFactory(address(kernel));
+        factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe2();
         safe.enableModule(address(kernel));
@@ -359,7 +359,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
 }
 
 // =============================================================================
-// SECTION 12 — PermissionFactory.receive() restricted
+// SECTION 12 — MandateFactory.receive() restricted
 // =============================================================================
 contract FactoryReceiveFixTests is RedTeamBase2 {
 

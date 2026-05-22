@@ -5,7 +5,7 @@ import "./support/FactoryTestBase.sol";
 import "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
 import "../contracts/templates/shared/SharedTransferTargetPermission.sol";
 
-contract PermissionFactoryTest is FactoryTestBase {
+contract MandateFactoryTest is FactoryTestBase {
     SharedBoundedSwapPermission         internal swap;
     SharedTransferTargetPermission       internal transfer;
 
@@ -193,7 +193,7 @@ contract PermissionFactoryTest is FactoryTestBase {
         uint256[] memory deadlines = new uint256[](2);
         bytes[] memory cfgSigs     = new bytes[](2);
 
-        vm.expectRevert(PermissionFactory.LengthMismatch.selector);
+        vm.expectRevert(MandateFactory.LengthMismatch.selector);
         factory.attachBatch{value: 0}(
             address(safe), templates, params, deadlines, cfgSigs, 0, ""
         );

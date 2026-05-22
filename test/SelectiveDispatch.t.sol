@@ -284,7 +284,7 @@ contract SelectiveDispatchTest is Test {
     }
 
     // =========================================================================
-    // SECTION 1: MULTI-TEMPLATE COEXISTENCE
+    // SECTION 1: MULTI-PERMISSION COEXISTENCE
     // =========================================================================
 
     /// @dev Test 1: Register swap, borrow, and transfer permissions on one account.

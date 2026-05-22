@@ -2,9 +2,9 @@
 
 ## What Sail Is
 
-Sail is a minimal account-abstraction primitive for on-chain Separately Managed Accounts (SMAs). It gives a fund manager a signed mandate to execute transactions through a client's [Safe](https://safe.global/) multisig, subject to a set of on-chain constraints called permissions.
+Sail is a minimal account-abstraction primitive for on-chain Separately Managed Accounts (SMAs). It gives a designated Manager permission to execute transactions through a client's [Safe](https://safe.global/) multisig, within bounds defined by a mandate — a set of on-chain permission contracts authorized by the account's Permission Signer.
 
-The key insight is that custody never leaves the Safe. The manager does not hold the assets; they hold a cryptographic mandate that the kernel verifies at execution time. Every transaction the manager submits names one registered permission as the authorizer; the kernel evaluates that permission before the Safe executes the call. If the named permission denies the call, nothing happens.
+The key insight is that custody never leaves the Safe. The manager does not hold the assets; they hold a cryptographic authorization (a signed dispatch) that the kernel verifies at execution time against the account's registered permissions. Every transaction the manager submits names one registered permission as the authorizer; the kernel evaluates that permission before the Safe executes the call. If the named permission denies the call, nothing happens.
 
 ---
 
@@ -27,7 +27,7 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 | **PermissionSigner** | `AccountConfig.permissionSigner` | Permission-registry operations (register, revoke, replace, session, fee policy) | What the manager is allowed to do |
 | **Manager** | `AccountConfig.manager` | Dispatch calls | Executes transactions within the permitted envelope |
 
-**Retail setup:** all three roles collapse to the same person or multisig. The owner deploys a Safe, registers it with the kernel, and signs both the mandate and the transactions themselves.
+**Retail setup:** all three roles collapse to the same person or multisig. The owner deploys a Safe, registers it with the kernel, and — acting as Permission Signer — authorizes which permissions apply to the account, then also signs and submits dispatch transactions as Manager.
 
 **Institutional setup:** roles separate. A fund management firm holds the Manager key; an independent compliance officer or the client holds the PermissionSigner key and controls what the manager can trade. The Safe signers (Owner) retain custody and can always revoke the module.
 

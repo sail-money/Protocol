@@ -20,7 +20,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
 import {SailGovernance}          from "../../contracts/governance/SailGovernance.sol";
-import {PermissionFactory}       from "../../contracts/factory/PermissionFactory.sol";
+import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}       from "../../contracts/policies/StandardFeePolicy.sol";
 import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
 import {BoundedBorrowPermission} from "../../contracts/templates/BoundedBorrowPermission.sol";
@@ -167,7 +167,7 @@ abstract contract RedTeamBase is Test {
 
     SailGovernance    internal gov;
     SailKernel        internal kernel;
-    PermissionFactory internal factory;
+    MandateFactory internal factory;
     MockSafe          internal safe;
     AlwaysTruePermission internal alwaysTrue;
 
@@ -187,7 +187,7 @@ abstract contract RedTeamBase is Test {
         vm.stopPrank();
 
         kernel  = new SailKernel(address(gov), TREASURY);
-        factory = new PermissionFactory(address(kernel));
+        factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();
         safe.enableModule(address(kernel));
@@ -1440,11 +1440,11 @@ contract GasHogPermissionTest is IPermission {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// SECTION 9: PermissionFactory refund reentrancy
+// SECTION 9: MandateFactory refund reentrancy
 // ═════════════════════════════════════════════════════════════════════════════
 contract FactoryAttackTests is RedTeamBase {
     // ── 9a. _refundExcess: verify exact refund on overpay ──
-    //   PermissionFactory._refundExcess does a raw call to msg.sender.
+    //   MandateFactory._refundExcess does a raw call to msg.sender.
     //   We verify overpayment is returned exactly once (no double-refund possible
     //   because the kernel consumes msg.value, leaving no excess for reentrancy).
 

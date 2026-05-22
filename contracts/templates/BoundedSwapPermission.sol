@@ -26,7 +26,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///         `isAllowedTokenIn`/`isAllowedTokenOut` — only path[0] and path[last] are
 ///         checked. Operators must ensure the full path is acceptable.
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedSwapPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -140,7 +140,7 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedRouters     DEX router addresses to pre-populate the router allowlist.
     /// @param  allowedTokensIn    Input token addresses to pre-populate `isAllowedTokenIn`.
     /// @param  allowedTokensOut   Output token addresses to pre-populate `isAllowedTokenOut`.

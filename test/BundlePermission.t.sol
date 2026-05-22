@@ -7,7 +7,7 @@ import "../contracts/interfaces/IOracle.sol";
 
 /// @notice Demonstrates the composite template pattern: ONE permission registered on
 ///         a Safe, capable of authorising swaps + borrows + transfers, all routed by
-///         selector inside the single template. No multi-template AND-semantics issue.
+///         selector inside the single template. No multi-permission AND-semantics issue.
 contract BundlePermissionTest is FactoryTestBase {
     SharedDeFiBundlePermission internal bundle;
 

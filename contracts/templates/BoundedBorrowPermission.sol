@@ -32,7 +32,7 @@ import {CloneInitializable}   from "./base/CloneInitializable.sol";
 ///         Oracle decimal values above 77 are not supported — 10^78 overflows uint256.
 ///         The LTV check skips such oracles (treats them as unset).
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedBorrowPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -146,7 +146,7 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedProtocols   Lending protocol addresses to pre-populate the allowlist.
     /// @param  allowedAssets      ERC-20 / cToken addresses to pre-populate the asset allowlist.
     /// @param  _maxAmountPerTx    Initial per-transaction borrow amount cap (inclusive).

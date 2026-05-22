@@ -820,7 +820,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // SELECTIVE authorization semantics: the manager signature names one
     // registered permission, and only that permission evaluates the call.
     // Changed from the prior conjunctive (AND) model where all registered
-    // permissions had to approve. The new model enables multi-template SMAs
+    // permissions had to approve. The new model enables multi-permission SMAs
     // where unrelated permissions (e.g., Uniswap, Aave, Transfer) coexist
     // on one account without falsely denying each other's calls. Layered
     // defense via permission composition is not supported here — a separate

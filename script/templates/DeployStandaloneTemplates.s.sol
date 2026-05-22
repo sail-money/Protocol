@@ -22,7 +22,7 @@ import {TransferTargetPermission}        from "../../contracts/templates/Transfe
 ///         Each contract here is a logic / implementation contract for an EIP-1167
 ///         minimal proxy. The logic contracts themselves carry NO per-user state —
 ///         their constructors call `_disableInitializers()`, permanently locking them.
-///         Per-account clones are created at runtime via `PermissionFactory.deployAndAttach`.
+///         Per-account clones are created at runtime via `MandateFactory.deployAndAttach`.
 ///
 ///         Because there are no constructor arguments to record, verification is
 ///         trivial: no --constructor-args needed.

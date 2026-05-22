@@ -11,7 +11,7 @@ import {CloneInitializable}   from "./base/CloneInitializable.sol";
 ///
 ///         Supported selector:
 ///           0x0b686a6a  createOrder  (GMX V2 ExchangeRouter)
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract GMXPerpPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -100,7 +100,7 @@ contract GMXPerpPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     function initialize(
         address _exchangeRouter,
         address[] memory allowedMarkets,

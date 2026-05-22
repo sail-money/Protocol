@@ -9,7 +9,7 @@
 #   plasma  | hyperliquid | unichain
 #
 # Targets (comma-separated; default: core,templates-shared,templates-standalone):
-#   core                  — SailKernel, Governance, PermissionFactory, StandardFeePolicy, SafeModuleEnabler
+#   core                  — SailKernel, Governance, MandateFactory, StandardFeePolicy, SafeModuleEnabler
 #   templates-shared      — 7 Shared* permission singletons bound to the kernel
 #   templates-standalone  — 12 standalone permission logic contracts (EIP-1167 clone implementations)
 #

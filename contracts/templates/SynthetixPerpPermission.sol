@@ -11,7 +11,7 @@ import {CloneInitializable}   from "./base/CloneInitializable.sol";
 ///         Supported selectors:
 ///           commitOrder(uint128,uint128,int128,uint128,uint256,bytes32,address)
 ///           modifyCollateral(uint128,uint128,int256)
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract SynthetixPerpPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -68,7 +68,7 @@ contract SynthetixPerpPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     function initialize(
         address _perpsMarketProxy,
         uint128[] memory allowedMarketIds,

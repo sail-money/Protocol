@@ -32,7 +32,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///         addresses after deployment. Operators should use a multisig or time-locked
 ///         address as `permissionSigner` in production.
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract TransferTargetPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -105,7 +105,7 @@ contract TransferTargetPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedRecipients  Addresses the manager may send tokens or ETH to.
     /// @param  allowedTokens      ERC-20 token addresses the manager may transfer.
     ///                            Not applied to plain ETH sends.

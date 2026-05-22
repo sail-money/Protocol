@@ -46,6 +46,13 @@ Three roles are separated explicitly:
 | **Permission Signer** | Authorizes the mandate — decides which permissions apply to the account. Signs registration, revocation, and configuration via EIP-712. | Same as Owner, or a separate signing key/multisig |
 | **Manager** | Executes within bounds. Cannot exceed what the registered permissions allow. | EOA, multisig, MPC wallet, or autonomous agent |
 
+The structure these roles operate on:
+
+- **SMA** — the account. A Safe holds the custody.
+- **Mandate** — the set of Permissions registered for an SMA. Defines what the Manager is authorized to do.
+- **Permission** — an individual rule. A deployed Solidity contract implementing `IPermission`.
+- **Template** — an example or reusable pattern for building a Permission. Sail ships a starter set; anyone may deploy more.
+
 Governance is a contract initially held by the team multisig, transferable to a DAO, token, or other mechanism over time. Constitutional caps (the 25% protocol cut, the registration fee ceiling) are immutable in source code and cannot be raised by any governance procedure.
 
 ---
@@ -100,7 +107,7 @@ Governance is a contract initially held by the team multisig, transferable to a 
 | `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. | 262 |
 | `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. | 197 |
 | `SharedApproveAndCallBatchPermission` | Batch dispatch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. | 133 |
-| `PermissionFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
+| `MandateFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
 | **Total** | | **1,600** |
 
 ---
@@ -317,7 +324,7 @@ contracts/
 ├── governance/
 │   └── SailGovernance.sol                     # trusted core — 146 SLOC
 ├── factory/
-│   └── PermissionFactory.sol                  # UX orchestrator — 137 SLOC
+│   └── MandateFactory.sol                  # UX orchestrator — 137 SLOC
 ├── interfaces/                                # trusted core — 113 SLOC total
 │   ├── IPermission.sol
 │   ├── IConfigurablePermission.sol
@@ -366,7 +373,7 @@ test/
 ├── BatchPermissions.t.sol
 ├── PermissionIntrospection.t.sol
 ├── AgentIdentity.t.sol
-├── PermissionFactory.t.sol
+├── MandateFactory.t.sol
 ├── StandardFeePolicy.t.sol
 ├── [shared template test files]
 ├── [legacy template test files]
@@ -428,10 +435,10 @@ Each template is independently auditable. A bug in one template affects only acc
 | `SharedPendlePermission` | 262 |
 | `SharedAMMLiquidityPermission` | 197 |
 | `SharedApproveAndCallBatchPermission` | 133 |
-| `PermissionFactory` | 137 |
+| `MandateFactory` | 137 |
 | **Total** | **~1,600** |
 
-`PermissionFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
+`MandateFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
 
 `contracts/safe/SafeModuleEnabler.sol` is a stateless one-shot bootstrap helper (9 SLOC) invoked once during Safe creation via `delegatecall` from `Safe.setup()`. It holds no state, no privileges, and has no runtime role after account creation. Direct calls revert by construction. It is explicitly out of v1 audit scope.
 

@@ -282,9 +282,9 @@ Manager & Executes transactions within bounds. Cannot exceed what the registered
 
 The role of \emph{transaction submitter} --- the address that pays gas and submits the manager's signed dispatch --- is intentionally not an authority role. Any address may submit a transaction; authority derives from the Manager's signature, the registered permissions, and the kernel's evaluation of those permissions. This makes the protocol natively compatible with relayers, paymasters, and ERC-4337 bundlers.
 
-\subsection{The Mandate Object}
+\subsection{The Mandate}
 
-In Sail, the mandate is not a document. It is the union of two onchain objects: a Safe held by the Owner, which holds the SMA's assets, and a list of registered permissions --- contracts implementing \code{IPermission} --- against that Safe.
+In Sail, the mandate is not a document. It is the set of permissions registered for an SMA --- contracts implementing \code{IPermission} that define what the Manager is authorized to do. The Safe is the account the mandate applies to; it is not itself part of the mandate.
 
 When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls \code{evaluate()} on that permission alone and dispatches the call to the Safe only if it returns \code{true}. Other registered permissions are not consulted during the dispatch.
 
@@ -308,7 +308,7 @@ The protocol comprises five components in the trusted core, plus a default fee p
 \multicolumn{2}{l}{\textit{Trusted core}}\\
 \code{SailKernel} & Account registration, permission registry, signature verification, manager dispatch via Safe modules, fee collection, principal tracking.\\
 \code{SailGovernance} & Protocol parameter governance with a timelock, two-step transfer, emergency pause with auto-expiry, and trusted Safe factory and singleton allowlists.\\
-\code{PermissionFactory} & Untrusted UX orchestrator. Bundles permission configuration and registration into single transactions. Holds no protocol-level privileges.\\
+\code{MandateFactory} & Untrusted UX orchestrator. Bundles permission configuration and registration into single transactions. Holds no protocol-level privileges.\\
 \code{BaseSharedPermission} & Abstract base for shared multi-tenant permission templates. EIP-712 domain, per-account nonces, ECDSA and ERC-1271 signature verification.\\
 Interfaces & \code{IPermission}, \code{IConfigurablePermission}, \code{IFeePolicy}, \code{IOracle}, \code{IBatchPermission}, \code{IPermissionIntrospection}, \code{IAgentIdentityResolver}.\\
 \midrule
@@ -521,7 +521,7 @@ A permission's lifecycle is governed by four operations, all authorized by the P
 
 \textbf{Registration.} The Permission Signer signs a registration message containing the permission contract address. The kernel adds it to the account's permission list and charges the registration fee (Section~\ref{sec:fees}).
 
-\textbf{Configuration.} For shared templates, the Permission Signer signs a configure instruction containing the template-specific params blob. Any caller may submit the signed call; the canonical orchestrator is the \code{PermissionFactory}, but it holds no special privilege.
+\textbf{Configuration.} For shared templates, the Permission Signer signs a configure instruction containing the template-specific params blob. Any caller may submit the signed call; the canonical orchestrator is the \code{MandateFactory}, but it holds no special privilege.
 
 \textbf{Reconfiguration.} A subsequent \code{configure} call with a fresh nonce clears previous per-account state and applies the new params atomically.
 
@@ -735,12 +735,14 @@ The agent economy is the medium. The onchain SMA is the structure. Personalized 
 \textbf{Term} & \textbf{Meaning}\\
 \midrule
 Onchain SMA & A self-custodial managed account whose mandate is enforced by smart contract code on every transaction.\\
+Mandate & The set of permissions registered for an SMA. Defines what the Manager is authorized to do. Enforced on every dispatch by the kernel's evaluation of the named permission.\\
 Owner & The party who holds the Safe and owns the SMA's assets.\\
 Permission Signer & The signer authorized to register, configure, and revoke permissions on the account. May be the same party as the Owner.\\
 Manager & The party authorized to execute transactions on behalf of the account, within the bounds of the registered permissions. Typically an autonomous agent.\\
-Permission & A Solidity contract implementing \code{IPermission}. The kernel evaluates the permission named by the manager's signature for each dispatch.\\
+Permission & A Solidity contract implementing \code{IPermission}. An individual rule within an account's mandate. The kernel evaluates the permission named by the manager's signature for each dispatch.\\
+Template & An example or reusable pattern for building a Permission. Sail ships a starter set of templates demonstrating the pattern across common DeFi primitives; anyone may deploy additional templates.\\
 Batch permission & A Solidity contract implementing \code{IBatchPermission}. Validates an entire ordered call sequence before the kernel executes it atomically via \code{dispatchBatch()}.\\
-Shared template & A permission contract that serves multiple accounts via per-account configuration storage; the recommended deployment pattern.\\
+Shared template & A Template implemented as a single permission contract that serves multiple accounts via per-account configuration storage; the recommended deployment pattern.\\
 Fee 1 & Permission registration fee. Flat ETH per registered permission, paid to the protocol treasury.\\
 Fee 2 & Protocol cut on manager-collected fees. Capped by the constitution. Set to zero at protocol launch.\\
 Constitutional cap & A bound encoded in immutable source. No governance procedure can raise it.\\

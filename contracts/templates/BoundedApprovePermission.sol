@@ -31,7 +31,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///         is later found to be misbehaving: operators can rotate the allowlist
 ///         and revoke prior approvals by registering a follow-up approve(spender, 0).
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedApprovePermission is IPermission, CloneInitializable {
     // -------------------------------------------------------------------------
     // Clone identity
@@ -110,7 +110,7 @@ contract BoundedApprovePermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedTokens     ERC-20 tokens that may be approved through this permission.
     /// @param  allowedSpenders   Contract addresses that may receive allowance from the Safe.
     /// @param  _maxAmountPerTx   Initial per-transaction amount cap (use type(uint256).max for unlimited).
