@@ -2,6 +2,8 @@
 
 The Sail protocol ships five audited permission templates. Each implements `IPermission` and may be registered on any account via the kernel's permission registry.
 
+Each contract listed here is both a deployed Permission — eligible for kernel registration — and a Template: a reusable pattern that demonstrates the permission interface across a specific DeFi primitive. The distinction is contextual: when the contract is registered against an SMA it is acting as that SMA's Permission; when it is referenced as a reusable shape for other deployments it is acting as a Template.
+
 All templates share the same operational pattern:
 - `evaluate(bytes calldata txData, Context calldata ctx)` is called via `staticcall` — no state changes are possible.
 - Return `false` (or revert) to deny the transaction. Return `true` to approve it.
