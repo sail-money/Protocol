@@ -16,7 +16,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///         preventing a manager from pulling tokens from arbitrary addresses that may have
 ///         previously approved the Safe.
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedWithdrawPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -85,7 +85,7 @@ contract BoundedWithdrawPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  safe               The Safe address that must receive all tokens.
     ///                            Set once at initialization; not changeable afterward.
     /// @param  allowedTokens      ERC-20 addresses to pre-populate the token allowlist.

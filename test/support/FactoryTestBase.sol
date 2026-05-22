@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
-import "../../contracts/factory/PermissionFactory.sol";
+import "../../contracts/factory/MandateFactory.sol";
 import "../../contracts/templates/shared/BaseSharedPermission.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
@@ -60,7 +60,7 @@ abstract contract FactoryTestBase is Test {
 
     SailGovernance    internal gov;
     SailKernel        internal kernel;
-    PermissionFactory internal factory;
+    MandateFactory internal factory;
     MockSafe          internal safe;
 
     address internal permSigner;
@@ -79,7 +79,7 @@ abstract contract FactoryTestBase is Test {
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
 
         kernel  = new SailKernel(address(gov), TREASURY);
-        factory = new PermissionFactory(address(kernel));
+        factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();
         vm.deal(address(safe), 100 ether);

@@ -149,7 +149,7 @@ verify_core() {
   echo "=== verifying core (chain $CHAIN_ID) ==="
 
   local governance initialGovernance treasury emergencyAdmin feeManager distributor kernel
-  local safeModuleEnabler permissionFactory standardFeePolicy timelock
+  local safeModuleEnabler mandateFactory standardFeePolicy timelock
   local maxPermissionFeeWei initialPermissionRegistrationFee
   local managementFeeBps performanceFeeBps distributorBps
 
@@ -159,7 +159,7 @@ verify_core() {
   # not the deployed contract address itself.
   initialGovernance=$(jq_read "$m" '.initialGovernance')
   kernel=$(jq_read "$m" '.kernel')
-  permissionFactory=$(jq_read "$m" '.permissionFactory')
+  mandateFactory=$(jq_read "$m" '.mandateFactory')
   standardFeePolicy=$(jq_read "$m" '.standardFeePolicy')
   treasury=$(jq_read "$m" '.treasury')
   emergencyAdmin=$(jq_read "$m" '.emergencyAdmin')
@@ -207,16 +207,16 @@ verify_core() {
     "$kernel" \
     "$kernel_args"
 
-  # PermissionFactory(address kernel)
+  # MandateFactory(address kernel)
   local factory_args
   factory_args=$(cast abi-encode \
     "constructor(address)" \
     "$kernel" \
     | sed 's/0x//')
   verify_contract \
-    "PermissionFactory" \
-    "contracts/factory/PermissionFactory.sol:PermissionFactory" \
-    "$permissionFactory" \
+    "MandateFactory" \
+    "contracts/factory/MandateFactory.sol:MandateFactory" \
+    "$mandateFactory" \
     "$factory_args"
 
   # StandardFeePolicy(uint256 managementFeeBps, uint256 performanceFeeBps,

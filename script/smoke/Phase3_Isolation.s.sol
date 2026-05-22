@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {Script, console2}        from "forge-std/Script.sol";
 import {ManifestIO}              from "../lib/ManifestIO.sol";
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
-import {PermissionFactory}       from "../../contracts/factory/PermissionFactory.sol";
+import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
 import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
 
 interface IERC20 {
@@ -34,7 +34,7 @@ contract Phase3_Isolation is Script {
 
     // ── resolved state ───────────────────────────────────────────────────────
     SailKernel        internal kernel;
-    PermissionFactory internal factory;
+    MandateFactory internal factory;
     address           internal transferImpl;
 
     address           internal deployer;
@@ -77,7 +77,7 @@ contract Phase3_Isolation is Script {
     function _loadConfig() internal {
         uint256 chainId = block.chainid;
         kernel       = SailKernel(ManifestIO.readAddress(chainId, "core", ".kernel"));
-        factory      = PermissionFactory(payable(ManifestIO.readAddress(chainId, "core", ".permissionFactory")));
+        factory      = MandateFactory(payable(ManifestIO.readAddress(chainId, "core", ".mandateFactory")));
         transferImpl = ManifestIO.readAddress(chainId, "templates.standalone", ".transferTarget");
 
         deployer   = vm.envAddress("DEPLOYER_ADDRESS");

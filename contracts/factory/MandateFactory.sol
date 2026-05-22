@@ -45,7 +45,7 @@ interface ISailKernelFactory {
 /// @dev    Force-sent ETH (via selfdestruct or coinbase) accrues to `address(this).balance`
 ///         and is unrecoverable — no sweep function exists. This is an accepted residual
 ///         given that `receive()` already blocks direct ETH deposits.
-contract PermissionFactory is ReentrancyGuard {
+contract MandateFactory is ReentrancyGuard {
     ISailKernelFactory public immutable kernel;
 
     event Attached(address indexed account, address indexed permission, bytes32 paramsHash);

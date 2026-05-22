@@ -308,7 +308,7 @@ The protocol comprises five components in the trusted core, plus a default fee p
 \multicolumn{2}{l}{\textit{Trusted core}}\\
 \code{SailKernel} & Account registration, permission registry, signature verification, manager dispatch via Safe modules, fee collection, principal tracking.\\
 \code{SailGovernance} & Protocol parameter governance with a timelock, two-step transfer, emergency pause with auto-expiry, and trusted Safe factory and singleton allowlists.\\
-\code{PermissionFactory} & Untrusted UX orchestrator. Bundles permission configuration and registration into single transactions. Holds no protocol-level privileges.\\
+\code{MandateFactory} & Untrusted UX orchestrator. Bundles permission configuration and registration into single transactions. Holds no protocol-level privileges.\\
 \code{BaseSharedPermission} & Abstract base for shared multi-tenant permission templates. EIP-712 domain, per-account nonces, ECDSA and ERC-1271 signature verification.\\
 Interfaces & \code{IPermission}, \code{IConfigurablePermission}, \code{IFeePolicy}, \code{IOracle}, \code{IBatchPermission}, \code{IPermissionIntrospection}, \code{IAgentIdentityResolver}.\\
 \midrule
@@ -521,7 +521,7 @@ A permission's lifecycle is governed by four operations, all authorized by the P
 
 \textbf{Registration.} The Permission Signer signs a registration message containing the permission contract address. The kernel adds it to the account's permission list and charges the registration fee (Section~\ref{sec:fees}).
 
-\textbf{Configuration.} For shared templates, the Permission Signer signs a configure instruction containing the template-specific params blob. Any caller may submit the signed call; the canonical orchestrator is the \code{PermissionFactory}, but it holds no special privilege.
+\textbf{Configuration.} For shared templates, the Permission Signer signs a configure instruction containing the template-specific params blob. Any caller may submit the signed call; the canonical orchestrator is the \code{MandateFactory}, but it holds no special privilege.
 
 \textbf{Reconfiguration.} A subsequent \code{configure} call with a fresh nonce clears previous per-account state and applies the new params atomically.
 

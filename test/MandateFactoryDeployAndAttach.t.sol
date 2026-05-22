@@ -6,7 +6,7 @@ import "../contracts/templates/BoundedSwapPermission.sol";
 import "../contracts/templates/BoundedWithdrawPermission.sol";
 import "../contracts/templates/base/CloneInitializable.sol";
 
-contract PermissionFactoryDeployAndAttachTest is FactoryTestBase {
+contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
     BoundedWithdrawPermission internal withdrawImpl;
     BoundedSwapPermission internal swapImpl;
 
@@ -67,7 +67,7 @@ contract PermissionFactoryDeployAndAttachTest is FactoryTestBase {
         );
         uint256 fee = _calcFee(predicted);
 
-        vm.expectRevert(PermissionFactory.InitDataTooShort.selector);
+        vm.expectRevert(MandateFactory.InitDataTooShort.selector);
         factory.deployAndAttach{value: fee}(
             address(safe), address(withdrawImpl), salt, hex"123456", kernelSig
         );
@@ -83,7 +83,7 @@ contract PermissionFactoryDeployAndAttachTest is FactoryTestBase {
         );
         uint256 fee = _calcFee(predicted);
 
-        vm.expectRevert(PermissionFactory.CloneInitFailed.selector);
+        vm.expectRevert(MandateFactory.CloneInitFailed.selector);
         factory.deployAndAttach{value: fee}(
             address(safe), address(withdrawImpl), salt, initData, kernelSig
         );

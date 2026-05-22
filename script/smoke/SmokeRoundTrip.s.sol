@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {Script, console2}        from "forge-std/Script.sol";
 import {ManifestIO}              from "../lib/ManifestIO.sol";
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
-import {PermissionFactory}       from "../../contracts/factory/PermissionFactory.sol";
+import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
 import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
 
 interface ISafeProxyFactory {
@@ -80,11 +80,11 @@ contract SmokeRoundTrip is Script {
         // -- load manifest addresses
         uint256 chainId = block.chainid;
         address kernelAddr      = ManifestIO.readAddress(chainId, "core", ".kernel");
-        address factoryAddr     = ManifestIO.readAddress(chainId, "core", ".permissionFactory");
+        address factoryAddr     = ManifestIO.readAddress(chainId, "core", ".mandateFactory");
         address transferImpl    = ManifestIO.readAddress(chainId, "templates.standalone", ".transferTarget");
 
         SailKernel kernel        = SailKernel(kernelAddr);
-        PermissionFactory factory = PermissionFactory(payable(factoryAddr));
+        MandateFactory factory = MandateFactory(payable(factoryAddr));
 
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         uint256 pk       = vm.envUint("DEPLOYER_PRIVATE_KEY");

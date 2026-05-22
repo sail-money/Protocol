@@ -58,7 +58,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///             moves funds to another chain where Sail's permission framework
 ///             does not extend).
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedLiFiPermission is IPermission, CloneInitializable {
     // -------------------------------------------------------------------------
     // Clone identity
@@ -138,7 +138,7 @@ contract BoundedLiFiPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedDiamonds      LiFi diamond addresses (one per chain you support).
     /// @param  allowedSelectors     LiFi function selectors the manager may invoke.
     /// @param  _maxMinAmountPerTx   Initial cap on `_minAmount` field per call.

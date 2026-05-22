@@ -5,7 +5,7 @@ import {Script, console2}  from "forge-std/Script.sol";
 import {ManifestIO}        from "../lib/ManifestIO.sol";
 import {SailGovernance}    from "../../contracts/governance/SailGovernance.sol";
 import {SailKernel}        from "../../contracts/core/SailKernel.sol";
-import {PermissionFactory} from "../../contracts/factory/PermissionFactory.sol";
+import {MandateFactory} from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy} from "../../contracts/policies/StandardFeePolicy.sol";
 import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
 
@@ -49,7 +49,7 @@ contract DeployCore is Script {
         SafeModuleEnabler safeModuleEnabler;
         SailGovernance    governance;
         SailKernel        kernel;
-        PermissionFactory factory;
+        MandateFactory factory;
         StandardFeePolicy feePolicy;
     }
 
@@ -78,8 +78,8 @@ contract DeployCore is Script {
         d.kernel = new SailKernel(address(d.governance), cfg.treasury);
         console2.log("SailKernel         :", address(d.kernel));
 
-        d.factory = new PermissionFactory(address(d.kernel));
-        console2.log("PermissionFactory  :", address(d.factory));
+        d.factory = new MandateFactory(address(d.kernel));
+        console2.log("MandateFactory  :", address(d.factory));
 
         d.feePolicy = new StandardFeePolicy(
             cfg.managementFeeBps,
@@ -167,7 +167,7 @@ contract DeployCore is Script {
         // verify.sh can reconstruct ABI-encoded constructor args without re-reading config.
         vm.serializeAddress(k, "initialGovernance",  c.initialGovernance);
         vm.serializeAddress(k, "kernel",             address(d.kernel));
-        vm.serializeAddress(k, "permissionFactory",  address(d.factory));
+        vm.serializeAddress(k, "mandateFactory",  address(d.factory));
         vm.serializeAddress(k, "standardFeePolicy",  address(d.feePolicy));
 
         // config snapshot

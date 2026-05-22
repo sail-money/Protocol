@@ -173,7 +173,7 @@ Solidity uses of "template":
 | `contracts/interfaces/IConfigurablePermission.sol` | 7, 17 | "A single deployed template can serve unlimited accounts" | Correct. |
 | `contracts/interfaces/IAgentIdentityResolver.sol` | 60–62, 66, 103 | "same identity for all accounts that use this template" | Correct. |
 | `contracts/interfaces/SailCapabilities.sol` | 5, 17, 37 | "Sail template set", "live Sail template", "Composite template combining…" | See §5. |
-| `contracts/factory/PermissionFactory.sol` | 36, 41 | NatSpec: "template.configure" | Correct. |
+| `contracts/factory/MandateFactory.sol` | 36, 41 | NatSpec: "template.configure" | Correct. |
 
 Solidity uses of "agent":
 
@@ -194,7 +194,7 @@ permission contracts serving the template (multi-account) pattern. Key occurrenc
 | `test/SelectiveDispatch.t.sol` | 135, 156, 214–233, 287, 533–635 | "deployed templates", `_signConfigure(template,…)`, section headings | Correct — helpers use `template` as local variable name for a `BaseSharedPermission` instance |
 | `test/FactoryDeFi.t.sol` | 11, 36, 291, 306, 404–469 | "Shared template across two Safes", `_attach(account, template, params)` | Correct |
 | `test/PermissionIntrospection.t.sol` | 21, 66, 73, 89, 222, 263 | "Template instances", "every template returns…" | Correct |
-| `test/PermissionFactory.t.sol` | 103, 150, 153, 161–198, 203, 229 | `address[] memory templates`, test names | Correct |
+| `test/MandateFactory.t.sol` | 103, 150, 153, 161–198, 203, 229 | `address[] memory templates`, test names | Correct |
 | `test/BatchDispatch.t.sol` | 202–214, 514, 746–759 | "batch template", "existing IPermission template" | Correct |
 | `test/BundlePermission.t.sol` | 8, 10, 41 | "composite template pattern", "ONE template" | Correct |
 | `test/AgentIdentity.t.sol` | 238–291 | "template level — no kernel involvement", "non-identity template" | Correct |
@@ -369,7 +369,7 @@ All places where the SMA/Mandate/Permission/Template relationship is described
 |---|---|---|---|---|---|
 | `SailKernel` | `SailKernel` | ✅ Yes | No change | N/A | |
 | `SailGovernance` | `SailGovernance` | ✅ Yes | No change | N/A | |
-| `PermissionFactory` | `PermissionFactory` | ✅ Yes | No change | N/A | Factory that orchestrates Permission registration |
+| `MandateFactory` | `MandateFactory` | ✅ Yes | No change | N/A | Factory that orchestrates Permission registration |
 | `BaseSharedPermission` | `BaseSharedPermission` | ✅ Yes | No change | N/A | Abstract base for shared multi-tenant Permission templates |
 | `IPermission` | `IPermission` | ✅ Yes | No change | N/A | **Must not rename — core interface** |
 | `IConfigurablePermission` | `IConfigurablePermission` | ✅ Yes | No change | N/A | |
@@ -449,7 +449,7 @@ All are consistent with the agreed hierarchy. No renames required.
 | `contracts/templates/` | ⚠️ Minor tension | Named "templates" but contains Permission contracts. Under the hierarchy these ARE Permissions that follow Template patterns. Renaming to `contracts/permissions/` would be more strictly consistent but would break every `import` path in the test suite and all contracts. **Recommendation: leave as-is.** The NatSpec already calls them "permission templates"; the contract identifiers use `*Permission`. The directory name is a useful grouping by purpose, not a misrepresentation. |
 | `contracts/templates/shared/` | Same | Same recommendation. |
 
-### 4.6 `PermissionFactory` event parameter names: `template`
+### 4.6 `MandateFactory` event parameter names: `template`
 
 The factory emits events where the parameter name for a permission contract address
 is `template` (e.g., `Attached(account, template, paramsHash)`). This is technically
@@ -523,7 +523,7 @@ should be kept.
 permission contracts that serve as templates (multi-tenant deployment pattern). No
 changes needed.
 
-### 5.5 `contracts/factory/PermissionFactory.sol` NatSpec lines 36, 41
+### 5.5 `contracts/factory/MandateFactory.sol` NatSpec lines 36, 41
 
 **Current:**
 ```
@@ -635,18 +635,18 @@ All contract names, interface names, public function names, public events, publi
 errors, and public struct fields are consistent with the agreed hierarchy.
 
 The single area where a rename could improve protocol-layer precision is the
-`PermissionFactory` event parameter names:
+`MandateFactory` event parameter names:
 
-### 7.1 PermissionFactory event parameter names: `template` → `permission`
+### 7.1 MandateFactory event parameter names: `template` → `permission`
 
 | Identifier | Old name | New name | ABI impact | Source-import impact | Test files affected |
 |---|---|---|---|---|---|
-| `Attached` event param 2 | `template` | `permission` | **Yes** — event ABI includes param names | No — callsites don't reference param by name | `test/PermissionFactory.t.sol`, `test/FactoryDeFi.t.sol` |
-| `Reconfigured` event param 2 | `template` | `permission` | **Yes** | No | `test/PermissionFactory.t.sol` |
-| `BatchAttached` event param 2 | `templates` | `permissions` | **Yes** | No | `test/PermissionFactory.t.sol` |
-| `Replaced` event params 2–3 | `oldTemplate`, `newTemplate` | `oldPermission`, `newPermission` | **Yes** | No | `test/PermissionFactory.t.sol` |
-| `Detached` event param 2 | `template` | `permission` | **Yes** | No | `test/PermissionFactory.t.sol` |
-| `BatchDetached` event param 2 | `templates` | `permissions` | **Yes** | No | `test/PermissionFactory.t.sol` |
+| `Attached` event param 2 | `template` | `permission` | **Yes** — event ABI includes param names | No — callsites don't reference param by name | `test/MandateFactory.t.sol`, `test/FactoryDeFi.t.sol` |
+| `Reconfigured` event param 2 | `template` | `permission` | **Yes** | No | `test/MandateFactory.t.sol` |
+| `BatchAttached` event param 2 | `templates` | `permissions` | **Yes** | No | `test/MandateFactory.t.sol` |
+| `Replaced` event params 2–3 | `oldTemplate`, `newTemplate` | `oldPermission`, `newPermission` | **Yes** | No | `test/MandateFactory.t.sol` |
+| `Detached` event param 2 | `template` | `permission` | **Yes** | No | `test/MandateFactory.t.sol` |
+| `BatchDetached` event param 2 | `templates` | `permissions` | **Yes** | No | `test/MandateFactory.t.sol` |
 
 **ABI note:** Event parameter *names* appear in the ABI JSON and in off-chain event
 parsers that reference fields by name (ethers.js, viem, etc.). Renaming them is a
@@ -673,7 +673,7 @@ the correct term). Leave directory names unchanged.
 ## 8. PROPOSED PHASE 2 EXECUTION PLAN
 
 All identified changes are documentation or comments — **no ABI-breaking Solidity
-identifier renames are required** except the optional `PermissionFactory` event
+identifier renames are required** except the optional `MandateFactory` event
 parameter rename (§7.1, requires explicit approval).
 
 ### Commit sequence
@@ -704,9 +704,9 @@ Files: `contracts/core/SailKernel.sol`, `contracts/interfaces/SailCapabilities.s
 1. **SailKernel.sol line 823** — "multi-template SMAs" → "multi-permission SMAs".
 2. **SailCapabilities.sol lines 37–38** — rephrase `SharedDeFiBundlePermission` capability description (§5.2); low priority, owner decides.
 
-#### (d) PermissionFactory event parameter rename (REQUIRES EXPLICIT APPROVAL)
+#### (d) MandateFactory event parameter rename (REQUIRES EXPLICIT APPROVAL)
 
-Files: `contracts/factory/PermissionFactory.sol`, `test/PermissionFactory.t.sol`, `test/FactoryDeFi.t.sol`
+Files: `contracts/factory/MandateFactory.sol`, `test/MandateFactory.t.sol`, `test/FactoryDeFi.t.sol`
 
 Rename all `template` / `templates` event parameters to `permission` / `permissions`
 as listed in §7.1. Update test assertions that decode events by param name.
@@ -733,7 +733,7 @@ Most test uses of "template" are accurate and intentional. Optional cleanup:
 | # | Decision | Options |
 |---|---|---|
 | D1 | README.md "EIP-712 mandate" diagram label | Keep as-is (defensible) OR change to "EIP-712 permission authorization" |
-| D2 | PermissionFactory event param rename (`template` → `permission`) | Rename (preferred; ABI-breaking) OR leave as-is (acceptable) |
+| D2 | MandateFactory event param rename (`template` → `permission`) | Rename (preferred; ABI-breaking) OR leave as-is (acceptable) |
 | D3 | `SailCapabilities.sol` DEFI_BUNDLE description rewrite | Apply (low priority) OR leave as-is |
 
 ---

@@ -24,7 +24,7 @@ import {CloneInitializable} from "./base/CloneInitializable.sol";
 ///         `isAllowedTarget` allowlist. Operators must ensure each allowed target
 ///         only accepts tokens they intend to permit.
 /// @custom:security-contact security@sail.money
-/// @dev CLONE TEMPLATE: Deploy the logic contract once; use PermissionFactory.deployAndAttach to create per-account clones.
+/// @dev CLONE TEMPLATE: Deploy the logic contract once; use MandateFactory.deployAndAttach to create per-account clones.
 contract BoundedDepositPermission is IPermission, CloneInitializable {
     /// @notice Marks this as a single-account template (not a shared multi-account deployment).
     bool public constant IS_SINGLE_ACCOUNT = true;
@@ -115,7 +115,7 @@ contract BoundedDepositPermission is IPermission, CloneInitializable {
 
     constructor() { _disableInitializers(); }
 
-    /// @notice Called once by PermissionFactory after cloning the logic contract.
+    /// @notice Called once by MandateFactory after cloning the logic contract.
     /// @param  allowedTargets     Vault / lending pool addresses to pre-populate the allowlist.
     /// @param  allowedTokens      ERC-20 token addresses to pre-populate the token allowlist.
     /// @param  _maxAmountPerTx    Initial per-transaction amount / shares cap.

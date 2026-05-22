@@ -115,7 +115,7 @@ echo "▶ Core"
 kernel=$(jq -r '.kernel' "$CORE")
 governance=$(jq -r '.governance' "$CORE")
 timelock=$(jq -r '.timelock' "$CORE")
-factory=$(jq -r '.permissionFactory' "$CORE")
+factory=$(jq -r '.mandateFactory' "$CORE")
 feePolicy=$(jq -r '.standardFeePolicy' "$CORE")
 treasury=$(jq -r '.treasury' "$CORE")
 safeModuleEnabler=$(jq -r '.safeModuleEnabler' "$CORE")
@@ -147,8 +147,8 @@ actual_max=$(uint_call "$governance" "MAX_PERMISSION_FEE_WEI()(uint256)")
 check "SailGovernance.MAX_PERMISSION_FEE_WEI() == manifest.maxPermissionFeeWei" \
   "$maxFee" "$actual_max"
 
-# PermissionFactory.kernel() == kernel
-check "PermissionFactory.kernel() == manifest.kernel" \
+# MandateFactory.kernel() == kernel
+check "MandateFactory.kernel() == manifest.kernel" \
   "$kernel" "$(addr_call "$factory" "kernel()(address)")"
 
 # StandardFeePolicy.kernel() == kernel
