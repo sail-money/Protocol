@@ -46,6 +46,13 @@ Three roles are separated explicitly:
 | **Permission Signer** | Authorizes the mandate — decides which permissions apply to the account. Signs registration, revocation, and configuration via EIP-712. | Same as Owner, or a separate signing key/multisig |
 | **Manager** | Executes within bounds. Cannot exceed what the registered permissions allow. | EOA, multisig, MPC wallet, or autonomous agent |
 
+The structure these roles operate on:
+
+- **SMA** — the account. A Safe holds the custody.
+- **Mandate** — the set of Permissions registered for an SMA. Defines what the Manager is authorized to do.
+- **Permission** — an individual rule. A deployed Solidity contract implementing `IPermission`.
+- **Template** — an example or reusable pattern for building a Permission. Sail ships a starter set; anyone may deploy more.
+
 Governance is a contract initially held by the team multisig, transferable to a DAO, token, or other mechanism over time. Constitutional caps (the 25% protocol cut, the registration fee ceiling) are immutable in source code and cannot be raised by any governance procedure.
 
 ---
