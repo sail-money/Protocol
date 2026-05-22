@@ -48,12 +48,12 @@ interface ISailKernelFactory {
 contract PermissionFactory is ReentrancyGuard {
     ISailKernelFactory public immutable kernel;
 
-    event Attached(address indexed account, address indexed template, bytes32 paramsHash);
-    event Reconfigured(address indexed account, address indexed template, bytes32 paramsHash);
-    event BatchAttached(address indexed account, address[] templates);
-    event Replaced(address indexed account, address indexed oldTemplate, address indexed newTemplate);
-    event Detached(address indexed account, address indexed template);
-    event BatchDetached(address indexed account, address[] templates);
+    event Attached(address indexed account, address indexed permission, bytes32 paramsHash);
+    event Reconfigured(address indexed account, address indexed permission, bytes32 paramsHash);
+    event BatchAttached(address indexed account, address[] permissions);
+    event Replaced(address indexed account, address indexed oldPermission, address indexed newPermission);
+    event Detached(address indexed account, address indexed permission);
+    event BatchDetached(address indexed account, address[] permissions);
     /// @notice Emitted when a clone template is deployed and registered in a single transaction.
     /// @param account    The Safe account the clone is registered for.
     /// @param impl       The logic contract that was cloned.
