@@ -65,6 +65,8 @@ contract Octane03_Signatures is Test {
         safe     = new _O3Safe();
         perm     = new _O3Perm();
         feePolicy = new _O3FeePolicy();
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));

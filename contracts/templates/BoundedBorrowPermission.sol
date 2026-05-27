@@ -298,6 +298,9 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     function _ltvCheck(address asset, uint256 amount, address account) internal view returns (bool) {
         if (collateralOracle == address(0) || borrowOracle == address(0)) return true;
 
+        // TODO(security): Enforce price freshness — check both returned `updatedAt` values against a
+        // configured `maxPriceAgeSec`; deny when either is stale or zero.
+        // On L2s, also check sequencer-uptime before trusting prices.
         (uint256 colValue, uint8 colDec,) = IOracle(collateralOracle).getPrice(account, address(0));
         (uint256 borPrice, uint8 borDec,) = IOracle(borrowOracle).getPrice(asset, address(0));
 

@@ -173,14 +173,15 @@ abstract contract BaseSharedPermission is IConfigurablePermission, IAccountAgent
         view
         returns (bool)
     {
-        if (expected.code.length == 0) {
-            (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
-            return err == ECDSA.RecoverError.NoError && recovered == expected;
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
+        if (err == ECDSA.RecoverError.NoError && recovered == expected) return true;
+        if (expected.code.length > 0) {
+            try IERC1271(expected).isValidSignature(digest, sig) returns (bytes4 magic) {
+                return magic == ERC1271_MAGIC;
+            } catch {
+                return false;
+            }
         }
-        try IERC1271(expected).isValidSignature(digest, sig) returns (bytes4 magic) {
-            return magic == ERC1271_MAGIC;
-        } catch {
-            return false;
-        }
+        return false;
     }
 }

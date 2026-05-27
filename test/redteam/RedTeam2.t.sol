@@ -209,6 +209,11 @@ abstract contract RedTeamBase2 is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _trustFeePolicy(address policy) internal {
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(policy, true);
+    }
+
     function _signSetFeePolicyWithAsset(
         address account, address newFeePolicy, address feeAsset, uint256 nonce, uint256 signerKey
     ) internal view returns (bytes memory) {
@@ -276,6 +281,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
     function test_Attack_FeeRecipient_ManagerRedirectionViaPolicy() public {
         // Attacker-controlled policy: feeRecipient == attacker
         MutableRecipientFeePolicy badPolicy = new MutableRecipientFeePolicy(attacker, 10 ether);
+        _trustFeePolicy(address(badPolicy));
 
         // permSigner (trust anchor) sets this policy
         uint256 nonce = kernel.signerNonces(address(safe));
@@ -304,6 +310,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
     function test_Attack_FeeRecipient_ZeroAddressFromPolicy() public {
         // Deploy a policy whose feeRecipient returns address(0)
         MutableRecipientFeePolicy zeroPolicy = new MutableRecipientFeePolicy(address(0), 1 ether);
+        _trustFeePolicy(address(zeroPolicy));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(zeroPolicy), nonce, PERM_SIGNER_KEY);
@@ -326,6 +333,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
         address malicRecipient  = attacker;
 
         MutableRecipientFeePolicy policy = new MutableRecipientFeePolicy(legitRecipient, 10 ether);
+        _trustFeePolicy(address(policy));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(policy), nonce, PERM_SIGNER_KEY);
@@ -351,6 +359,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // feeRecipient() should return feeManager (permSigner here)
         assertEq(sfp.feeRecipient(), permSigner);
@@ -1510,6 +1519,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // Manager tries to call proposeFeeManager — must revert
         vm.prank(manager);
@@ -1523,6 +1533,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // permSigner nominates address(0x1234), not attacker
         vm.prank(permSigner);
@@ -1540,6 +1551,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         assertEq(sfp.feeRecipient(), permSigner);
 
@@ -1557,6 +1569,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
 
     function test_Attack_CollectFees_ERC20ZeroRecipient() public {
         MutableRecipientFeePolicy zeroPolicy = new MutableRecipientFeePolicy(address(0), 1 ether);
+        _trustFeePolicy(address(zeroPolicy));
 
         address mockToken = address(0x7070);
 

@@ -303,6 +303,9 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     ) internal view returns (bool) {
         if (priceOracle == address(0) || maxSlippageBps == 0) return true;
 
+        // TODO(security): Enforce price freshness — check the returned `updatedAt` against a
+        // configured `maxPriceAgeSec`; deny when stale or when `updatedAt == 0`.
+        // On L2s, also check sequencer-uptime via a Chainlink L2 sequencer feed before trusting prices.
         (uint256 price, uint8 dec,) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
         // 10^78 overflows uint256; treat as unsupported oracle configuration → deny.

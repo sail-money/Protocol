@@ -184,6 +184,8 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
         uint256 amountOutMin
     ) internal view returns (bool) {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
+        // TODO(security): Enforce price freshness — check `updatedAt` against a per-account
+        // `maxPriceAgeSec`; deny when stale or zero.  On L2s, check sequencer-uptime first.
         (uint256 price, uint8 dec,) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (price == 0) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));

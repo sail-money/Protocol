@@ -138,6 +138,8 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
+        // TODO(security): Enforce price freshness — check both `updatedAt` values against a per-account
+        // `maxPriceAgeSec`; deny when either is stale or zero.  On L2s, check sequencer-uptime first.
         (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
         (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
 

@@ -122,6 +122,8 @@ contract IntegrationTest is Test {
         feePolicy = new StandardFeePolicy(
             MGMT_BPS, PERF_BPS, DEAD, DIST_BPS, address(kernel), FEE_MANAGER
         );
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
 
         // 6. Register MockSafe with the kernel (must be called by the Safe itself)
         vm.prank(address(mockSafe));

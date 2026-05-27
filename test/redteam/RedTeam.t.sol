@@ -203,6 +203,13 @@ abstract contract RedTeamBase is Test {
         alwaysTrue = new AlwaysTruePermission();
     }
 
+    // ── Test helpers ─────────────────────────────────────────────────────────
+
+    function _trustFeePolicy(address policy) internal {
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(policy, true);
+    }
+
     // ── Signature helpers ────────────────────────────────────────────────────
 
     function _signRegisterPermission(address account, address permission, uint256 nonce, uint256 signerKey)
@@ -793,6 +800,7 @@ contract FeeAccountingTests is RedTeamBase {
         // Deploy a fee policy that allows any fee up to the reported max
         uint256 hugeFee = 99 ether; // almost the entire safe balance
         InflatedFeePolicy badPolicy = new InflatedFeePolicy(hugeFee, address(0), 0);
+        _trustFeePolicy(address(badPolicy));
 
         // permSigner sets the fee policy to the malicious one
         uint256 nonce = kernel.signerNonces(address(safe));
@@ -823,6 +831,7 @@ contract FeeAccountingTests is RedTeamBase {
 
     function test_Attack_CollectFees_NotManager() public {
         InflatedFeePolicy badPolicy = new InflatedFeePolicy(1 ether, address(0), 0);
+        _trustFeePolicy(address(badPolicy));
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
         kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
@@ -838,6 +847,7 @@ contract FeeAccountingTests is RedTeamBase {
         // Policy returns distributorBps = 10_001 (one over 100%)
         address malDist = address(0xBAD);
         InflatedFeePolicy badPolicy = new InflatedFeePolicy(1 ether, malDist, 10_001);
+        _trustFeePolicy(address(badPolicy));
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
         kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
@@ -851,6 +861,7 @@ contract FeeAccountingTests is RedTeamBase {
 
     function test_Attack_CollectFees_FeeTooLarge() public {
         InflatedFeePolicy policy = new InflatedFeePolicy(0.5 ether, address(0), 0);
+        _trustFeePolicy(address(policy));
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(policy), nonce, PERM_SIGNER_KEY);
         kernel.setFeePolicy(address(safe), address(policy), address(0), type(uint256).max, fpSig);
@@ -920,6 +931,7 @@ contract FeeAccountingTests is RedTeamBase {
             address(kernel),
             permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
@@ -942,6 +954,7 @@ contract FeeAccountingTests is RedTeamBase {
         StandardFeePolicy sfp = new StandardFeePolicy(
             200, 2000, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);

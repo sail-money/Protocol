@@ -70,6 +70,8 @@ contract Octane04_Session is Test {
         kernel   = new SailKernel(address(gov), address(0x2222));
         safe     = new _O4Safe();
         feePolicy = new _O4FeePolicy(feeRecipient);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));

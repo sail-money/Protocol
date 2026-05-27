@@ -179,6 +179,8 @@ contract SailKernelTest is Test {
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
         feePolicy.setFeeRecipient(manager);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
@@ -1183,6 +1185,8 @@ contract SailKernelTest is Test {
 
     function test_SetFeePolicy_UpdatesPolicy() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(newPolicy), true);
         bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
         (,, address fp,,) = kernel.configs(address(safe));
@@ -1206,6 +1210,8 @@ contract SailKernelTest is Test {
 
     function test_SetFeePolicy_EmitsEvent() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(newPolicy), true);
         bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         vm.expectEmit(true, true, false, false);
         emit SailKernel.FeePolicyUpdated(address(safe), address(newPolicy));

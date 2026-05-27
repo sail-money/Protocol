@@ -98,6 +98,11 @@ contract SailGovernance {
     ///         Only singletons in this mapping may be used in `createAccount`.
     mapping(address => bool) public trustedSafeSingleton;
 
+    /// @notice Allowlist of fee policy contracts trusted by the kernel.
+    ///         Only policies in this mapping may be set via `_registerAccount` or `setFeePolicy`.
+    ///         Prevents upgradeable/metamorphic policies from being used to redirect or inflate fees.
+    mapping(address => bool) public trustedFeePolicy;
+
     /// @notice Emitted when a Safe factory's trusted status changes.
     /// @param  factory  The factory address.
     /// @param  trusted  True if added to the allowlist, false if removed.
@@ -107,6 +112,11 @@ contract SailGovernance {
     /// @param  singleton  The singleton address.
     /// @param  trusted    True if added to the allowlist, false if removed.
     event SafeSingletonTrusted(address indexed singleton, bool trusted);
+
+    /// @notice Emitted when a fee policy's trusted status changes.
+    /// @param  policy   The fee policy address.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event FeePolicyTrusted(address indexed policy, bool trusted);
 
     /// @notice Add or remove a Safe proxy factory from the trusted allowlist.
     /// @param  factory  Address of the factory contract.
@@ -122,6 +132,15 @@ contract SailGovernance {
     function setTrustedSafeSingleton(address singleton, bool trusted) external onlyTimelock {
         trustedSafeSingleton[singleton] = trusted;
         emit SafeSingletonTrusted(singleton, trusted);
+    }
+
+    /// @notice Add or remove a fee policy contract from the trusted allowlist.
+    /// @param  policy   Address of the fee policy contract.
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedFeePolicy(address policy, bool trusted) external onlyTimelock {
+        if (policy == address(0)) revert ZeroAddress();
+        trustedFeePolicy[policy] = trusted;
+        emit FeePolicyTrusted(policy, trusted);
     }
 
     // -------------------------------------------------------------------------

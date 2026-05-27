@@ -463,6 +463,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `dispatchBatch` when a subcall targets the zero address.
     error BatchZeroTarget(uint256 index);
 
+    /// @dev Thrown by `dispatch`/`dispatchBatch` when a call targets the Safe account itself.
+    ///      Prevents module-triggered self-calls that satisfy Safe's onlySelf guard and could
+    ///      enable owner/threshold changes, module manipulation, or guard/fallback overwrites.
+    error AccountSelfTarget();
+
+    /// @dev Thrown by `_registerAccount` or `setFeePolicy` when the provided fee policy is not
+    ///      in governance's trusted allowlist.  Prevents upgradeable/metamorphic policies.
+    error UntrustedFeePolicy(address policy);
+
     /// @dev Thrown by `replacePermissions` when `oldPermissions` and `newPermissions` have different lengths.
     error ArrayLengthMismatch();
 
@@ -571,6 +580,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     {
         if (registered[account]) revert AccountAlreadyRegistered(account);
         if (permissionSigner == address(0) || manager == address(0)) revert ZeroAddress();
+        if (feePolicy != address(0) && !governance.trustedFeePolicy(feePolicy)) revert UntrustedFeePolicy(feePolicy);
         registered[account] = true;
         configs[account] = AccountConfig({
             permissionSigner: permissionSigner,
@@ -816,8 +826,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  feeAsset     Canonical fee settlement token for the new policy; address(0) = native ETH.
     /// @param  deadline     Unix timestamp after which the signature is invalid.
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
-    function setFeePolicy(address account, address newFeePolicy, address feeAsset, uint256 deadline, bytes calldata sig) external nonReentrant whenNotPaused {
+    function setFeePolicy(address account, address newFeePolicy, address feeAsset, uint256 deadline, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
+        // Allow clearing (newFeePolicy == 0) during pause so permissionSigner can disarm a compromised policy
+        // before the pause lifts and collectFees becomes callable again.  Block non-zero updates while paused.
+        if (governance.isPaused() && newFeePolicy != address(0)) revert ProtocolPaused();
+        if (newFeePolicy != address(0) && !governance.trustedFeePolicy(newFeePolicy)) revert UntrustedFeePolicy(newFeePolicy);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
@@ -1023,6 +1037,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
         managerNonces[account] = nonce + 1;
 
+        // Prevent module-triggered self-calls: a call targeting the Safe itself satisfies
+        // Safe's onlySelf guard, enabling enableModule/setGuard/owner changes without permission.
+        if (target == account) revert AccountSelfTarget();
+
         bytes4 sel = data.length >= 4 ? bytes4(data[:4]) : bytes4(0);
         Context memory ctx = Context({
             account:        account,
@@ -1051,7 +1069,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
         bytes memory callData = abi.encodeCall(IPermission.evaluate, (data, ctx));
         (bool success, bytes memory ret) = permission.staticcall{gas: PERMISSION_GAS_CAP}(callData);
         if (!success || ret.length < 32) return false;
-        return abi.decode(ret, (bool));
+        // Decode as uint256 to avoid abi.decode revert on non-canonical bool words (e.g. 0x02).
+        return abi.decode(ret, (uint256)) == 1;
     }
 
     // -------------------------------------------------------------------------
@@ -1138,7 +1157,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
                 abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
             );
-            if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
+            if (!detOk || detRet.length < 32 || abi.decode(detRet, (uint256)) != 1) {
                 revert PermissionNotBatchAware(permission);
             }
         }
@@ -1147,6 +1166,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         for (uint256 i = 0; i < len;) {
             if (calls[i].target == address(0))    revert BatchZeroTarget(i);
             if (calls[i].target == address(this)) revert KernelSelfTarget(i);
+            if (calls[i].target == account)       revert AccountSelfTarget();
             unchecked { ++i; }
         }
 
@@ -1185,7 +1205,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         bytes memory callData = abi.encodeCall(IBatchPermission.evaluateBatch, (calls, ctx));
         (bool success, bytes memory ret) = permission.staticcall{gas: BATCH_EVAL_GAS_CAP}(callData);
         if (!success || ret.length < 32) return false;
-        return abi.decode(ret, (bool));
+        return abi.decode(ret, (uint256)) == 1;
     }
 
     // -------------------------------------------------------------------------
@@ -1267,12 +1287,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
         for (uint256 i; i < calls.length; i++) {
             if (calls[i].target == address(0))    return (false, "BatchZeroTarget");
             if (calls[i].target == address(this)) return (false, "KernelSelfTarget");
+            if (calls[i].target == account)       return (false, "AccountSelfTarget");
         }
 
         (bool detOk, bytes memory detRet) = permission.staticcall{gas: BATCH_DETECT_GAS_CAP}(
             abi.encodeWithSelector(IBatchPermission.isBatchPermission.selector)
         );
-        if (!detOk || detRet.length < 32 || !abi.decode(detRet, (bool))) {
+        if (!detOk || detRet.length < 32 || abi.decode(detRet, (uint256)) != 1) {
             return (false, "PermissionNotBatchAware");
         }
 
@@ -1331,7 +1352,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);
-        if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
+        // Allow the manager, the Safe account itself (for non-forwarding ERC-1271 managers),
+        // or the permissionSigner (as a backstop against fee-starvation) to crystallise fees.
+        if (msg.sender != cfg.manager && msg.sender != account && msg.sender != cfg.permissionSigner) {
+            revert NotManager(msg.sender, cfg.manager);
+        }
         address feePolicy = cfg.feePolicy;
         if (feePolicy == address(0)) revert FeePolicyNotSet();
         if (grossFee == 0) revert ZeroFee();
@@ -1345,6 +1370,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
             IFeePolicy(feePolicy).computeFee(account, currentNav);
         if (grossFee > maxFee) revert FeeTooLarge(grossFee, maxFee);
         if (distributorBps > 10_000) revert DistributorBpsTooLarge(distributorBps);
+
+        // Prevent payout targets from being the kernel itself: ETH transfers would revert
+        // (no receive/fallback) blocking all collections; ERC-20 transfers would permanently
+        // trap tokens since the kernel has no sweep mechanism.
+        if (treasury == address(this) || distributor == address(this) || recipient == address(this)) {
+            revert ZeroAddress();
+        }
 
         uint256 protocolCut    = Math.mulDiv(grossFee, governance.currentProtocolCutBps(), 10_000);
         uint256 remainder      = grossFee - protocolCut;
@@ -1495,21 +1527,24 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     /// @dev Verify a signature against `expected`, supporting both ECDSA and ERC-1271.
-    ///      For EOAs: recovers the signer via `ECDSA.tryRecover`.
-    ///      For contracts: calls `isValidSignature` and checks for the ERC-1271 magic value.
+    ///      ECDSA is tried first regardless of code presence; this handles EIP-7702 accounts
+    ///      that install transient code but do not implement ERC-1271.  If ECDSA recovery
+    ///      succeeds and the recovered address matches, the signature is accepted immediately.
+    ///      Otherwise, falls back to ERC-1271 when `expected` is a contract.
     /// @param  expected Address expected to have produced the signature.
     /// @param  digest   EIP-712 digest to verify against.
-    /// @param  sig      Signature bytes (65 bytes for ECDSA; arbitrary for ERC-1271).
+    /// @param  sig      Signature bytes.
     /// @return          True if the signature is valid for `expected`.
     function _recoverOrERC1271(address expected, bytes32 digest, bytes memory sig) internal view returns (bool) {
-        if (expected.code.length == 0) {
-            (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
-            return err == ECDSA.RecoverError.NoError && recovered == expected;
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
+        if (err == ECDSA.RecoverError.NoError && recovered == expected) return true;
+        if (expected.code.length > 0) {
+            try IERC1271(expected).isValidSignature(digest, sig) returns (bytes4 magic) {
+                return magic == ERC1271_MAGIC;
+            } catch {
+                return false;
+            }
         }
-        try IERC1271(expected).isValidSignature(digest, sig) returns (bytes4 magic) {
-            return magic == ERC1271_MAGIC;
-        } catch {
-            return false;
-        }
+        return false;
     }
 }
