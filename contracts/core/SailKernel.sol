@@ -118,6 +118,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
         "ReplacePermission(address account,address oldPermission,address newPermission,uint256 nonce,uint256 deadline)"
     );
 
+    /// @notice EIP-712 type hash for atomic batch permission replacement.
+    ///         Type string: "ReplacePermissions(address account,address[] oldPermissions,address[] newPermissions,uint256 nonce,uint256 deadline)"
+    bytes32 public constant REPLACE_PERMISSIONS_TYPEHASH = keccak256(
+        "ReplacePermissions(address account,address[] oldPermissions,address[] newPermissions,uint256 nonce,uint256 deadline)"
+    );
+
     /// @notice EIP-712 type hash for session revocation.
     ///         Type string: "RevokeSession(address account,uint256 nonce,uint256 deadline)"
     bytes32 public constant REVOKE_SESSION_TYPEHASH = keccak256(
@@ -457,6 +463,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `dispatchBatch` when a subcall targets the zero address.
     error BatchZeroTarget(uint256 index);
 
+    /// @dev Thrown by `replacePermissions` when `oldPermissions` and `newPermissions` have different lengths.
+    error ArrayLengthMismatch();
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -579,6 +588,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Register a single permission for an account.
     ///         Requires a permissionSigner EIP-712 signature and an ETH registration fee.
+    /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
+    ///         If a registered permission is upgradeable or uses a proxy, a change to its
+    ///         implementation requires no new kernel signature. Operators are responsible for
+    ///         registering only non-upgradeable or audited permission contracts.
+    ///         See Sail Protocol whitepaper §8.2.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to register.
     /// @param  deadline   Unix timestamp after which the signature is invalid.
@@ -642,6 +656,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Atomically replace one permission with another in a single signed operation.
     ///         Requires a permissionSigner EIP-712 signature and an ETH registration fee.
+    /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
+    ///         If a registered permission is upgradeable or uses a proxy, a change to its
+    ///         implementation requires no new kernel signature. Operators are responsible for
+    ///         registering only non-upgradeable or audited permission contracts.
+    ///         See Sail Protocol whitepaper §8.2.
     /// @param  account        The registered Safe account.
     /// @param  oldPermission  Permission to remove.
     /// @param  newPermission  Permission to add in its place.
@@ -682,6 +701,72 @@ contract SailKernel is EIP712, ReentrancyGuard {
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
         batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit PermissionReplaced(account, oldPermission, newPermission);
+    }
+
+    /// @notice Atomically replace N permissions with N new ones in a single signed operation.
+    ///         Eliminates the front-running overlap window that arises when separate
+    ///         `registerPermissions` + `revokePermissions` calls are used for N→N migrations.
+    ///         Requires a permissionSigner EIP-712 signature and a fee per swap.
+    /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
+    ///         If a registered permission is upgradeable or uses a proxy, a change to its
+    ///         implementation requires no new kernel signature. Operators are responsible for
+    ///         registering only non-upgradeable or audited permission contracts.
+    ///         See Sail Protocol whitepaper §8.2.
+    /// @param  account         The registered Safe account.
+    /// @param  oldPermissions  Permissions to remove (parallel to `newPermissions`).
+    /// @param  newPermissions  Permissions to add in their place.
+    /// @param  deadline        Unix timestamp after which the signature is invalid.
+    /// @param  sig             EIP-712 signature over ReplacePermissions struct by permissionSigner.
+    function replacePermissions(
+        address account,
+        address[] calldata oldPermissions,
+        address[] calldata newPermissions,
+        uint256 deadline,
+        bytes calldata sig
+    ) external payable nonReentrant whenNotPaused {
+        if (oldPermissions.length != newPermissions.length) revert ArrayLengthMismatch();
+        if (oldPermissions.length == 0) {
+            if (msg.value > 0) _collectRegistrationFee(0); // refunds full msg.value to caller
+            return;
+        }
+        _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+
+        uint256 nonce = signerNonces[account];
+        _verifySignerSig(
+            account,
+            keccak256(abi.encode(
+                REPLACE_PERMISSIONS_TYPEHASH,
+                account,
+                _hashAddressArray(oldPermissions),
+                _hashAddressArray(newPermissions),
+                nonce,
+                deadline
+            )),
+            sig
+        );
+        signerNonces[account] = nonce + 1;
+
+        uint256 fee = _calcPermissionFee() * oldPermissions.length;
+        if (msg.value < fee) revert InsufficientFee(fee, msg.value);
+
+        for (uint256 i; i < oldPermissions.length; i++) {
+            address oldPerm = oldPermissions[i];
+            address newPerm = newPermissions[i];
+            if (newPerm == address(0)) revert ZeroAddress();
+            if (newPerm.code.length == 0) revert NotAContract(newPerm);
+            uint256 idx = _permissionIndex[account][oldPerm];
+            if (idx == 0) revert PermissionNotRegistered(oldPerm);
+            if (_permissionIndex[account][newPerm] != 0) revert PermissionAlreadyRegistered(newPerm);
+            _permissions[account][idx - 1] = newPerm;
+            delete _permissionIndex[account][oldPerm];
+            _permissionIndex[account][newPerm] = idx;
+            emit PermissionReplaced(account, oldPerm, newPerm);
+        }
+
+        _collectRegistrationFee(fee);
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
     }
 
     /// @notice Suspend the manager session for an account. All `dispatch` calls will
@@ -753,6 +838,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    The `permissions` array is EIP-712 encoded as keccak256 of the ABI-packed
     ///         zero-padded addresses (see `_hashAddressArray`). Empty arrays are a no-op
     ///         and do not consume a nonce.
+    /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
+    ///         If a registered permission is upgradeable or uses a proxy, a change to its
+    ///         implementation requires no new kernel signature. Operators are responsible for
+    ///         registering only non-upgradeable or audited permission contracts.
+    ///         See Sail Protocol whitepaper §8.2.
     /// @param  account     The registered Safe account.
     /// @param  permissions Addresses of permission contracts to register.
     /// @param  deadline    Unix timestamp after which the signature is invalid.
@@ -1231,6 +1321,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ) external nonReentrant whenNotPaused {
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
+        if (!cfg.sessionActive) revert SessionInactive(account);
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
         address feePolicy = cfg.feePolicy;
         if (feePolicy == address(0)) revert FeePolicyNotSet();
