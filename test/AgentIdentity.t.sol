@@ -68,8 +68,11 @@ contract AgentIdentityTest is Test {
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new AgentTestSafe();
 
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Canonical test identity
         _ref = AgentIdentityRef({
@@ -102,12 +105,13 @@ contract AgentIdentityTest is Test {
 
     function _registerPermission(address permission) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce, deadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
-        kernel.registerPermission(address(safe), permission, abi.encodePacked(r, s, v));
+        kernel.registerPermission(address(safe), permission, deadline, abi.encodePacked(r, s, v));
     }
 
     function _signDispatch(

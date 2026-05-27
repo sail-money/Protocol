@@ -29,11 +29,12 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
 
         bytes memory cfgSig = _signConfigure(swap, address(safe), params, deadline, PERM_SIGNER_KEY);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig   = _signRegisterPermission(address(safe), address(swap), 0);
 
         uint256 fee = _calcFee(address(swap));
         factory.attach{value: fee}(
-            address(safe), address(swap), params, deadline, cfgSig, kSig
+            address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig
         );
 
         assertTrue(kernel.isPermissionRegistered(address(safe), address(swap)));
@@ -48,6 +49,7 @@ contract MandateFactoryTest is FactoryTestBase {
         bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap, address(safe), params, deadline, PERM_SIGNER_KEY);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig   = _signRegisterPermission(address(safe), address(swap), 0);
 
         uint256 fee = _calcFee(address(swap));
@@ -55,7 +57,7 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 before_ = address(this).balance;
 
         factory.attach{value: overpay}(
-            address(safe), address(swap), params, deadline, cfgSig, kSig
+            address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig
         );
 
         assertEq(before_ - address(this).balance, fee, "net cost should equal fee");
@@ -66,12 +68,13 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
         // Sign with the manager key instead of permSigner key — invalid for configure
         bytes memory badCfgSig = _signConfigure(swap, address(safe), params, deadline, MANAGER_KEY);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig     = _signRegisterPermission(address(safe), address(swap), 0);
 
         uint256 fee = _calcFee(address(swap));
         vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
         factory.attach{value: fee}(
-            address(safe), address(swap), params, deadline, badCfgSig, kSig
+            address(safe), address(swap), params, deadline, badCfgSig, kDeadline, kSig
         );
     }
 
@@ -79,6 +82,7 @@ contract MandateFactoryTest is FactoryTestBase {
         bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap, address(safe), params, deadline, PERM_SIGNER_KEY);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig   = _signRegisterPermission(address(safe), address(swap), 0);
 
         vm.warp(deadline + 1);
@@ -87,7 +91,7 @@ contract MandateFactoryTest is FactoryTestBase {
             abi.encodeWithSelector(BaseSharedPermission.DeadlineExpired.selector, deadline, block.timestamp)
         );
         factory.attach{value: fee}(
-            address(safe), address(swap), params, deadline, cfgSig, kSig
+            address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig
         );
     }
 
@@ -95,15 +99,16 @@ contract MandateFactoryTest is FactoryTestBase {
         bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap, address(safe), params, deadline, PERM_SIGNER_KEY);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig   = _signRegisterPermission(address(safe), address(swap), 0);
 
         uint256 fee = _calcFee(address(swap));
-        factory.attach{value: fee}(address(safe), address(swap), params, deadline, cfgSig, kSig);
+        factory.attach{value: fee}(address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig);
 
         // Replay with same configure sig — template's nonce has advanced, so sig is stale
         bytes memory kSig2 = _signRegisterPermission(address(safe), address(swap), 1);
         vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
-        factory.attach{value: fee}(address(safe), address(swap), params, deadline, cfgSig, kSig2);
+        factory.attach{value: fee}(address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig2);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -128,7 +133,7 @@ contract MandateFactoryTest is FactoryTestBase {
 
         assertTrue(swap.isAllowedTokenOut(address(safe), WBTC), "new token should be allowed");
         assertTrue(swap.isAllowedTokenOut(address(safe), USDC), "old token still allowed");
-        (,,,uint256 cap,,) = swap.getConfig(address(safe));
+        (,,,uint256 cap,,,) = swap.getConfig(address(safe));
         assertEq(cap, 20 ether);
     }
 
@@ -213,11 +218,12 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap2, address(safe), params, deadline, PERM_SIGNER_KEY);
         uint256 sigNonce = kernel.signerNonces(address(safe));
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig = _signReplacePermission(address(safe), address(swap), address(swap2), sigNonce);
 
         uint256 fee = _calcFee(address(swap2));
         factory.replace{value: fee}(
-            address(safe), address(swap), address(swap2), params, deadline, cfgSig, kSig
+            address(safe), address(swap), address(swap2), params, deadline, cfgSig, kDeadline, kSig
         );
 
         assertFalse(kernel.isPermissionRegistered(address(safe), address(swap)));
@@ -232,9 +238,10 @@ contract MandateFactoryTest is FactoryTestBase {
     function test_Detach_RemovesFromKernel_PreservesConfig() public {
         _attachSwap(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 0, address(0));
         uint256 sigNonce = kernel.signerNonces(address(safe));
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig = _signRevokePermission(address(safe), address(swap), sigNonce);
 
-        factory.detach(address(safe), address(swap), kSig);
+        factory.detach(address(safe), address(swap), kDeadline, kSig);
 
         assertFalse(kernel.isPermissionRegistered(address(safe), address(swap)));
         // Config slot remains
@@ -279,10 +286,11 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap, address(safe), params, deadline, PERM_SIGNER_KEY);
         uint256 sigNonce = kernel.signerNonces(address(safe));
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig = _signRegisterPermission(address(safe), address(swap), sigNonce);
         uint256 fee = _calcFee(address(swap));
         factory.attach{value: fee}(
-            address(safe), address(swap), params, deadline, cfgSig, kSig
+            address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig
         );
     }
 

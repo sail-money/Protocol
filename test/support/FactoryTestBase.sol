@@ -44,6 +44,8 @@ contract MockSafe {
         Call storage c = _calls[i];
         return (c.to, c.value, c.data, c.operation);
     }
+
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 /// @dev Test fixture deploying the full stack: governance, kernel, factory, mock Safe.
@@ -84,9 +86,14 @@ abstract contract FactoryTestBase is Test {
         safe = new MockSafe();
         vm.deal(address(safe), 100 ether);
 
+        // registerAccount now requires the caller's codehash to be allowlisted as a trusted
+        // Safe proxy (Octane #4a). Seed the mock's codehash via the governance timelock.
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         // registerAccount is called by the Safe itself (msg.sender == account)
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     receive() external payable {}
@@ -121,8 +128,9 @@ abstract contract FactoryTestBase is Test {
         view
         returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -155,8 +163,9 @@ abstract contract FactoryTestBase is Test {
         address newP,
         uint256 nonce
     ) internal view returns (bytes memory) {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -167,8 +176,9 @@ abstract contract FactoryTestBase is Test {
         view
         returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

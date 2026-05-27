@@ -19,7 +19,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address[] tokensOut,
 ///                 uint256   maxAmountPerTx,
 ///                 uint256   maxSlippageBps,
-///                 address   priceOracle
+///                 address   priceOracle,
+///                 uint256   maxPriceAgeSec
 ///             )
 contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrospection {
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) — V3 SwapRouter (with deadline)
@@ -40,6 +41,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
         uint256   maxAmountPerTx;
         uint256   maxSlippageBps;
         address   priceOracle;
+        uint256   maxPriceAgeSec;
     }
 
     mapping(address account => Slot) private _slots;
@@ -64,11 +66,12 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
             address[] memory tokensOut,
             uint256 maxAmountPerTx,
             uint256 maxSlippageBps,
-            address priceOracle
+            address priceOracle,
+            uint256 maxPriceAgeSec
         )
     {
         Slot storage s = _slots[account];
-        return (s.routers, s.tokensIn, s.tokensOut, s.maxAmountPerTx, s.maxSlippageBps, s.priceOracle);
+        return (s.routers, s.tokensIn, s.tokensOut, s.maxAmountPerTx, s.maxSlippageBps, s.priceOracle, s.maxPriceAgeSec);
     }
 
     // ── config application ────────────────────────────────────────────────────
@@ -80,10 +83,14 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
             address[] memory tokensOut,
             uint256 maxAmountPerTx,
             uint256 maxSlippageBps,
-            address priceOracle
-        ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address));
+            address priceOracle,
+            uint256 maxPriceAgeSec
+        ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address, uint256));
 
         if (maxSlippageBps > 9_999) revert SlippageBpsTooLarge(maxSlippageBps);
+        // A configured oracle must come with a freshness bound; 0 would silently accept
+        // arbitrarily stale prices and re-open the staleness gap the oracle is meant to close.
+        if (priceOracle != address(0) && maxPriceAgeSec == 0) revert MissingPriceAge();
 
         // Clear previous allowlists for this account
         Slot storage s = _slots[account];
@@ -102,6 +109,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
         s.maxAmountPerTx = maxAmountPerTx;
         s.maxSlippageBps = maxSlippageBps;
         s.priceOracle    = priceOracle;
+        s.maxPriceAgeSec = maxPriceAgeSec;
     }
 
     // ── IPermission ───────────────────────────────────────────────────────────
@@ -184,7 +192,9 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
         uint256 amountOutMin
     ) internal view returns (bool) {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
-        (uint256 price, uint8 dec,) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        // On L2s, check sequencer-uptime first.
+        (uint256 price, uint8 dec, uint256 updatedAt) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        if (s.maxPriceAgeSec > 0 && (updatedAt == 0 || block.timestamp - updatedAt > s.maxPriceAgeSec)) return false;
         if (price == 0) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);

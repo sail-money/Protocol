@@ -25,12 +25,13 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
         address predicted = factory.predictCloneAddress(address(withdrawImpl), salt);
 
         bytes memory initData = _withdrawInitData(address(safe), permSigner);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
         );
 
         address clone = factory.deployAndAttach{value: _calcFee(predicted)}(
-            address(safe), address(withdrawImpl), salt, initData, kernelSig
+            address(safe), address(withdrawImpl), salt, initData, kDeadline, kernelSig
         );
 
         assertEq(clone, predicted, "clone address should match prediction");
@@ -48,20 +49,22 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         bytes memory initData = abi.encodeCall(
             BoundedSwapPermission.initialize,
-            (_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 10_000, address(0), permSigner)
+            (_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 10_000, address(0), 0, permSigner)
         );
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
         );
         uint256 fee = _calcFee(predicted);
 
         vm.expectRevert(abi.encodeWithSelector(BoundedSwapPermission.SlippageBpsTooLarge.selector, 10_000));
-        factory.deployAndAttach{value: fee}(address(safe), address(swapImpl), salt, initData, kernelSig);
+        factory.deployAndAttach{value: fee}(address(safe), address(swapImpl), salt, initData, kDeadline, kernelSig);
     }
 
     function test_DeployAndAttach_ShortInitDataReverts() public {
         bytes32 salt = _salt(address(withdrawImpl), "short-init-data");
         address predicted = factory.predictCloneAddress(address(withdrawImpl), salt);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
         );
@@ -69,7 +72,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         vm.expectRevert(MandateFactory.InitDataTooShort.selector);
         factory.deployAndAttach{value: fee}(
-            address(safe), address(withdrawImpl), salt, hex"123456", kernelSig
+            address(safe), address(withdrawImpl), salt, hex"123456", kDeadline, kernelSig
         );
     }
 
@@ -78,6 +81,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
         address predicted = factory.predictCloneAddress(address(withdrawImpl), salt);
 
         bytes memory initData = abi.encodeCall(BoundedWithdrawPermission.discriminator, ());
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
         );
@@ -85,7 +89,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         vm.expectRevert(MandateFactory.CloneInitFailed.selector);
         factory.deployAndAttach{value: fee}(
-            address(safe), address(withdrawImpl), salt, initData, kernelSig
+            address(safe), address(withdrawImpl), salt, initData, kDeadline, kernelSig
         );
     }
 
@@ -95,15 +99,16 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         MockSafe otherSafe = new MockSafe();
         vm.prank(address(otherSafe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         bytes memory firstInitData = _withdrawInitData(address(otherSafe), permSigner);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory firstKernelSig = _signRegisterPermission(
             address(otherSafe), predicted, kernel.signerNonces(address(otherSafe))
         );
 
         factory.deployAndAttach{value: _calcFee(predicted)}(
-            address(otherSafe), address(withdrawImpl), salt, firstInitData, firstKernelSig
+            address(otherSafe), address(withdrawImpl), salt, firstInitData, kDeadline, firstKernelSig
         );
         assertTrue(kernel.isPermissionRegistered(address(otherSafe), predicted));
 
@@ -115,7 +120,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         vm.expectRevert();
         factory.deployAndAttach{value: secondFee}(
-            address(safe), address(withdrawImpl), salt, secondInitData, secondKernelSig
+            address(safe), address(withdrawImpl), salt, secondInitData, kDeadline, secondKernelSig
         );
     }
 

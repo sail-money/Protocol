@@ -142,8 +142,13 @@ abstract contract RedTeamBase2 is Test {
         safe.enableModule(address(kernel));
         vm.deal(address(safe), 100 ether);
 
+        // registerAccount requires an allowlisted Safe-proxy codehash (Octane #4a). One seed
+        // covers all MockSafe2 instances (targetSafe/newSafe/unregisteredSafe).
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         alwaysTrue = new AlwaysTruePerm2();
     }
@@ -153,8 +158,9 @@ abstract contract RedTeamBase2 is Test {
     function _signRegisterPermission(address account, address permission, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -163,8 +169,9 @@ abstract contract RedTeamBase2 is Test {
     function _signRevokePermission(address account, address permission, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -173,8 +180,9 @@ abstract contract RedTeamBase2 is Test {
     function _signReplacePermission(address account, address oldP, address newP, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -200,7 +208,22 @@ abstract contract RedTeamBase2 is Test {
     function _signSetFeePolicy(address account, address newFeePolicy, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, nonce));
+        uint256 deadline = type(uint256).max;
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, address(0), nonce, deadline));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _trustFeePolicy(address policy) internal {
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(policy, true);
+    }
+
+    function _signSetFeePolicyWithAsset(
+        address account, address newFeePolicy, address feeAsset, uint256 nonce, uint256 signerKey
+    ) internal view returns (bytes memory) {
+        uint256 deadline = type(uint256).max;
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, feeAsset, nonce, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
@@ -227,8 +250,9 @@ abstract contract RedTeamBase2 is Test {
 
     function _registerAlwaysTrue() internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes memory sig = _signRegisterPermission(address(safe), address(alwaysTrue), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(alwaysTrue), sig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(alwaysTrue), deadline, sig);
     }
 
     /// @dev Helper: configure a minimal SharedDeFiBundlePermission for `account` via configureDirect.
@@ -262,11 +286,12 @@ contract FeeRecipientFixTests is RedTeamBase2 {
     function test_Attack_FeeRecipient_ManagerRedirectionViaPolicy() public {
         // Attacker-controlled policy: feeRecipient == attacker
         MutableRecipientFeePolicy badPolicy = new MutableRecipientFeePolicy(attacker, 10 ether);
+        _trustFeePolicy(address(badPolicy));
 
         // permSigner (trust anchor) sets this policy
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(badPolicy), fpSig);
+        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
 
         uint256 attackerBefore = attacker.balance;
         uint256 safeBefore     = address(safe).balance;
@@ -290,10 +315,11 @@ contract FeeRecipientFixTests is RedTeamBase2 {
     function test_Attack_FeeRecipient_ZeroAddressFromPolicy() public {
         // Deploy a policy whose feeRecipient returns address(0)
         MutableRecipientFeePolicy zeroPolicy = new MutableRecipientFeePolicy(address(0), 1 ether);
+        _trustFeePolicy(address(zeroPolicy));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(zeroPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(zeroPolicy), fpSig);
+        kernel.setFeePolicy(address(safe), address(zeroPolicy), address(0), type(uint256).max, fpSig);
 
         // collectFees should revert when feeRecipient() == address(0)
         vm.prank(manager);
@@ -312,10 +338,11 @@ contract FeeRecipientFixTests is RedTeamBase2 {
         address malicRecipient  = attacker;
 
         MutableRecipientFeePolicy policy = new MutableRecipientFeePolicy(legitRecipient, 10 ether);
+        _trustFeePolicy(address(policy));
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(policy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(policy), fpSig);
+        kernel.setFeePolicy(address(safe), address(policy), address(0), type(uint256).max, fpSig);
 
         // Change recipient to attacker BEFORE collectFees is called
         policy.setRecipient(malicRecipient);
@@ -337,23 +364,21 @@ contract FeeRecipientFixTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // feeRecipient() should return feeManager (permSigner here)
         assertEq(sfp.feeRecipient(), permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(sfp), fpSig);
+        kernel.setFeePolicy(address(safe), address(sfp), address(0), type(uint256).max, fpSig);
 
         // H-5 fix: feeManager must seed HWM before manager can collect.
+        // seedHighWaterMark now initialises lastCollectionTimestamp; no zero-fee collection needed.
         vm.prank(permSigner);
         sfp.seedHighWaterMark(address(safe), 1_000_000e18);
 
-        // Manager cannot change who receives fees — they're bound to sfp.feeManager
-        vm.prank(manager);
-        kernel.collectFees(address(safe), 0, 1_000_000e18, address(0));
-
-        // Confirm feeRecipient is still permSigner after collection
+        // Confirm feeRecipient is still permSigner
         assertEq(sfp.feeRecipient(), permSigner, "feeRecipient should remain feeManager");
     }
 }
@@ -417,10 +442,11 @@ contract FactoryReceiveFixTests is RedTeamBase2 {
         cfgSig = abi.encodePacked(cr, cs, cv);
 
         kNonce = kernel.signerNonces(address(safe));
+        uint256 kDeadline = block.timestamp + 1 days;
         kSig = _signRegisterPermission(address(safe), address(bundle2), kNonce, PERM_SIGNER_KEY);
 
         // Overpay by 0.999 ether (fee is 0.001 ether)
-        factory.attach{value: 1 ether}(address(safe), address(bundle2), params, cfgDeadline, cfgSig, kSig);
+        factory.attach{value: 1 ether}(address(safe), address(bundle2), params, cfgDeadline, cfgSig, kDeadline, kSig);
 
         uint256 netCost = balBefore - address(this).balance;
         assertEq(netCost, 0.001 ether, "Factory should refund excess after receiving from kernel");
@@ -462,8 +488,9 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, regSig);
 
         uint256 deadline = block.timestamp + 1 hours;
         // 1-byte calldata — old code would have taken the ETH path; new code falls through
@@ -488,8 +515,9 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, regSig);
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = hex"aabb"; // 2 bytes
@@ -512,8 +540,9 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, regSig);
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = hex"aabbcc"; // 3 bytes
@@ -536,8 +565,9 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, regSig);
 
         // Give 0xBEEF a receive()
         vm.deal(address(0xBEEF), 0);
@@ -565,8 +595,9 @@ contract TransferTargetCalldataTests is RedTeamBase2 {
         ttp.initialize(recipients, tokens, 10 ether, permSigner);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(ttp), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, regSig);
 
         uint256 deadline = block.timestamp + 1 hours;
         // 4 bytes that don't match transfer(0xa9059cbb) or transferFrom(0x23b872dd)
@@ -612,6 +643,7 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         borCfg.maxLtvBps        = 10_000; // 100% LTV — should still fail due to colNorm == 0
         borCfg.collateralOracle = address(collOracle);
         borCfg.borrowOracle     = address(borOracle);
+        borCfg.maxPriceAgeSec   = 3600;
         SharedDeFiBundlePermission.TransferConfig memory xferCfg;
         xferCfg.recipients = emptyAddrs; xferCfg.tokens = emptyAddrs;
 
@@ -620,8 +652,9 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), params);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline, regSig);
 
         bytes4 AAVE_SEL = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
         bytes memory data = abi.encodeWithSelector(AAVE_SEL, asset, uint256(1), uint256(2), uint16(0), address(safe));
@@ -663,6 +696,7 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         borCfg.maxLtvBps        = 7_500;
         borCfg.collateralOracle = address(collOracle);
         borCfg.borrowOracle     = address(borOracle);
+        borCfg.maxPriceAgeSec   = 3600;
         SharedDeFiBundlePermission.TransferConfig memory xferCfg;
         xferCfg.recipients = emptyAddrs; xferCfg.tokens = emptyAddrs;
 
@@ -671,8 +705,9 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), params);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline, regSig);
 
         bytes4 AAVE_SEL = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
         uint256 deadline = block.timestamp + 1 hours;
@@ -721,6 +756,7 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         borCfg.maxLtvBps = 10_000;
         borCfg.collateralOracle = address(collOracle);
         borCfg.borrowOracle = address(borOracle);
+        borCfg.maxPriceAgeSec = 3600;
         SharedDeFiBundlePermission.TransferConfig memory xferCfg;
         xferCfg.recipients = emptyAddrs; xferCfg.tokens = emptyAddrs;
 
@@ -729,8 +765,9 @@ contract BundleLTVNormalisationTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), params);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline, regSig);
 
         bytes4 AAVE_SEL = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
         bytes memory data = abi.encodeWithSelector(AAVE_SEL, asset, uint256(1), uint256(2), uint16(0), address(safe));
@@ -873,8 +910,9 @@ contract AllowlistLengthTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), params);
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory regSig = _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regSig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline, regSig);
 
         // Build a valid V3 swap
         bytes4 V3_SEL = 0x414bf389;
@@ -991,12 +1029,13 @@ contract ReplacePermissionTests is RedTeamBase2 {
 
         // old permission is NOT registered — nonce should NOT be consumed
         uint256 nonceBefore = kernel.signerNonces(address(safe));
+        uint256 replaceDeadline = block.timestamp + 1 days;
         bytes memory sig = _signReplacePermission(
             address(safe), address(alwaysTrue), address(p2), nonceBefore, PERM_SIGNER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(alwaysTrue)));
-        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), sig);
+        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), replaceDeadline, sig);
 
         // Nonce must NOT have advanced
         assertEq(kernel.signerNonces(address(safe)), nonceBefore,
@@ -1010,12 +1049,13 @@ contract ReplacePermissionTests is RedTeamBase2 {
 
         // Try to replace alwaysTrue with alwaysTrue itself
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 replaceDeadline = block.timestamp + 1 days;
         bytes memory sig = _signReplacePermission(
             address(safe), address(alwaysTrue), address(alwaysTrue), nonce, PERM_SIGNER_KEY
         );
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionAlreadyRegistered.selector, address(alwaysTrue)));
-        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(alwaysTrue), sig);
+        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(alwaysTrue), replaceDeadline, sig);
     }
 
     // ── 17c. Valid replacePermission succeeds and old is deregistered ──
@@ -1025,11 +1065,12 @@ contract ReplacePermissionTests is RedTeamBase2 {
         AlwaysTruePerm2 p2 = new AlwaysTruePerm2();
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 replaceDeadline = block.timestamp + 1 days;
         bytes memory sig = _signReplacePermission(
             address(safe), address(alwaysTrue), address(p2), nonce, PERM_SIGNER_KEY
         );
 
-        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), sig);
+        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), replaceDeadline, sig);
 
         assertFalse(kernel.isPermissionRegistered(address(safe), address(alwaysTrue)), "Old should be deregistered");
         assertTrue(kernel.isPermissionRegistered(address(safe), address(p2)), "New should be registered");
@@ -1042,10 +1083,11 @@ contract ReplacePermissionTests is RedTeamBase2 {
         AlwaysTruePerm2 p2 = new AlwaysTruePerm2();
 
         uint256 nonceBefore = kernel.signerNonces(address(safe));
+        uint256 replaceDeadline = block.timestamp + 1 days;
         bytes memory sig = _signReplacePermission(
             address(safe), address(alwaysTrue), address(p2), nonceBefore, PERM_SIGNER_KEY
         );
-        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), sig);
+        kernel.replacePermission{value: 0.001 ether}(address(safe), address(alwaysTrue), address(p2), replaceDeadline, sig);
 
         assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "Nonce must advance exactly 1");
     }
@@ -1070,12 +1112,13 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
 
         // Register BOTH alwaysTrue and ttp
         uint256 nonce1 = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes memory sig1 = _signRegisterPermission(address(safe), address(alwaysTrue), nonce1, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(alwaysTrue), sig1);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(alwaysTrue), regDeadline, sig1);
 
         uint256 nonce2 = kernel.signerNonces(address(safe));
         bytes memory sig2 = _signRegisterPermission(address(safe), address(ttp), nonce2, PERM_SIGNER_KEY);
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), sig2);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline, sig2);
 
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory data = "";
@@ -1122,12 +1165,13 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), params);
 
         // Register both permissions
+        uint256 regDeadline = block.timestamp + 1 days;
         uint256 n1 = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp),
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(ttp), regDeadline,
             _signRegisterPermission(address(safe), address(ttp), n1, PERM_SIGNER_KEY));
 
         uint256 n2 = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle),
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline,
             _signRegisterPermission(address(safe), address(bundle), n2, PERM_SIGNER_KEY));
 
         // Build Aave borrow calldata — Bundle allows it, TTP must also evaluate it
@@ -1180,12 +1224,13 @@ contract CrossTemplateAttackTests is RedTeamBase2 {
         vm.prank(permSigner);
         bundle2.configureDirect(address(safe), abi.encode(swapCfg2, borCfg, xferCfg));
 
+        uint256 regDeadline = block.timestamp + 1 days;
         uint256 n1 = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle1),
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle1), regDeadline,
             _signRegisterPermission(address(safe), address(bundle1), n1, PERM_SIGNER_KEY));
 
         uint256 n2 = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle2),
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle2), regDeadline,
             _signRegisterPermission(address(safe), address(bundle2), n2, PERM_SIGNER_KEY));
 
         // Swap via router1 — bundle1 allows it, bundle2 does NOT (router2 only) → denied
@@ -1238,7 +1283,8 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), abi.encode(swapCfg, borCfg, xferCfg));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle),
+        uint256 regDeadline = block.timestamp + 1 days;
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline,
             _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY));
 
         // Build calldata with onBehalfOf = attacker (not safe)
@@ -1288,7 +1334,8 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), abi.encode(swapCfg, borCfg, xferCfg));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle),
+        uint256 regDeadline = block.timestamp + 1 days;
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline,
             _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY));
 
         bytes4 V3_SEL = 0x414bf389;
@@ -1335,7 +1382,8 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
         bundle.configureDirect(address(safe), abi.encode(swapCfg, borCfg, xferCfg));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle),
+        uint256 regDeadline = block.timestamp + 1 days;
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(bundle), regDeadline,
             _signRegisterPermission(address(safe), address(bundle), nonce, PERM_SIGNER_KEY));
 
         bytes4 MORPHO_SEL = bytes4(keccak256("borrow(address,uint256,address,address)"));
@@ -1361,44 +1409,37 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
 // =============================================================================
 contract RegisterAccountDeepTests is RedTeamBase2 {
 
-    // ── 20a. Attacker can register an EOA address they control as an account ──
-    //   Since registerAccount uses msg.sender as the account, the attacker registers
-    //   themselves — not a vulnerability, but confirms the intent.
-    //   The attacker's account will be separate from the victim's Safe.
+    // ── 20a. Attacker EOA cannot self-register (Octane #4a) ──
+    //   Post-fix, registerAccount rejects callers whose codehash is not an allowlisted Safe
+    //   proxy. An EOA (codehash 0) is rejected outright.
 
     function test_Attack_RegisterAccount_AttackerRegistersOwnAddress() public {
         assertFalse(kernel.registered(attacker));
 
         vm.prank(attacker);
-        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0));
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
+        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0), address(0));
 
-        assertTrue(kernel.registered(attacker));
-        // attacker's account is registered with attacker-controlled parameters
-        (address ps,,, ) = kernel.configs(attacker);
-        assertEq(ps, address(0xDEAD));
+        assertFalse(kernel.registered(attacker));
     }
 
-    // ── 20b. Victim's Safe cannot be front-run since only the Safe can call registerAccount
-    //   for itself (msg.sender == account in registerAccount). An EOA cannot register
-    //   the Safe's address because the Safe hasn't called the kernel.
+    // ── 20b. Victim's Safe cannot be front-run; attacker EOA is rejected by codehash gate ──
 
     function test_Attack_RegisterAccount_CannotFrontRunSafe() public {
         MockSafe2 targetSafe = new MockSafe2();
         targetSafe.enableModule(address(kernel));
 
-        // Attacker tries to register targetSafe's address — they cannot,
-        // because attacker's msg.sender != targetSafe's address.
-        // When attacker calls registerAccount, the kernel uses msg.sender (attacker) as account.
+        // Attacker EOA cannot register anything — codehash gate rejects it.
         vm.prank(attacker);
-        kernel.registerAccount(address(0x111), address(0x222), address(0));
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
+        kernel.registerAccount(address(0x111), address(0x222), address(0), address(0));
 
-        // attacker is registered, not targetSafe
-        assertTrue(kernel.registered(attacker));
+        assertFalse(kernel.registered(attacker));
         assertFalse(kernel.registered(address(targetSafe)));
 
-        // Now targetSafe registers itself
+        // Now targetSafe (allowlisted MockSafe2 codehash, module enabled) registers itself.
         vm.prank(address(targetSafe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
         assertTrue(kernel.registered(address(targetSafe)));
     }
 
@@ -1425,12 +1466,13 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         MockSafe2 newSafe = new MockSafe2();
         newSafe.enableModule(address(kernel));
 
-        // Manager calls registerAccount — this registers the manager's address, not newSafe
+        // Manager is an EOA — codehash gate (Octane #4a) rejects its registration attempt.
         vm.prank(manager);
-        kernel.registerAccount(permSigner, address(0x1234), address(0));
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, manager.codehash));
+        kernel.registerAccount(permSigner, address(0x1234), address(0), address(0));
 
-        assertTrue(kernel.registered(manager));   // manager registered itself
-        assertFalse(kernel.registered(address(newSafe))); // newSafe still unregistered
+        assertFalse(kernel.registered(manager));
+        assertFalse(kernel.registered(address(newSafe)));
     }
 }
 
@@ -1479,6 +1521,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // Manager tries to call proposeFeeManager — must revert
         vm.prank(manager);
@@ -1492,6 +1535,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         // permSigner nominates address(0x1234), not attacker
         vm.prank(permSigner);
@@ -1509,6 +1553,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         StandardFeePolicy sfp = new StandardFeePolicy(
             0, 0, address(0), 0, address(kernel), permSigner
         );
+        _trustFeePolicy(address(sfp));
 
         assertEq(sfp.feeRecipient(), permSigner);
 
@@ -1526,12 +1571,15 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
 
     function test_Attack_CollectFees_ERC20ZeroRecipient() public {
         MutableRecipientFeePolicy zeroPolicy = new MutableRecipientFeePolicy(address(0), 1 ether);
-
-        uint256 nonce = kernel.signerNonces(address(safe));
-        bytes memory fpSig = _signSetFeePolicy(address(safe), address(zeroPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(zeroPolicy), fpSig);
+        _trustFeePolicy(address(zeroPolicy));
 
         address mockToken = address(0x7070);
+
+        // Bind feeAsset = mockToken so the FeeTokenMismatch guard passes,
+        // then the kernel's ZeroAddress check on feeRecipient() fires.
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes memory fpSig = _signSetFeePolicyWithAsset(address(safe), address(zeroPolicy), mockToken, nonce, PERM_SIGNER_KEY);
+        kernel.setFeePolicy(address(safe), address(zeroPolicy), mockToken, type(uint256).max, fpSig);
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.ZeroAddress.selector);

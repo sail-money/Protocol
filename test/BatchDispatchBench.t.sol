@@ -26,6 +26,7 @@ contract BenchSafe {
         }
         return ok;
     }
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 contract BenchERC20 {
@@ -94,8 +95,10 @@ contract BatchDispatchBenchmark is Test {
 
         safe = new BenchSafe();
         vm.deal(address(safe), 10 ether);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         token  = new BenchERC20();
         token.mint(address(safe), 10_000 ether);
@@ -111,9 +114,10 @@ contract BatchDispatchBenchmark is Test {
 
     function _register(address perm) internal {
         uint256 n = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), perm, n));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), perm, n, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
-        kernel.registerPermission{value: gov.permissionRegistrationFee()}(address(safe), perm, abi.encodePacked(r, s, v));
+        kernel.registerPermission{value: gov.permissionRegistrationFee()}(address(safe), perm, deadline, abi.encodePacked(r, s, v));
     }
 
     function _configure() internal {
@@ -227,9 +231,10 @@ contract BatchDispatchBenchmark is Test {
 
     function _revoke(address perm) internal {
         uint256 n = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), perm, n));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), perm, n, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
-        kernel.revokePermission(address(safe), perm, abi.encodePacked(r, s, v));
+        kernel.revokePermission(address(safe), perm, deadline, abi.encodePacked(r, s, v));
     }
 }
 

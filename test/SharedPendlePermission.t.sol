@@ -184,7 +184,7 @@ contract SharedPendlePermissionTest is FactoryTestBase {
         // Register a second safe
         safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

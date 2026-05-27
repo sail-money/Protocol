@@ -53,6 +53,12 @@ contract MockSafeFactory {
     function createProxyWithNonce(address, bytes calldata, uint256) external returns (address) {
         return address(new MockSafe());
     }
+
+    // createAccount predicts the address first; returning address(0) (no code) makes the kernel
+    // proceed to deploy via createProxyWithNonce.
+    function calculateCreateProxyWithNonceAddress(address, bytes calldata, uint256) external pure returns (address) {
+        return address(0);
+    }
 }
 
 contract MockPermission is IPermission {
@@ -179,22 +185,31 @@ contract SailKernelTest is Test {
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
         feePolicy.setFeeRecipient(manager);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
+
+        // registerAccount now requires the caller's codehash to be an allowlisted Safe proxy
+        // (Octane #4a). All MockSafe instances share this codehash, so one seed covers the
+        // safe2/safe3/newSafe accounts created across the tests below.
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
     function _registerPermission(address permission) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 structHash = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce, deadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
-        kernel.registerPermission(address(safe), permission, abi.encodePacked(r, s, v));
+        kernel.registerPermission(address(safe), permission, deadline, abi.encodePacked(r, s, v));
     }
 
     function _signDispatch(
@@ -265,7 +280,7 @@ contract SailKernelTest is Test {
 
     function test_RegisterAccount_SetsConfig() public view {
         assertTrue(kernel.registered(address(safe)));
-        (address ps, address mgr,, bool active) = kernel.configs(address(safe));
+        (address ps, address mgr,,, bool active) = kernel.configs(address(safe));
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
         assertTrue(active);
@@ -274,29 +289,29 @@ contract SailKernelTest is Test {
     function test_RegisterAccount_RevertsIfAlreadyRegistered() public {
         vm.prank(address(safe));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountAlreadyRegistered.selector, address(safe)));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     function test_RegisterAccount_RevertsOnZeroPermissionSigner() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.registerAccount(address(0), manager, address(0));
+        kernel.registerAccount(address(0), manager, address(0), address(0));
     }
 
     function test_RegisterAccount_RevertsOnZeroManager() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.registerAccount(permSigner, address(0), address(0));
+        kernel.registerAccount(permSigner, address(0), address(0), address(0));
     }
 
     function test_RegisterAccount_CallerBecomesAccount() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
         assertTrue(kernel.registered(address(newSafe)));
-        (address ps,,, ) = kernel.configs(address(newSafe));
+        (address ps,,,, ) = kernel.configs(address(newSafe));
         assertEq(ps, permSigner);
     }
 
@@ -306,10 +321,10 @@ contract SailKernelTest is Test {
         MockSafe safe3 = new MockSafe();
 
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         vm.prank(address(safe3));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         assertTrue(kernel.registered(address(safe2)));
         assertTrue(kernel.registered(address(safe3)));
@@ -319,21 +334,37 @@ contract SailKernelTest is Test {
     // 1b. createAccount
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// @dev Build a Safe v1.4.1 `setup` initializer with `to` = `moduleSetup` (at bytes [68:100]),
+    ///      satisfying the kernel's initializer-length and trusted-`to` checks. The MockSafeFactory
+    ///      ignores the initializer body, so only the `to` field matters here.
+    function _setupInit(address moduleSetup) internal pure returns (bytes memory) {
+        address[] memory owners = new address[](1);
+        owners[0] = address(0xA0);
+        return abi.encodeWithSelector(
+            bytes4(0xb63e800d),
+            owners, uint256(1), moduleSetup, bytes(""),
+            address(0), address(0), uint256(0), payable(address(0))
+        );
+    }
+
     function test_CreateAccount_DeploysAndRegisters() public {
         MockSafeFactory factory = new MockSafeFactory();
-        address singleton = address(0xBEEF);
+        address singleton   = address(0xBEEF);
+        address moduleSetup = address(0xD00D);
 
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(singleton, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
 
         address account = kernel.createAccount(
-            address(factory), singleton, "", 0, permSigner, manager, address(feePolicy)
+            address(factory), singleton, _setupInit(moduleSetup), 0, permSigner, manager, address(feePolicy), address(0)
         );
 
         assertTrue(kernel.registered(account));
-        (address ps, address mgr,, bool active) = kernel.configs(account);
+        (address ps, address mgr,,, bool active) = kernel.configs(account);
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
         assertTrue(active);
@@ -341,22 +372,28 @@ contract SailKernelTest is Test {
 
     function test_CreateAccount_RevertsOnZeroPermissionSigner() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(address(0), true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), "", 0, address(0), manager, address(0));
+        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, address(0), manager, address(0), address(0));
     }
 
     function test_CreateAccount_RevertsOnZeroManager() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(address(0), true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), "", 0, permSigner, address(0), address(0));
+        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, permSigner, address(0), address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -378,30 +415,33 @@ contract SailKernelTest is Test {
     function test_RegisterPermission_RevertsOnDuplicate() public {
         _registerPermission(address(perm));
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionAlreadyRegistered.selector, address(perm)));
-        kernel.registerPermission(address(safe), address(perm), sig);
+        kernel.registerPermission(address(safe), address(perm), deadline, sig);
     }
 
     function test_RegisterPermission_RevertsOnBadSig() public {
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
-        kernel.registerPermission(address(safe), address(perm), abi.encodePacked(r, s, v));
+        kernel.registerPermission(address(safe), address(perm), deadline, abi.encodePacked(r, s, v));
     }
 
     function test_RegisterPermission_ChargesFee() public {
         _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
 
         uint256 treasuryBefore = TREASURY.balance;
-        kernel.registerPermission{value: 0.001 ether}(address(safe), address(perm), sig);
+        kernel.registerPermission{value: 0.001 ether}(address(safe), address(perm), deadline, sig);
         assertEq(TREASURY.balance - treasuryBefore, 0.001 ether);
     }
 
@@ -409,14 +449,15 @@ contract SailKernelTest is Test {
         _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
 
         address caller = address(0x9999);
         vm.deal(caller, 1 ether);
         uint256 balBefore = caller.balance;
         vm.prank(caller);
-        kernel.registerPermission{value: 0.5 ether}(address(safe), address(perm), sig);
+        kernel.registerPermission{value: 0.5 ether}(address(safe), address(perm), deadline, sig);
         assertEq(balBefore - caller.balance, 0.001 ether);
     }
 
@@ -424,40 +465,44 @@ contract SailKernelTest is Test {
         _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (0.001 ether)));
 
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.InsufficientFee.selector, 0.001 ether, 0.0005 ether));
-        kernel.registerPermission{value: 0.0005 ether}(address(safe), address(perm), sig);
+        kernel.registerPermission{value: 0.0005 ether}(address(safe), address(perm), deadline, sig);
     }
 
     function test_RevokePermission_Succeeds() public {
         _registerPermission(address(perm));
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
-        kernel.revokePermission(address(safe), address(perm), sig);
+        kernel.revokePermission(address(safe), address(perm), deadline, sig);
         assertFalse(kernel.isPermissionRegistered(address(safe), address(perm)));
         assertEq(kernel.getPermissions(address(safe)).length, 0);
     }
 
     function test_RevokePermission_RevertsIfNotRegistered() public {
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline));
         bytes memory sig = _signerSig(sh);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(perm)));
-        kernel.revokePermission(address(safe), address(perm), sig);
+        kernel.revokePermission(address(safe), address(perm), deadline, sig);
     }
 
     function test_ReplacePermission_Succeeds() public {
         _registerPermission(address(perm));
         MockPermission perm2 = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce, deadline
         ));
         bytes memory sig = _signerSig(sh);
-        kernel.replacePermission(address(safe), address(perm), address(perm2), sig);
+        kernel.replacePermission(address(safe), address(perm), address(perm2), deadline, sig);
         assertFalse(kernel.isPermissionRegistered(address(safe), address(perm)));
         assertTrue(kernel.isPermissionRegistered(address(safe), address(perm2)));
         assertEq(kernel.getPermissions(address(safe)).length, 1);
@@ -469,28 +514,30 @@ contract SailKernelTest is Test {
 
         MockPermission perm2 = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce, deadline
         ));
         bytes memory sig = _signerSig(sh);
 
         uint256 treasuryBefore = TREASURY.balance;
-        kernel.replacePermission{value: 0.001 ether}(address(safe), address(perm), address(perm2), sig);
+        kernel.replacePermission{value: 0.001 ether}(address(safe), address(perm), address(perm2), deadline, sig);
         assertEq(TREASURY.balance - treasuryBefore, 0.001 ether);
     }
 
     function test_RevokeSession_DisablesDispatch() public {
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonce, deadline));
         bytes memory sig = _signerSig(sh);
-        kernel.revokeSession(address(safe), sig);
+        kernel.revokeSession(address(safe), deadline, sig);
 
-        uint256 deadline      = block.timestamp + 1 hours;
+        uint256 dispatchDeadline = block.timestamp + 1 hours;
         uint256 dispatchNonce = kernel.managerNonces(address(safe));
-        bytes memory dispatchSig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchNonce, deadline);
+        bytes memory dispatchSig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchNonce, dispatchDeadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(safe)));
-        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchSig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", dispatchSig, dispatchDeadline);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -665,7 +712,7 @@ contract SailKernelTest is Test {
         uint256 slipBps   = 200; // 2%
 
         BoundedSwapPermission swapPerm = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
-        swapPerm.initialize(routers, tIn, tOut, maxAmt, slipBps, address(oracle), permSigner);
+        swapPerm.initialize(routers, tIn, tOut, maxAmt, slipBps, address(oracle), 3600, permSigner);
 
         _registerPermission(address(swapPerm));
 
@@ -696,7 +743,7 @@ contract SailKernelTest is Test {
         address[] memory tOut    = new address[](1); tOut[0]    = tokenOut;
 
         BoundedSwapPermission swapPerm = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
-        swapPerm.initialize(routers, tIn, tOut, 1_000e18, 200, address(oracle), permSigner);
+        swapPerm.initialize(routers, tIn, tOut, 1_000e18, 200, address(oracle), 3600, permSigner);
         _registerPermission(address(swapPerm));
 
         // amountOutMin = 1 violates the oracle-derived floor (196e18).
@@ -792,6 +839,13 @@ contract SailKernelTest is Test {
         uint256 grossFee = 500;
         feePolicy.setFee(grossFee, address(0), 0);
 
+        // Update feeAsset to match ERC-20 token
+        {
+            uint256 nonce = kernel.signerNonces(address(safe));
+            bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max));
+            kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, _signerSig(sh));
+        }
+
         vm.prank(manager);
         kernel.collectFees(address(safe), grossFee, 0, token);
 
@@ -822,7 +876,7 @@ contract SailKernelTest is Test {
     function test_CollectFees_RevertsIfNoPolicySet() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.FeePolicyNotSet.selector);
@@ -861,6 +915,71 @@ contract SailKernelTest is Test {
         vm.expectRevert(SailKernel.ZeroAddress.selector);
         kernel.collectFees(address(safe), 1_000, 1e18, address(0));
     }
+
+    function test_CollectFees_RevertsOnZeroFee() public {
+        feePolicy.setFee(1_000, address(0), 0);
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.ZeroFee.selector);
+        kernel.collectFees(address(safe), 0, 1e18, address(0));
+    }
+
+    function test_CollectFees_RevertsOnFeeTokenMismatch() public {
+        address wrongToken = address(0xDEAD);
+        feePolicy.setFee(1_000, address(0), 0);
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.FeeTokenMismatch.selector, wrongToken, address(0)));
+        kernel.collectFees(address(safe), 1_000, 1e18, wrongToken);
+    }
+
+    function test_CollectFees_FeeAssetBinding_ETHMatches() public {
+        // feeAsset = address(0) and feeToken = address(0) -> should pass the mismatch check
+        feePolicy.setFee(1_000, address(0), 0);
+        vm.prank(manager);
+        kernel.collectFees(address(safe), 1_000, 1e18, address(0)); // no revert
+    }
+
+    function test_CollectFees_ERC20FeeAsset_ETHTokenReverts() public {
+        // Denomination mismatch: feeAsset is an ERC-20 but manager passes ETH (address(0)).
+        // Finding #3: feeToken must match the bound feeAsset in both directions.
+        address erc20Token = address(0xE20);
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), erc20Token, nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(feePolicy), erc20Token, type(uint256).max, _signerSig(sh));
+
+        feePolicy.setFee(1_000, address(0), 0);
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.FeeTokenMismatch.selector, address(0), erc20Token));
+        kernel.collectFees(address(safe), 1_000, 1e18, address(0)); // ETH when ERC-20 expected
+    }
+
+    function test_CollectFees_ZeroFee_DoesNotInvokePolicy() public {
+        // Finding #9: ZeroFee must be caught before the policy is consulted, ensuring
+        // recordCollection is never called and lastCollectionTimestamp cannot advance.
+        feePolicy.setFee(1_000, address(0), 0);
+        assertFalse(feePolicy.recordCalled());
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.ZeroFee.selector);
+        kernel.collectFees(address(safe), 0, 1e18, address(0));
+        assertFalse(feePolicy.recordCalled(), "recordCollection must not be called on ZeroFee");
+    }
+
+    function test_SetFeePolicy_ClearsFeeAssetOnZeroPolicy() public {
+        // Set to non-zero first
+        address someToken = address(0xABCD);
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), someToken, nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(feePolicy), someToken, type(uint256).max, _signerSig(sh));
+        (,, , address fa,) = kernel.configs(address(safe));
+        assertEq(fa, someToken);
+
+        // Clear policy -> feeAsset should clear to address(0)
+        nonce = kernel.signerNonces(address(safe));
+        sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, _signerSig(sh));
+        (,, , address fa2,) = kernel.configs(address(safe));
+        assertEq(fa2, address(0));
+    }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // 5. Principal tracking
@@ -958,13 +1077,14 @@ contract SailKernelTest is Test {
         gov.pause();
 
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh    = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(perm), nonce, deadline
         ));
         bytes memory sig = _signerSig(sh);
 
         vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.registerPermission(address(safe), address(perm), sig);
+        kernel.registerPermission(address(safe), address(perm), deadline, sig);
     }
 
     function test_PauseExpiry_AllowsDispatchAfter72h() public {
@@ -988,13 +1108,14 @@ contract SailKernelTest is Test {
 
         MockPermission perm2 = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), address(safe), address(perm), address(perm2), nonce, deadline
         ));
         bytes memory sig = _signerSig(sh);
 
         vm.expectRevert(SailKernel.ProtocolPaused.selector);
-        kernel.replacePermission(address(safe), address(perm), address(perm2), sig);
+        kernel.replacePermission(address(safe), address(perm), address(perm2), deadline, sig);
     }
 
     function test_Unpause_AllowsDispatch() public {
@@ -1019,13 +1140,15 @@ contract SailKernelTest is Test {
         _registerPermission(address(perm));
 
         // Revoke
-        bytes32 revokeSh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
-        kernel.revokeSession(address(safe), _signerSig(revokeSh));
+        uint256 revokeDeadline = block.timestamp + 1 days;
+        bytes32 revokeSh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe)), revokeDeadline));
+        kernel.revokeSession(address(safe), revokeDeadline, _signerSig(revokeSh));
         assertFalse(_sessionActive());
 
         // Activate
-        bytes32 activateSh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
-        kernel.activateSession(address(safe), _signerSig(activateSh));
+        uint256 activateDeadline = block.timestamp + 1 days;
+        bytes32 activateSh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe)), activateDeadline));
+        kernel.activateSession(address(safe), activateDeadline, _signerSig(activateSh));
         assertTrue(_sessionActive());
 
         // Dispatch now works
@@ -1035,52 +1158,57 @@ contract SailKernelTest is Test {
 
     function test_RevokeSession_Permanent_WithoutActivate() public {
         _registerPermission(address(perm));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
-        kernel.revokeSession(address(safe), _signerSig(sh));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe)), deadline));
+        kernel.revokeSession(address(safe), deadline, _signerSig(sh));
 
-        uint256 deadline = block.timestamp + 1 hours;
+        uint256 dispatchDeadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
-        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, dispatchDeadline);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.SessionInactive.selector, address(safe)));
-        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, dispatchDeadline);
     }
 
     function test_ActivateSession_RevertsOnBadSig() public {
-        bytes32 sh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe)), deadline));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
-        kernel.activateSession(address(safe), abi.encodePacked(r, s, v));
+        kernel.activateSession(address(safe), deadline, abi.encodePacked(r, s, v));
     }
 
     function test_ActivateSession_IdempotentOnAlreadyActiveSession() public {
         // Session is active by default — activating again should succeed and consume a nonce
-        (,,, bool activeBefore) = kernel.configs(address(safe));
+        (,,,, bool activeBefore) = kernel.configs(address(safe));
         assertTrue(activeBefore);
         uint256 nonceBefore = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
 
-        bytes32 sh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), nonceBefore));
-        kernel.activateSession(address(safe), _signerSig(sh));
+        bytes32 sh = keccak256(abi.encode(kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), nonceBefore, deadline));
+        kernel.activateSession(address(safe), deadline, _signerSig(sh));
 
-        (,,, bool activeAfter) = kernel.configs(address(safe));
+        (,,,, bool activeAfter) = kernel.configs(address(safe));
         assertTrue(activeAfter, "session should remain active");
         assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "nonce consumed");
     }
 
     function test_RevokeSession_IdempotentOnAlreadyInactiveSession() public {
         // Revoke once
-        bytes32 sh1 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe))));
-        kernel.revokeSession(address(safe), _signerSig(sh1));
+        uint256 deadline1 = block.timestamp + 1 days;
+        bytes32 sh1 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), kernel.signerNonces(address(safe)), deadline1));
+        kernel.revokeSession(address(safe), deadline1, _signerSig(sh1));
 
-        (,,, bool activeAfterFirst) = kernel.configs(address(safe));
+        (,,,, bool activeAfterFirst) = kernel.configs(address(safe));
         assertFalse(activeAfterFirst);
 
         // Revoke again — should succeed and consume another nonce
         uint256 nonceBefore = kernel.signerNonces(address(safe));
-        bytes32 sh2 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonceBefore));
-        kernel.revokeSession(address(safe), _signerSig(sh2));
+        uint256 deadline2 = block.timestamp + 1 days;
+        bytes32 sh2 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonceBefore, deadline2));
+        kernel.revokeSession(address(safe), deadline2, _signerSig(sh2));
 
-        (,,, bool activeAfterSecond) = kernel.configs(address(safe));
+        (,,,, bool activeAfterSecond) = kernel.configs(address(safe));
         assertFalse(activeAfterSecond, "session should remain inactive");
         assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "nonce consumed");
     }
@@ -1091,33 +1219,37 @@ contract SailKernelTest is Test {
 
     function test_SetFeePolicy_UpdatesPolicy() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), kernel.signerNonces(address(safe))));
-        kernel.setFeePolicy(address(safe), address(newPolicy), _signerSig(sh));
-        (,, address fp,) = kernel.configs(address(safe));
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(newPolicy), true);
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
+        (,, address fp,,) = kernel.configs(address(safe));
         assertEq(fp, address(newPolicy));
     }
 
     function test_SetFeePolicy_AllowsZeroAddress() public {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), kernel.signerNonces(address(safe))));
-        kernel.setFeePolicy(address(safe), address(0), _signerSig(sh));
-        (,, address fp,) = kernel.configs(address(safe));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, _signerSig(sh));
+        (,, address fp,,) = kernel.configs(address(safe));
         assertEq(fp, address(0));
     }
 
     function test_SetFeePolicy_RevertsOnBadSig() public {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), kernel.signerNonces(address(safe))));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
-        kernel.setFeePolicy(address(safe), address(0), abi.encodePacked(r, s, v));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, abi.encodePacked(r, s, v));
     }
 
     function test_SetFeePolicy_EmitsEvent() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), kernel.signerNonces(address(safe))));
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(newPolicy), true);
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         vm.expectEmit(true, true, false, false);
         emit SailKernel.FeePolicyUpdated(address(safe), address(newPolicy));
-        kernel.setFeePolicy(address(safe), address(newPolicy), _signerSig(sh));
+        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1137,10 +1269,11 @@ contract SailKernelTest is Test {
         // One more should revert
         MockPermission extra = new MockPermission();
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(extra), nonce));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(extra), nonce, deadline));
         bytes memory sig = _signerSig(sh);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.TooManyPermissions.selector, address(safe), cap));
-        kernel.registerPermission(address(safe), address(extra), sig);
+        kernel.registerPermission(address(safe), address(extra), deadline, sig);
     }
 
     function test_RegisterPermission_AfterRevokeAllowsNew() public {
@@ -1155,8 +1288,9 @@ contract SailKernelTest is Test {
 
         // Revoke one
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perms[0]), nonce));
-        kernel.revokePermission(address(safe), address(perms[0]), _signerSig(sh));
+        uint256 deadline = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perms[0]), nonce, deadline));
+        kernel.revokePermission(address(safe), address(perms[0]), deadline, _signerSig(sh));
         assertEq(kernel.getPermissions(address(safe)).length, cap - 1);
 
         // Now can register one more
@@ -1208,14 +1342,15 @@ contract SailKernelTest is Test {
         // Register new safe with the contract as manager
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy));
+        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0));
 
         // Register a permission
         uint256 sigNonce = kernel.signerNonces(address(safe2));
-        bytes32 regSh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce));
+        uint256 regDeadline = block.timestamp + 1 days;
+        bytes32 regSh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce, regDeadline));
         bytes32 regDigest = kernel.hashTypedDataV4(regSh);
         (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(SIGNER_KEY, regDigest);
-        kernel.registerPermission(address(safe2), address(perm), abi.encodePacked(r1, s1, v1));
+        kernel.registerPermission(address(safe2), address(perm), regDeadline, abi.encodePacked(r1, s1, v1));
 
         // Build dispatch sig using the backing EOA — kernel verifies via ERC1271
         uint256 deadline = block.timestamp + 1 hours;
@@ -1236,12 +1371,13 @@ contract SailKernelTest is Test {
 
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy));
+        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0));
 
         uint256 sigNonce = kernel.signerNonces(address(safe2));
-        bytes32 regSh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce));
+        uint256 regDeadline2 = block.timestamp + 1 days;
+        bytes32 regSh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce, regDeadline2));
         (uint8 v1, bytes32 r1, bytes32 s1) = vm.sign(SIGNER_KEY, kernel.hashTypedDataV4(regSh));
-        kernel.registerPermission(address(safe2), address(perm), abi.encodePacked(r1, s1, v1));
+        kernel.registerPermission(address(safe2), address(perm), regDeadline2, abi.encodePacked(r1, s1, v1));
 
         uint256 deadline = block.timestamp + 1 hours;
         uint256 dispNonce = kernel.managerNonces(address(safe2));
@@ -1261,14 +1397,15 @@ contract SailKernelTest is Test {
         // Register new safe with the contract as permissionSigner
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(address(contractSigner), manager, address(feePolicy));
+        kernel.registerAccount(address(contractSigner), manager, address(feePolicy), address(0));
 
         // Register permission using backing EOA sig verified by ERC1271
         uint256 sigNonce = kernel.signerNonces(address(safe2));
-        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce));
+        uint256 regDeadline3 = block.timestamp + 1 days;
+        bytes32 sh = keccak256(abi.encode(kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe2), address(perm), sigNonce, regDeadline3));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(backingKey, digest);
-        kernel.registerPermission(address(safe2), address(perm), abi.encodePacked(r, s, v));
+        kernel.registerPermission(address(safe2), address(perm), regDeadline3, abi.encodePacked(r, s, v));
 
         assertTrue(kernel.isPermissionRegistered(address(safe2), address(perm)));
     }
@@ -1278,6 +1415,6 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _sessionActive() internal view returns (bool active) {
-        (,,, active) = kernel.configs(address(safe));
+        (,,,, active) = kernel.configs(address(safe));
     }
 }

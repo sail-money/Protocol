@@ -96,6 +96,9 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     ///         Set to address(0) to disable the LTV check.
     address public borrowOracle;
 
+    /// @notice Maximum acceptable oracle price age in seconds. 0 = no freshness check.
+    uint256 public maxPriceAgeSec;
+
     /// @notice Address authorised to update mutable parameters.
     address public permissionSigner;
 
@@ -130,6 +133,9 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     ///      Both must use the same denomination and precision for the LTV ratio to be valid.
     error OracleDecimalMismatch(uint8 collateralDec, uint8 borrowDec);
 
+    /// @notice Thrown when both LTV oracles are configured but no freshness bound is set.
+    error MissingPriceAge();
+
     // -------------------------------------------------------------------------
     // Modifier
     // -------------------------------------------------------------------------
@@ -154,6 +160,7 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     ///                            Must not exceed 10 000.
     /// @param  _collateralOracle  Oracle for the Safe's collateral value. address(0) skips LTV.
     /// @param  _borrowOracle      Oracle for borrow asset price. address(0) skips LTV.
+    /// @param  _maxPriceAgeSec    Maximum acceptable oracle price age in seconds. 0 = no check.
     /// @param  _permissionSigner  Address permitted to update mutable parameters.
     /// @dev    Oracle decimal alignment is verified at initialization only if both oracles
     ///         successfully respond to a zero-address probe. If either oracle reverts on
@@ -167,10 +174,16 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
         uint256 _maxLtvBps,
         address _collateralOracle,
         address _borrowOracle,
+        uint256 _maxPriceAgeSec,
         address _permissionSigner
     ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         if (_maxLtvBps > 10_000) revert LtvBpsTooLarge(_maxLtvBps);
+        // The LTV check runs only when both oracles are set; in that case a freshness bound
+        // is mandatory. 0 would silently accept arbitrarily stale prices and re-open the gap.
+        if (_collateralOracle != address(0) && _borrowOracle != address(0) && _maxPriceAgeSec == 0) {
+            revert MissingPriceAge();
+        }
 
         // When both oracles are set, verify at construction that they report the same
         // decimals so the LTV ratio (borrowValue / collateralValue) is dimensionally
@@ -192,6 +205,7 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
         maxLtvBps        = _maxLtvBps;
         collateralOracle = _collateralOracle;
         borrowOracle     = _borrowOracle;
+        maxPriceAgeSec   = _maxPriceAgeSec;
         permissionSigner = _permissionSigner;
 
         for (uint256 i; i < allowedProtocols.length; i++) isAllowedProtocol[allowedProtocols[i]] = true;
@@ -298,8 +312,13 @@ contract BoundedBorrowPermission is IPermission, CloneInitializable {
     function _ltvCheck(address asset, uint256 amount, address account) internal view returns (bool) {
         if (collateralOracle == address(0) || borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec,) = IOracle(collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec,) = IOracle(borrowOracle).getPrice(asset, address(0));
+        // On L2s, also check sequencer-uptime before trusting prices.
+        (uint256 colValue, uint8 colDec, uint256 colUpdatedAt) = IOracle(collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec, uint256 borUpdatedAt) = IOracle(borrowOracle).getPrice(asset, address(0));
+        if (maxPriceAgeSec > 0) {
+            if (colUpdatedAt == 0 || block.timestamp - colUpdatedAt > maxPriceAgeSec) return false;
+            if (borUpdatedAt == 0 || block.timestamp - borUpdatedAt > maxPriceAgeSec) return false;
+        }
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;

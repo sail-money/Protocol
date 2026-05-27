@@ -98,6 +98,23 @@ contract SailGovernance {
     ///         Only singletons in this mapping may be used in `createAccount`.
     mapping(address => bool) public trustedSafeSingleton;
 
+    /// @notice Allowlist of fee policy contracts trusted by the kernel.
+    ///         Only policies in this mapping may be set via `_registerAccount` or `setFeePolicy`.
+    ///         Prevents upgradeable/metamorphic policies from being used to redirect or inflate fees.
+    mapping(address => bool) public trustedFeePolicy;
+
+    /// @notice Allowlist of Safe `SafeModuleSetup`-style helpers trusted by the kernel.
+    ///         Only helpers in this mapping may be used as the `to` target of Safe.setup's
+    ///         internal delegatecall during `createAccount`. This is the structural defense
+    ///         against attacker-controlled setup delegatecalls overwriting the proxy slot 0.
+    mapping(address => bool) public trustedModuleSetup;
+
+    /// @notice Allowlist of Safe proxy runtime codehashes trusted by the kernel.
+    ///         A freshly deployed proxy (in `createAccount`) or a self-registering Safe
+    ///         (in `registerAccount`) must match one of these codehashes, proving it is a
+    ///         genuine Safe proxy rather than arbitrary attacker bytecode.
+    mapping(bytes32 => bool) public trustedSafeProxyCodehash;
+
     /// @notice Emitted when a Safe factory's trusted status changes.
     /// @param  factory  The factory address.
     /// @param  trusted  True if added to the allowlist, false if removed.
@@ -107,6 +124,21 @@ contract SailGovernance {
     /// @param  singleton  The singleton address.
     /// @param  trusted    True if added to the allowlist, false if removed.
     event SafeSingletonTrusted(address indexed singleton, bool trusted);
+
+    /// @notice Emitted when a fee policy's trusted status changes.
+    /// @param  policy   The fee policy address.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event FeePolicyTrusted(address indexed policy, bool trusted);
+
+    /// @notice Emitted when a module-setup helper's trusted status changes.
+    /// @param  setup    The helper address.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event ModuleSetupTrusted(address indexed setup, bool trusted);
+
+    /// @notice Emitted when a Safe proxy codehash's trusted status changes.
+    /// @param  codehash The proxy runtime codehash.
+    /// @param  trusted  True if added to the allowlist, false if removed.
+    event SafeProxyCodehashTrusted(bytes32 indexed codehash, bool trusted);
 
     /// @notice Add or remove a Safe proxy factory from the trusted allowlist.
     /// @param  factory  Address of the factory contract.
@@ -122,6 +154,36 @@ contract SailGovernance {
     function setTrustedSafeSingleton(address singleton, bool trusted) external onlyTimelock {
         trustedSafeSingleton[singleton] = trusted;
         emit SafeSingletonTrusted(singleton, trusted);
+    }
+
+    /// @notice Add or remove a fee policy contract from the trusted allowlist.
+    /// @param  policy   Address of the fee policy contract.
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedFeePolicy(address policy, bool trusted) external onlyTimelock {
+        if (policy == address(0)) revert ZeroAddress();
+        trustedFeePolicy[policy] = trusted;
+        emit FeePolicyTrusted(policy, trusted);
+    }
+
+    /// @notice Add or remove a `SafeModuleSetup`-style helper from the trusted allowlist.
+    /// @dev    Only helpers in this allowlist may be used as the `to` target of the Safe
+    ///         setup delegatecall constructed by `SailKernel.createAccount`.
+    /// @param  setup    Address of the module-setup helper contract.
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedModuleSetup(address setup, bool trusted) external onlyTimelock {
+        if (setup == address(0)) revert ZeroAddress();
+        trustedModuleSetup[setup] = trusted;
+        emit ModuleSetupTrusted(setup, trusted);
+    }
+
+    /// @notice Add or remove a Safe proxy runtime codehash from the trusted allowlist.
+    /// @dev    Used by the kernel to confirm a deployed or self-registering account is a
+    ///         genuine Safe proxy rather than attacker bytecode.
+    /// @param  codehash The proxy runtime codehash (keccak256 of the proxy's deployed code).
+    /// @param  trusted  True to add to allowlist, false to remove.
+    function setTrustedSafeProxyCodehash(bytes32 codehash, bool trusted) external onlyTimelock {
+        trustedSafeProxyCodehash[codehash] = trusted;
+        emit SafeProxyCodehashTrusted(codehash, trusted);
     }
 
     // -------------------------------------------------------------------------
@@ -403,6 +465,7 @@ contract SailGovernance {
     /// @notice Lift the pause early.
     function unpause() external onlyEmergencyAdmin {
         pauseExpiry = 0;
+        lastPauseTimestamp = 0; // allow immediate re-pause after early unpause
         emit Unpaused();
     }
 

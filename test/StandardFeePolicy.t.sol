@@ -30,10 +30,9 @@ contract StandardFeePolicyTest is Test {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     function _initAccount(address acct, uint256 nav) internal {
+        // seedHighWaterMark now sets lastCollectionTimestamp; no separate first recordCollection needed.
         vm.prank(FEE_MANAGER);
         policy.seedHighWaterMark(acct, nav);
-        vm.prank(KERNEL);
-        policy.recordCollection(acct, 0, nav);
     }
 
     // expected management fee for pro-rated accrual
@@ -151,7 +150,6 @@ contract StandardFeePolicyTest is Test {
     function test_ComputeFee_ManagementFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
         vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
-        vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         (uint256 grossFee,,) = p.computeFee(ACCOUNT, NAV);
         assertEq(grossFee, 0);
@@ -212,7 +210,6 @@ contract StandardFeePolicyTest is Test {
     function test_ComputeFee_PerfFee_ZeroRate() public {
         StandardFeePolicy p = new StandardFeePolicy(MGMT_BPS, 0, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
         vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
-        vm.prank(KERNEL); p.recordCollection(ACCOUNT, 0, NAV);
         vm.warp(T0 + 365 days);
         uint256 higherNav = NAV * 2;
         (uint256 grossFee,,) = p.computeFee(ACCOUNT, higherNav);
@@ -274,14 +271,18 @@ contract StandardFeePolicyTest is Test {
         assertEq(policy.lastCollectionTimestamp(ACCOUNT), T0);
     }
 
-    function test_RecordCollection_InitEmitsFeesCollectedWithZeroFee() public {
+    function test_SeedHighWaterMark_InitializesRateSnapshots() public {
+        // seedHighWaterMark now owns full initialisation: it sets lastCollectionTimestamp
+        // and snapshots the current global rates so the first collection period starts
+        // immediately (no separate zero-fee recordCollection needed).
         vm.prank(FEE_MANAGER);
+        vm.expectEmit(true, false, false, true, address(policy));
+        emit StandardFeePolicy.HWMSeeded(ACCOUNT, NAV);
         policy.seedHighWaterMark(ACCOUNT, NAV);
 
-        vm.expectEmit(true, false, false, true, address(policy));
-        emit StandardFeePolicy.FeesCollected(ACCOUNT, 0, NAV, NAV);
-        vm.prank(KERNEL);
-        policy.recordCollection(ACCOUNT, 0, NAV);
+        assertEq(policy.appliedManagementFeeBps(ACCOUNT),  MGMT_BPS);
+        assertEq(policy.appliedPerformanceFeeBps(ACCOUNT), PERF_BPS);
+        assertEq(policy.lastCollectionTimestamp(ACCOUNT),  T0);
     }
 
     function test_RecordCollection_FirstCallReturnsFeeZeroOnNextCompute() public {
@@ -508,8 +509,8 @@ contract StandardFeePolicyTest is Test {
 
         vm.warp(T0 + 365 days);
         (uint256 fee,,) = policy.computeFee(ACCOUNT, NAV);
-        // Only management fee at new rate
-        assertEq(fee, _expectedMgmt(NAV, 100, 365 days));
+        // Rate change is prospective: old rate (MGMT_BPS) still applies until next recordCollection
+        assertEq(fee, _expectedMgmt(NAV, MGMT_BPS, 365 days));
     }
 
     // ── setters: setPerformanceFeeBps ─────────────────────────────────────────
@@ -560,7 +561,8 @@ contract StandardFeePolicyTest is Test {
         vm.warp(T0 + 1);
         (uint256 fee,,) = policy.computeFee(ACCOUNT, higherNav);
         uint256 mgmt = _expectedMgmt(higherNav, MGMT_BPS, 1);
-        uint256 perf = (higherNav - NAV) * 1_000 / 10_000;
+        // Prospective: old rate (PERF_BPS = 2000) applies until next recordCollection
+        uint256 perf = (higherNav - NAV) * PERF_BPS / 10_000;
         assertEq(fee, mgmt + perf);
     }
 
@@ -804,4 +806,41 @@ contract StandardFeePolicyTest is Test {
         (uint256 fee,,) = policy.computeFee(ACCOUNT, 0);
         assertEq(fee, 0); // nav=0 → both fees zero
     }
+// ── rate-snapshot (prospective-only repricing) ────────────────────────────────
+
+    function test_RateSnapshot_MgmtRateRaisedBeforeCollection_UsesOldRate() public {
+        _initAccount(ACCOUNT, NAV);
+        // Raise global rate to cap BEFORE collection
+        vm.prank(FEE_MANAGER);
+        policy.setManagementFeeBps(1_000); // raised from 200 to 1000
+
+        vm.warp(T0 + 365 days);
+        (uint256 fee,,) = policy.computeFee(ACCOUNT, NAV);
+        // Should use OLD snapshot rate (200), not new global rate (1000)
+        assertEq(fee, _expectedMgmt(NAV, MGMT_BPS, 365 days));
+    }
+
+    function test_RateSnapshot_AfterCollection_UsesNewRate() public {
+        _initAccount(ACCOUNT, NAV);
+        // First collection: snapshot advances to new rate
+        vm.prank(FEE_MANAGER);
+        policy.setManagementFeeBps(1_000);
+
+        vm.warp(T0 + 1 days);
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, 0, NAV); // advances snapshot to 1000
+
+        // Second period: should use new rate (1000)
+        vm.warp(T0 + 2 days);
+        (uint256 fee,,) = policy.computeFee(ACCOUNT, NAV);
+        assertEq(fee, _expectedMgmt(NAV, 1_000, 1 days));
+    }
+
+    function test_RateSnapshot_SeedHighWaterMark_InitialisesSnapshots() public {
+        vm.prank(FEE_MANAGER);
+        policy.seedHighWaterMark(ACCOUNT, NAV);
+        assertEq(policy.appliedManagementFeeBps(ACCOUNT),  MGMT_BPS);
+        assertEq(policy.appliedPerformanceFeeBps(ACCOUNT), PERF_BPS);
+    }
+
 }

@@ -94,6 +94,9 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     /// @notice Price oracle used for slippage validation. address(0) = oracle disabled.
     address public priceOracle;
 
+    /// @notice Maximum age of an oracle price in seconds. 0 = no freshness check.
+    uint256 public maxPriceAgeSec;
+
     /// @notice Address authorised to update mutable settings.
     address public permissionSigner;
 
@@ -124,6 +127,9 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     /// @dev Thrown when a requested slippage value exceeds 9 999 basis points.
     error SlippageBpsTooLarge(uint256 bps);
 
+    /// @notice Thrown when a price oracle is configured but no freshness bound is set.
+    error MissingPriceAge();
+
     // -------------------------------------------------------------------------
     // Modifier
     // -------------------------------------------------------------------------
@@ -147,6 +153,7 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     /// @param  _maxAmountPerTx    Initial per-transaction amountIn cap.
     /// @param  _maxSlippageBps    Initial slippage tolerance (0–9 999 bps). 0 = oracle disabled.
     /// @param  _priceOracle       Oracle address; address(0) = oracle disabled.
+    /// @param  _maxPriceAgeSec    Maximum acceptable oracle price age in seconds. 0 = no check.
     /// @param  _permissionSigner  Address permitted to update mutable settings.
     function initialize(
         address[] memory allowedRouters,
@@ -155,16 +162,21 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
         uint256 _maxAmountPerTx,
         uint256 _maxSlippageBps,
         address _priceOracle,
+        uint256 _maxPriceAgeSec,
         address _permissionSigner
     ) external initializer {
         if (_permissionSigner == address(0)) revert ZeroAddress();
         // 9_999 max: 10_000 would compute oracleMinOut = 0 when oracle is set,
         // silently bypassing the oracle floor. Use slippage = 0 to explicitly disable.
         if (_maxSlippageBps > 9_999) revert SlippageBpsTooLarge(_maxSlippageBps);
+        // A configured oracle must come with a freshness bound; 0 would silently accept
+        // arbitrarily stale prices and re-open the staleness gap the oracle is meant to close.
+        if (_priceOracle != address(0) && _maxPriceAgeSec == 0) revert MissingPriceAge();
 
         maxAmountPerTx   = _maxAmountPerTx;
         maxSlippageBps   = _maxSlippageBps;
         priceOracle      = _priceOracle;
+        maxPriceAgeSec   = _maxPriceAgeSec;
         permissionSigner = _permissionSigner;
 
         for (uint256 i; i < allowedRouters.length;   i++) isAllowedRouter[allowedRouters[i]]     = true;
@@ -303,7 +315,9 @@ contract BoundedSwapPermission is IPermission, CloneInitializable {
     ) internal view returns (bool) {
         if (priceOracle == address(0) || maxSlippageBps == 0) return true;
 
-        (uint256 price, uint8 dec,) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
+        // On L2s, also check sequencer-uptime via a Chainlink L2 sequencer feed before trusting prices.
+        (uint256 price, uint8 dec, uint256 updatedAt) = IOracle(priceOracle).getPrice(tokenIn, tokenOut);
+        if (maxPriceAgeSec > 0 && (updatedAt == 0 || block.timestamp - updatedAt > maxPriceAgeSec)) return false;
         if (price == 0) return false;
         // 10^78 overflows uint256; treat as unsupported oracle configuration → deny.
         if (dec > 77) return false;
