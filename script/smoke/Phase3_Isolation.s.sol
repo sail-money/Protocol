@@ -140,18 +140,20 @@ contract Phase3_Isolation is Script {
             // Defensive: should never be zero here, but guard against weird state.
         }
         uint256 sNonce = kernel.signerNonces(safe);
+        uint256 revokeDeadline = block.timestamp + 1 days;
         bytes32 structHash = keccak256(abi.encode(
             kernel.REVOKE_PERMISSION_TYPEHASH(),
             safe,
             oldTT,
-            sNonce
+            sNonce,
+            revokeDeadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployerPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.broadcast(deployerPk);
-        kernel.revokePermission(safe, oldTT, sig);
+        kernel.revokePermission(safe, oldTT, revokeDeadline, sig);
 
         require(kernel.signerNonces(safe) == sNonce + 1, "C.4: signerNonce not advanced");
         console2.log("[C.4] OK revoked OLD TransferTarget:", oldTT);
@@ -186,18 +188,20 @@ contract Phase3_Isolation is Script {
         );
 
         uint256 sNonce = kernel.signerNonces(safe);
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes32 structHash = keccak256(abi.encode(
             kernel.REGISTER_PERMISSION_TYPEHASH(),
             safe,
             predicted,
-            sNonce
+            sNonce,
+            regDeadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployerPk, digest);
         bytes memory kernelSig = abi.encodePacked(r, s, v);
 
         vm.startBroadcast(deployerPk);
-        newTT = factory.deployAndAttach(safe, transferImpl, salt, initData, kernelSig);
+        newTT = factory.deployAndAttach(safe, transferImpl, salt, initData, regDeadline, kernelSig);
         vm.stopBroadcast();
         require(newTT == predicted, "C.6: predicted clone mismatch");
         console2.log("[C.6] OK NEW TransferTarget (USDC mode):", newTT);

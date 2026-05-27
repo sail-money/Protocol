@@ -34,7 +34,7 @@ contract BundlePermissionTest is FactoryTestBase {
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
         vm.prank(address(safeB));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -288,9 +288,10 @@ contract BundlePermissionTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(bundle, account, params, deadline, PERM_SIGNER_KEY);
         uint256 sigNonce = kernel.signerNonces(account);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig = _signRegisterPermission(account, address(bundle), sigNonce);
         uint256 fee = _calcFee(address(bundle));
-        factory.attach{value: fee}(account, address(bundle), params, deadline, cfgSig, kSig);
+        factory.attach{value: fee}(account, address(bundle), params, deadline, cfgSig, kDeadline, kSig);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -319,7 +320,8 @@ contract BundlePermissionTest is FactoryTestBase {
             tokensOut: tokensOut,
             maxAmountPerTx: cap,
             maxSlippageBps: slippageBps,
-            priceOracle: oracle
+            priceOracle: oracle,
+            maxPriceAgeSec: 3600
         });
     }
 
@@ -337,7 +339,8 @@ contract BundlePermissionTest is FactoryTestBase {
             maxAmountPerTx: cap,
             maxLtvBps: maxLtvBps,
             collateralOracle: col,
-            borrowOracle: bor
+            borrowOracle: bor,
+            maxPriceAgeSec: 3600
         });
     }
 

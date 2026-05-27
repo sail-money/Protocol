@@ -45,7 +45,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
         vm.prank(address(safeB));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -380,8 +380,8 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory cfgSig = _signConfigure(swapTemplate, address(safe), newParams, deadline, PERM_SIGNER_KEY);
         factory.reconfigure(address(safe), address(swapTemplate), newParams, deadline, cfgSig);
 
-        (,,,uint256 capA,,) = swapTemplate.getConfig(address(safe));
-        (,,,uint256 capB,,) = swapTemplate.getConfig(address(safeB));
+        (,,,uint256 capA,,,) = swapTemplate.getConfig(address(safe));
+        (,,,uint256 capB,,,) = swapTemplate.getConfig(address(safeB));
         assertEq(capA, 100 ether);
         assertEq(capB,   5 ether);
 
@@ -464,9 +464,10 @@ contract FactoryDeFiTest is FactoryTestBase {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(template, account, params, deadline, PERM_SIGNER_KEY);
         uint256 sigNonce = kernel.signerNonces(account);
+        uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kSig = _signRegisterPermission(account, address(template), sigNonce);
         uint256 fee = _calcFee(address(template));
-        factory.attach{value: fee}(account, address(template), params, deadline, cfgSig, kSig);
+        factory.attach{value: fee}(account, address(template), params, deadline, cfgSig, kDeadline, kSig);
     }
 
     function _dispatch(address account, address permission, address target, uint256 value, bytes memory data) internal {

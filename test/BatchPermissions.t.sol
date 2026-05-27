@@ -64,7 +64,7 @@ contract BatchPermissionsTest is Test {
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     receive() external payable {} // accept refunds
@@ -131,11 +131,12 @@ contract BatchPermissionsTest is Test {
     /// @dev Register perm1 via the single-permission path to seed state for revoke tests.
     function _seedSinglePermission(address perm) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), perm, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), perm, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, kernel.hashTypedDataV4(sh));
-        kernel.registerPermission(address(safe), perm, abi.encodePacked(r, s, v));
+        kernel.registerPermission(address(safe), perm, deadline, abi.encodePacked(r, s, v));
     }
 
     function _arr(address a) internal pure returns (address[] memory r) {
@@ -672,11 +673,12 @@ contract BatchPermissionsTest is Test {
 
         // Revoke perm1 via single path
         uint256 n2 = kernel.signerNonces(address(safe));
+        uint256 revokeDeadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm1), n2
+            kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), address(perm1), n2, revokeDeadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, kernel.hashTypedDataV4(sh));
-        kernel.revokePermission(address(safe), address(perm1), abi.encodePacked(r, s, v));
+        kernel.revokePermission(address(safe), address(perm1), revokeDeadline, abi.encodePacked(r, s, v));
 
         assertFalse(kernel.isPermissionRegistered(address(safe), address(perm1)));
         assertTrue(kernel.isPermissionRegistered(address(safe), address(perm2)));
@@ -710,15 +712,17 @@ contract BatchPermissionsTest is Test {
         for (uint256 i = 0; i < filledCount; i++) {
             BatchMockPermission p = new BatchMockPermission();
             uint256 singleNonce = kernel.signerNonces(address(safe));
+            uint256 singleDeadline = block.timestamp + 1 days;
             bytes32 structHash = keccak256(abi.encode(
                 kernel.REGISTER_PERMISSION_TYPEHASH(),
                 address(safe),
                 address(p),
-                singleNonce
+                singleNonce,
+                singleDeadline
             ));
             bytes32 digest = kernel.hashTypedDataV4(structHash);
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
-            kernel.registerPermission(address(safe), address(p), abi.encodePacked(r, s, v));
+            kernel.registerPermission(address(safe), address(p), singleDeadline, abi.encodePacked(r, s, v));
         }
         assertEq(kernel.getPermissions(address(safe)).length, filledCount);
 

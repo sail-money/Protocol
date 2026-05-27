@@ -123,29 +123,31 @@ contract IntegrationTest is Test {
         address[] memory tokensIn  = _arr1(WETH);
         address[] memory tokensOut = _arr1(USDC);
         swap = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
-        swap.initialize(routers, tokensIn, tokensOut, 10 ether, 200, address(0), permSigner);
+        swap.initialize(routers, tokensIn, tokensOut, 10 ether, 200, address(0), 0, permSigner);
 
         // 5. StandardFeePolicy: 2% mgmt / 20% perf / DEAD distributor / 5% dist share
         feePolicy = new StandardFeePolicy(
             MGMT_BPS, PERF_BPS, DEAD, DIST_BPS, address(kernel), FEE_MANAGER
         );
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(feePolicy), true);
 
         // 6. Register MockSafe with the kernel (must be called by the Safe itself)
         vm.prank(address(mockSafe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
 
         // 7. Register BoundedSwapPermission (pays exact fee)
         uint256 fee = _calcFee(address(swap));
+        uint256 regDeadline = block.timestamp + 1 days;
         kernel.registerPermission{value: fee}(
-            address(mockSafe), address(swap),
-            _signRegisterPermission(address(mockSafe), address(swap), 0)
+            address(mockSafe), address(swap), regDeadline,
+            _signRegisterPermission(address(mockSafe), address(swap), 0, regDeadline)
         );
 
         // 8. Initialise fee policy: feeManager seeds HWM first (H-5 fix), then first collectFees
         vm.prank(FEE_MANAGER);
         feePolicy.seedHighWaterMark(address(mockSafe), 100 ether);
-        vm.prank(manager);
-        kernel.collectFees(address(mockSafe), 0, 100 ether, address(0));
+        // DELETED: zero-fee initial collectFees no longer needed; seedHighWaterMark now sets lastCollectionTimestamp
     }
 
     receive() external payable {} // accept refunds from registerPermission
@@ -172,14 +174,15 @@ contract IntegrationTest is Test {
         // Fresh account for a clean signerNonce
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
 
         uint256 fee = _calcFee(address(swap));
         uint256 treasuryBefore = TREASURY.balance;
+        uint256 regDeadline = block.timestamp + 1 days;
 
         kernel.registerPermission{value: fee}(
-            address(safe2), address(swap),
-            _signRegisterPermission(address(safe2), address(swap), 0)
+            address(safe2), address(swap), regDeadline,
+            _signRegisterPermission(address(safe2), address(swap), 0, regDeadline)
         );
 
         assertTrue(kernel.isPermissionRegistered(address(safe2), address(swap)));
@@ -189,27 +192,29 @@ contract IntegrationTest is Test {
     function test_Fee_InsufficientFeeReverts() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
 
         uint256 fee = _calcFee(address(swap));
-        bytes memory sig = _signRegisterPermission(address(safe2), address(swap), 0);
+        uint256 regDeadline = block.timestamp + 1 days;
+        bytes memory sig = _signRegisterPermission(address(safe2), address(swap), 0, regDeadline);
 
         vm.expectRevert(abi.encodeWithSelector(SailKernel.InsufficientFee.selector, fee, fee - 1));
-        kernel.registerPermission{value: fee - 1}(address(safe2), address(swap), sig);
+        kernel.registerPermission{value: fee - 1}(address(safe2), address(swap), regDeadline, sig);
     }
 
     function test_Fee_ExcessRefundedToCaller() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
 
         uint256 fee = _calcFee(address(swap));
         uint256 overpay = fee + 1 ether;
+        uint256 regDeadline = block.timestamp + 1 days;
 
         uint256 balBefore = address(this).balance;
         kernel.registerPermission{value: overpay}(
-            address(safe2), address(swap),
-            _signRegisterPermission(address(safe2), address(swap), 0)
+            address(safe2), address(swap), regDeadline,
+            _signRegisterPermission(address(safe2), address(swap), 0, regDeadline)
         );
 
         // Caller paid `overpay`, should have had `1 ether` refunded → net cost = fee
@@ -227,12 +232,12 @@ contract IntegrationTest is Test {
     }
 
     function test_AccountSetup_FeePolicySet() public view {
-        (,, address fp,) = kernel.configs(address(mockSafe));
+        (,, address fp,,) = kernel.configs(address(mockSafe));
         assertEq(fp, address(feePolicy));
     }
 
     function test_AccountSetup_ManagerAndSignerSet() public view {
-        (address ps, address mgr,, bool active) = kernel.configs(address(mockSafe));
+        (address ps, address mgr,,, bool active) = kernel.configs(address(mockSafe));
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
         assertTrue(active);
@@ -319,9 +324,10 @@ contract IntegrationTest is Test {
     function test_Dispatch_RevokePermission_BlocksAllDispatch() public {
         // signerNonce = 1 after setUp's registerPermission
         uint256 sigNonce = kernel.signerNonces(address(mockSafe));
+        uint256 revokeDeadline = block.timestamp + 1 days;
         kernel.revokePermission(
-            address(mockSafe), address(swap),
-            _signRevokePermission(address(mockSafe), address(swap), sigNonce)
+            address(mockSafe), address(swap), revokeDeadline,
+            _signRevokePermission(address(mockSafe), address(swap), sigNonce, revokeDeadline)
         );
         assertEq(kernel.getPermissions(address(mockSafe)).length, 0);
 
@@ -429,9 +435,10 @@ contract IntegrationTest is Test {
 
     function test_SessionRevoke_BlocksAllDispatch() public {
         uint256 sigNonce = kernel.signerNonces(address(mockSafe));
+        uint256 sessionDeadline = block.timestamp + 1 days;
         kernel.revokeSession(
-            address(mockSafe),
-            _signRevokeSession(address(mockSafe), sigNonce)
+            address(mockSafe), sessionDeadline,
+            _signRevokeSession(address(mockSafe), sigNonce, sessionDeadline)
         );
 
         assertFalse(_sessionActive(address(mockSafe)));
@@ -459,9 +466,10 @@ contract IntegrationTest is Test {
 
         // Revoke the session
         uint256 sigNonce = kernel.signerNonces(address(mockSafe));
+        uint256 sessionDeadline2 = block.timestamp + 1 days;
         kernel.revokeSession(
-            address(mockSafe),
-            _signRevokeSession(address(mockSafe), sigNonce)
+            address(mockSafe), sessionDeadline2,
+            _signRevokeSession(address(mockSafe), sigNonce, sessionDeadline2)
         );
 
         // Same swap (with fresh nonce) now reverts
@@ -483,31 +491,31 @@ contract IntegrationTest is Test {
         return gov.permissionRegistrationFee();
     }
 
-    function _signRegisterPermission(address account, address permission, uint256 nonce)
+    function _signRegisterPermission(address account, address permission, uint256 nonce, uint256 deadline)
         internal view returns (bytes memory)
     {
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
 
-    function _signRevokePermission(address account, address permission, uint256 nonce)
+    function _signRevokePermission(address account, address permission, uint256 nonce, uint256 deadline)
         internal view returns (bytes memory)
     {
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
 
-    function _signRevokeSession(address account, uint256 nonce)
+    function _signRevokeSession(address account, uint256 nonce, uint256 deadline)
         internal view returns (bytes memory)
     {
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_SESSION_TYPEHASH(), account, nonce
+            kernel.REVOKE_SESSION_TYPEHASH(), account, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -560,7 +568,7 @@ contract IntegrationTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _sessionActive(address account) internal view returns (bool) {
-        (,,, bool active) = kernel.configs(account);
+        (,,,, bool active) = kernel.configs(account);
         return active;
     }
 }
