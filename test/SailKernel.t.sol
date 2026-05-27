@@ -806,8 +806,8 @@ contract SailKernelTest is Test {
         // Update feeAsset to match ERC-20 token
         {
             uint256 nonce = kernel.signerNonces(address(safe));
-            bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce));
-            kernel.setFeePolicy(address(safe), address(feePolicy), token, _signerSig(sh));
+            bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max));
+            kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, _signerSig(sh));
         }
 
         vm.prank(manager);
@@ -907,8 +907,8 @@ contract SailKernelTest is Test {
         // Finding #3: feeToken must match the bound feeAsset in both directions.
         address erc20Token = address(0xE20);
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), erc20Token, nonce));
-        kernel.setFeePolicy(address(safe), address(feePolicy), erc20Token, _signerSig(sh));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), erc20Token, nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(feePolicy), erc20Token, type(uint256).max, _signerSig(sh));
 
         feePolicy.setFee(1_000, address(0), 0);
         vm.prank(manager);
@@ -931,15 +931,15 @@ contract SailKernelTest is Test {
         // Set to non-zero first
         address someToken = address(0xABCD);
         uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), someToken, nonce));
-        kernel.setFeePolicy(address(safe), address(feePolicy), someToken, _signerSig(sh));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), someToken, nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(feePolicy), someToken, type(uint256).max, _signerSig(sh));
         (,, , address fa,) = kernel.configs(address(safe));
         assertEq(fa, someToken);
 
         // Clear policy -> feeAsset should clear to address(0)
         nonce = kernel.signerNonces(address(safe));
-        sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), nonce));
-        kernel.setFeePolicy(address(safe), address(0), address(0), _signerSig(sh));
+        sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), nonce, type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, _signerSig(sh));
         (,, , address fa2,) = kernel.configs(address(safe));
         assertEq(fa2, address(0));
     }
@@ -1183,33 +1183,33 @@ contract SailKernelTest is Test {
 
     function test_SetFeePolicy_UpdatesPolicy() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe))));
-        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), _signerSig(sh));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
         (,, address fp,,) = kernel.configs(address(safe));
         assertEq(fp, address(newPolicy));
     }
 
     function test_SetFeePolicy_AllowsZeroAddress() public {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe))));
-        kernel.setFeePolicy(address(safe), address(0), address(0), _signerSig(sh));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, _signerSig(sh));
         (,, address fp,,) = kernel.configs(address(safe));
         assertEq(fp, address(0));
     }
 
     function test_SetFeePolicy_RevertsOnBadSig() public {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe))));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
-        kernel.setFeePolicy(address(safe), address(0), address(0), abi.encodePacked(r, s, v));
+        kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, abi.encodePacked(r, s, v));
     }
 
     function test_SetFeePolicy_EmitsEvent() public {
         MockFeePolicy newPolicy = new MockFeePolicy();
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe))));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(newPolicy), address(0), kernel.signerNonces(address(safe)), type(uint256).max));
         vm.expectEmit(true, true, false, false);
         emit SailKernel.FeePolicyUpdated(address(safe), address(newPolicy));
-        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), _signerSig(sh));
+        kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

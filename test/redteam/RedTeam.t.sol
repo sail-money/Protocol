@@ -265,7 +265,8 @@ abstract contract RedTeamBase is Test {
     function _signSetFeePolicy(address account, address newFeePolicy, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, address(0), nonce));
+        uint256 deadline = type(uint256).max;
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, address(0), nonce, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
@@ -796,7 +797,7 @@ contract FeeAccountingTests is RedTeamBase {
         // permSigner sets the fee policy to the malicious one
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
 
         uint256 safeBalBefore = address(safe).balance;
         uint256 managerBalBefore = attacker.balance;
@@ -824,7 +825,7 @@ contract FeeAccountingTests is RedTeamBase {
         InflatedFeePolicy badPolicy = new InflatedFeePolicy(1 ether, address(0), 0);
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.NotManager.selector, attacker, manager));
@@ -839,7 +840,7 @@ contract FeeAccountingTests is RedTeamBase {
         InflatedFeePolicy badPolicy = new InflatedFeePolicy(1 ether, malDist, 10_001);
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.DistributorBpsTooLarge.selector, 10_001));
@@ -852,7 +853,7 @@ contract FeeAccountingTests is RedTeamBase {
         InflatedFeePolicy policy = new InflatedFeePolicy(0.5 ether, address(0), 0);
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(policy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(policy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(policy), address(0), type(uint256).max, fpSig);
 
         vm.prank(manager);
         // Request 1 ether but policy max is 0.5 ether
@@ -922,7 +923,7 @@ contract FeeAccountingTests is RedTeamBase {
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(sfp), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(sfp), address(0), type(uint256).max, fpSig);
 
         // Without HWM seeded, computeFee returns maxFee=0 (early-return path).
         // The kernel's ZeroFee guard blocks grossFee=0, and FeeTooLarge blocks any
@@ -944,7 +945,7 @@ contract FeeAccountingTests is RedTeamBase {
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(sfp), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(sfp), address(0), type(uint256).max, fpSig);
 
         // H-5 fix: feeManager must seed HWM before manager can collect.
         // seedHighWaterMark now also initialises lastCollectionTimestamp.

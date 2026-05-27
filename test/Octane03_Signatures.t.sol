@@ -191,16 +191,28 @@ contract Octane03_Signatures is Test {
         kernel.activateSession(address(safe), past, sig);
     }
 
+    function test_Deadline_SetFeePolicy_ExpiredReverts() public {
+        uint256 past  = block.timestamp - 1;
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), address(0), nonce, past
+        ));
+        bytes memory sig = _signerSig(sh); // pre-compute before expectRevert
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.DeadlineExpired.selector, past, block.timestamp));
+        kernel.setFeePolicy(address(safe), address(feePolicy), address(0), past, sig);
+    }
+
     function test_Deadline_SetFeePolicy_BadSigReverts() public {
         // Verify that a wrong-key sig is still rejected (sig invalid).
+        uint256 future = type(uint256).max;
         uint256 nonce  = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(
-            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), address(0), nonce
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), address(0), nonce, future
         ));
         bytes32 digest = kernel.hashTypedDataV4(sh);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, digest);
         vm.expectRevert(SailKernel.InvalidSignerSignature.selector);
-        kernel.setFeePolicy(address(safe), address(feePolicy), address(0), abi.encodePacked(r, s, v));
+        kernel.setFeePolicy(address(safe), address(feePolicy), address(0), future, abi.encodePacked(r, s, v));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -203,7 +203,8 @@ abstract contract RedTeamBase2 is Test {
     function _signSetFeePolicy(address account, address newFeePolicy, uint256 nonce, uint256 signerKey)
         internal view returns (bytes memory)
     {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, address(0), nonce));
+        uint256 deadline = type(uint256).max;
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, address(0), nonce, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
@@ -211,7 +212,8 @@ abstract contract RedTeamBase2 is Test {
     function _signSetFeePolicyWithAsset(
         address account, address newFeePolicy, address feeAsset, uint256 nonce, uint256 signerKey
     ) internal view returns (bytes memory) {
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, feeAsset, nonce));
+        uint256 deadline = type(uint256).max;
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), account, newFeePolicy, feeAsset, nonce, deadline));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
     }
@@ -278,7 +280,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
         // permSigner (trust anchor) sets this policy
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(badPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(badPolicy), address(0), type(uint256).max, fpSig);
 
         uint256 attackerBefore = attacker.balance;
         uint256 safeBefore     = address(safe).balance;
@@ -305,7 +307,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(zeroPolicy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(zeroPolicy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(zeroPolicy), address(0), type(uint256).max, fpSig);
 
         // collectFees should revert when feeRecipient() == address(0)
         vm.prank(manager);
@@ -327,7 +329,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(policy), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(policy), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(policy), address(0), type(uint256).max, fpSig);
 
         // Change recipient to attacker BEFORE collectFees is called
         policy.setRecipient(malicRecipient);
@@ -355,7 +357,7 @@ contract FeeRecipientFixTests is RedTeamBase2 {
 
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicy(address(safe), address(sfp), nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(sfp), address(0), fpSig);
+        kernel.setFeePolicy(address(safe), address(sfp), address(0), type(uint256).max, fpSig);
 
         // H-5 fix: feeManager must seed HWM before manager can collect.
         // seedHighWaterMark now initialises lastCollectionTimestamp; no zero-fee collection needed.
@@ -1562,7 +1564,7 @@ contract StandardFeePolicyRecipientTests is RedTeamBase2 {
         // then the kernel's ZeroAddress check on feeRecipient() fires.
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes memory fpSig = _signSetFeePolicyWithAsset(address(safe), address(zeroPolicy), mockToken, nonce, PERM_SIGNER_KEY);
-        kernel.setFeePolicy(address(safe), address(zeroPolicy), mockToken, fpSig);
+        kernel.setFeePolicy(address(safe), address(zeroPolicy), mockToken, type(uint256).max, fpSig);
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.ZeroAddress.selector);

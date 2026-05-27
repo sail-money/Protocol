@@ -131,9 +131,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     );
 
     /// @notice EIP-712 type hash for fee policy updates.
-    ///         Type string: "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce)"
+    ///         Type string: "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce,uint256 deadline)"
     bytes32 public constant SET_FEE_POLICY_TYPEHASH = keccak256(
-        "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce)"
+        "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for batch permission registration.
@@ -729,13 +729,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  account      The registered Safe account.
     /// @param  newFeePolicy New fee policy contract address; address(0) = no fee policy.
     /// @param  feeAsset     Canonical fee settlement token for the new policy; address(0) = native ETH.
+    /// @param  deadline     Unix timestamp after which the signature is invalid.
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
-    function setFeePolicy(address account, address newFeePolicy, address feeAsset, bytes calldata sig) external nonReentrant whenNotPaused {
+    function setFeePolicy(address account, address newFeePolicy, address feeAsset, uint256 deadline, bytes calldata sig) external nonReentrant whenNotPaused {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, feeAsset, nonce)),
+            keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, feeAsset, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
