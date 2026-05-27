@@ -94,6 +94,14 @@ contract StandardFeePolicy is IFeePolicy {
     ///         Prevents the manager from seeding HWM at 0 via a zero-fee first collection.
     mapping(address account => bool) public hwmSeeded;
 
+    /// @notice Per-account applied management fee rate snapshot (updated at end of each collection).
+    ///         Prevents retroactive repricing: rate changes only take effect prospectively.
+    mapping(address account => uint256) public appliedManagementFeeBps;
+
+    /// @notice Per-account applied performance fee rate snapshot (updated at end of each collection).
+    ///         Prevents retroactive repricing: rate changes only take effect prospectively.
+    mapping(address account => uint256) public appliedPerformanceFeeBps;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -228,6 +236,12 @@ contract StandardFeePolicy is IFeePolicy {
     // IFeePolicy
     // -------------------------------------------------------------------------
 
+    /// @dev NAV TRUST MODEL: Management and performance fees are computed from
+    ///      manager-supplied `currentNav`. The manager controls collection timing
+    ///      and NAV reporting. This is an intentional design choice — the manager
+    ///      bears responsibility for honest NAV attestation. See whitepaper §8.2.
+    ///      Strategies requiring trustless fee computation should use an
+    ///      oracle-backed fee policy rather than this reference implementation.
     /// @inheritdoc IFeePolicy
     function computeFee(address account, uint256 currentNav)
         external view
@@ -244,14 +258,14 @@ contract StandardFeePolicy is IFeePolicy {
 
         uint256 managementFee = Math.mulDiv(
             currentNav,
-            managementFeeBps * elapsed,
+            appliedManagementFeeBps[account] * elapsed,
             SECONDS_PER_YEAR * BASIS_POINTS
         );
 
         uint256 performanceFee;
         uint256 hwm = highWaterMark[account];
         if (currentNav > hwm) {
-            performanceFee = Math.mulDiv(currentNav - hwm, performanceFeeBps, BASIS_POINTS);
+            performanceFee = Math.mulDiv(currentNav - hwm, appliedPerformanceFeeBps[account], BASIS_POINTS);
         }
 
         grossFee = managementFee + performanceFee;
@@ -266,6 +280,8 @@ contract StandardFeePolicy is IFeePolicy {
 
         if (lastCollectionTimestamp[account] == 0) {
             lastCollectionTimestamp[account] = block.timestamp;
+            appliedManagementFeeBps[account]  = managementFeeBps;
+            appliedPerformanceFeeBps[account] = performanceFeeBps;
             emit FeesCollected(account, grossFee, currentNav, highWaterMark[account]);
             return;
         }
@@ -277,6 +293,9 @@ contract StandardFeePolicy is IFeePolicy {
         uint256 newHwm = Math.max(highWaterMark[account], currentNav);
         highWaterMark[account] = newHwm;
         emit FeesCollected(account, grossFee, currentNav, newHwm);
+        // Prospective: rate changes apply from the next period forward.
+        appliedManagementFeeBps[account]  = managementFeeBps;
+        appliedPerformanceFeeBps[account] = performanceFeeBps;
     }
 
     /// @notice Explicitly seed the high-water mark for an account before the first collection.
@@ -289,6 +308,9 @@ contract StandardFeePolicy is IFeePolicy {
         if (initialNav == 0) revert HWMNotSeeded(); // reuse: signals bad initial state
         hwmSeeded[account]      = true;
         highWaterMark[account]  = initialNav;
+        lastCollectionTimestamp[account]  = block.timestamp;
+        appliedManagementFeeBps[account]  = managementFeeBps;
+        appliedPerformanceFeeBps[account] = performanceFeeBps;
         emit HWMSeeded(account, initialNav);
     }
 

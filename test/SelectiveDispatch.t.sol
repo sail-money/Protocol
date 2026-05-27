@@ -150,11 +150,8 @@ contract SelectiveDispatchTest is Test {
         safe   = new MockSafe();
         vm.deal(address(safe), 1 ether);
 
-        vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
-
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Deploy templates (shared, multi-account)
         swapPerm     = new SharedBoundedSwapPermission(address(kernel));
@@ -175,19 +172,21 @@ contract SelectiveDispatchTest is Test {
 
     function _registerPermission(address permission) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce, deadline
         ));
         uint256 fee = gov.permissionRegistrationFee();
-        kernel.registerPermission{value: fee}(address(safe), permission, _signerSig(sh));
+        kernel.registerPermission{value: fee}(address(safe), permission, deadline, _signerSig(sh));
     }
 
     function _revokePermission(address permission) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), permission, nonce
+            kernel.REVOKE_PERMISSION_TYPEHASH(), address(safe), permission, nonce, deadline
         ));
-        kernel.revokePermission(address(safe), permission, _signerSig(sh));
+        kernel.revokePermission(address(safe), permission, deadline, _signerSig(sh));
     }
 
     function _signDispatch(
@@ -506,11 +505,12 @@ contract SelectiveDispatchTest is Test {
 
         // Register the batch permission (uses standard IPermission registry path)
         uint256 sigNonce = kernel.signerNonces(address(safe));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(batchPerm), sigNonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), address(batchPerm), sigNonce, regDeadline
         ));
         uint256 fee = gov.permissionRegistrationFee();
-        kernel.registerPermission{value: fee}(address(safe), address(batchPerm), _signerSig(sh));
+        kernel.registerPermission{value: fee}(address(safe), address(batchPerm), regDeadline, _signerSig(sh));
         assertTrue(kernel.isPermissionRegistered(address(safe), address(batchPerm)));
 
         // Build a minimal batch (one inert call to a random address)
@@ -719,10 +719,11 @@ contract SelectiveDispatchTest is Test {
     /// @dev Register a permission using the standard permSigner sig flow.
     function _registerPermissionFor(address permission) internal {
         uint256 nonce = kernel.signerNonces(address(safe));
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safe), permission, nonce, deadline
         ));
         uint256 fee = gov.permissionRegistrationFee();
-        kernel.registerPermission{value: fee}(address(safe), permission, _signerSig(sh));
+        kernel.registerPermission{value: fee}(address(safe), permission, deadline, _signerSig(sh));
     }
 }

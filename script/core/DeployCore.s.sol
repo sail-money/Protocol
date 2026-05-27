@@ -8,7 +8,6 @@ import {SailKernel}        from "../../contracts/core/SailKernel.sol";
 import {MandateFactory} from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy} from "../../contracts/policies/StandardFeePolicy.sol";
 import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
-import {SafeConstants}     from "../SafeConstants.sol";
 
 /// @notice Core protocol deployment.
 ///
@@ -94,22 +93,7 @@ contract DeployCore is Script {
 
         vm.stopBroadcast();
 
-        _printAllowlistReminder(address(d.safeModuleEnabler));
         _writeManifest(cfg, d);
-    }
-
-    /// @dev The onboarding allowlist setters on SailGovernance are `onlyTimelock`, so they
-    ///      cannot be populated inline in this broadcast. Print the values that governance
-    ///      must allowlist via the 48-hour timelock before onboarding can be used.
-    ///      Note: `trustedModuleSetup` is the Sail-deployed SafeModuleEnabler (the `to` target
-    ///      embedded in `safeInitializer`), NOT a canonical Safe address.
-    function _printAllowlistReminder(address safeModuleEnabler) internal pure {
-        console2.log("=== POST-DEPLOY: allowlist via 48h timelock (onlyTimelock setters) ===");
-        console2.log("setTrustedSafeFactory      :", SafeConstants.SAFE_PROXY_FACTORY_1_4_1);
-        console2.log("setTrustedSafeSingleton    :", SafeConstants.SAFE_SINGLETON_1_4_1);
-        console2.log("setTrustedModuleSetup      :", safeModuleEnabler);
-        console2.log("setTrustedSafeProxyCodehash: capture extcodehash of a SafeProxy on-chain");
-        console2.log("  (SafeConstants.SAFE_PROXY_CODEHASH_1_4_1 is bytes32(0) until captured)");
     }
 
     // -------------------------------------------------------------------------

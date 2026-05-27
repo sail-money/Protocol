@@ -7,7 +7,7 @@ import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol
 import {CloneInitializable}      from "../templates/base/CloneInitializable.sol";
 
 interface ISailKernelFactory {
-    function registerPermission(address account, address permission, bytes calldata sig)
+    function registerPermission(address account, address permission, uint256 deadline, bytes calldata sig)
         external
         payable;
     function registerPermissions(
@@ -20,9 +20,10 @@ interface ISailKernelFactory {
         address account,
         address oldPermission,
         address newPermission,
+        uint256 deadline,
         bytes calldata sig
     ) external payable;
-    function revokePermission(address account, address permission, bytes calldata sig) external;
+    function revokePermission(address account, address permission, uint256 deadline, bytes calldata sig) external;
     function revokePermissions(
         address account,
         address[] calldata permissions,
@@ -94,11 +95,12 @@ contract MandateFactory is ReentrancyGuard {
         bytes calldata params,
         uint256 configureDeadline,
         bytes calldata configureSig,
+        uint256 kernelDeadline,
         bytes calldata kernelSig
     ) external payable nonReentrant {
         uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(template).configure(account, params, configureDeadline, configureSig);
-        kernel.registerPermission{value: msg.value}(account, template, kernelSig);
+        kernel.registerPermission{value: msg.value}(account, template, kernelDeadline, kernelSig);
         _refundExcess(preBalance);
         emit Attached(account, template, keccak256(params));
     }
@@ -169,13 +171,14 @@ contract MandateFactory is ReentrancyGuard {
         bytes calldata newParams,
         uint256 configureDeadline,
         bytes calldata configureSig,
+        uint256 kernelReplaceDeadline,
         bytes calldata kernelReplaceSig
     ) external payable nonReentrant {
         uint256 preBalance = address(this).balance - msg.value;
         IConfigurablePermission(newTemplate).configure(
             account, newParams, configureDeadline, configureSig
         );
-        kernel.replacePermission{value: msg.value}(account, oldTemplate, newTemplate, kernelReplaceSig);
+        kernel.replacePermission{value: msg.value}(account, oldTemplate, newTemplate, kernelReplaceDeadline, kernelReplaceSig);
         _refundExcess(preBalance);
         emit Replaced(account, oldTemplate, newTemplate);
     }
@@ -210,6 +213,7 @@ contract MandateFactory is ReentrancyGuard {
         address impl,
         bytes32 salt,
         bytes calldata initData,
+        uint256 kernelDeadline,
         bytes calldata kernelSig
     ) external payable nonReentrant returns (address clone) {
         if (impl == address(0)) revert ZeroAddress();
@@ -229,7 +233,7 @@ contract MandateFactory is ReentrancyGuard {
             revert CloneInitFailed();
         }
 
-        kernel.registerPermission{value: msg.value}(account, clone, kernelSig);
+        kernel.registerPermission{value: msg.value}(account, clone, kernelDeadline, kernelSig);
         _refundExcess(preBalance);
 
         emit CloneDeployedAndAttached(account, impl, clone, namespacedSalt);
@@ -247,8 +251,8 @@ contract MandateFactory is ReentrancyGuard {
     // detach: revoke from kernel (config remains in template; can be re-attached)
     // -------------------------------------------------------------------------
 
-    function detach(address account, address template, bytes calldata kernelSig) external {
-        kernel.revokePermission(account, template, kernelSig);
+    function detach(address account, address template, uint256 kernelDeadline, bytes calldata kernelSig) external {
+        kernel.revokePermission(account, template, kernelDeadline, kernelSig);
         emit Detached(account, template);
     }
 

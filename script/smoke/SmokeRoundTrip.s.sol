@@ -138,7 +138,7 @@ contract SmokeRoundTrip is Script {
         {
             bytes memory regCall = abi.encodeCall(
                 SailKernel.registerAccount,
-                (deployer, deployer, address(0))
+                (deployer, deployer, address(0), address(0))
             );
 
             uint256 safeNonce = ISafe(safe).nonce();
@@ -195,18 +195,20 @@ contract SmokeRoundTrip is Script {
             );
 
             uint256 signerNonce = kernel.signerNonces(safe);
+            uint256 kDeadline   = block.timestamp + 1 days;
             bytes32 structHash  = keccak256(abi.encode(
                 kernel.REGISTER_PERMISSION_TYPEHASH(),
                 safe,
                 predicted,
-                signerNonce
+                signerNonce,
+                kDeadline
             ));
             bytes32 digest      = kernel.hashTypedDataV4(structHash);
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
             bytes memory kernelSig = abi.encodePacked(r, s, v);
 
             vm.startBroadcast(pk);
-            address clone = factory.deployAndAttach(safe, transferImpl, salt, initData, kernelSig);
+            address clone = factory.deployAndAttach(safe, transferImpl, salt, initData, kDeadline, kernelSig);
             vm.stopBroadcast();
 
             require(clone == predicted, "predicted clone mismatch");
