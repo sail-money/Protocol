@@ -403,6 +403,7 @@ contract SailGovernance {
     /// @notice Lift the pause early.
     function unpause() external onlyEmergencyAdmin {
         pauseExpiry = 0;
+        lastPauseTimestamp = 0; // allow immediate re-pause after early unpause
         emit Unpaused();
     }
 

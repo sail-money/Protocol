@@ -488,6 +488,43 @@ contract SailGovernanceTest is Test {
         assertFalse(gov.isPaused());
     }
 
+    // Octane finding #10 — pause cooldown reset on unpause
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_EarlyUnpause_AllowsImmediateRepause() public {
+        // pause at t0, unpause at t0 + 1h — cooldown must not block re-pause
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        // should succeed immediately with no PauseCooldown revert
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        assertTrue(gov.isPaused());
+    }
+
+    function test_NormalUnpause_AfterFullExpiry_Unchanged() public {
+        // pause, let pauseExpiry pass, then unpause — should still work
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.warp(block.timestamp + 72 hours + 1);
+        assertFalse(gov.isPaused());
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        assertEq(gov.pauseExpiry(), 0);
+        assertEq(gov.lastPauseTimestamp(), 0);
+    }
+
+    function test_Unpause_ResetsLastPauseTimestamp() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        assertGt(gov.lastPauseTimestamp(), 0);
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        assertEq(gov.lastPauseTimestamp(), 0);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Events on parameter updates
     // ─────────────────────────────────────────────────────────────────────────
