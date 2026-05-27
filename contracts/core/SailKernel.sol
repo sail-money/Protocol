@@ -78,6 +78,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///      enlarge the attack surface without benefit.
     uint256 private constant BATCH_DETECT_GAS_CAP = 20_000;
 
+    /// @dev Large nonce step applied to managerNonces/batchNonces when a signer restriction op
+    ///      (revokePermission, replacePermission, revokeSession, revokePermissions) takes effect.
+    ///      Invalidates any outstanding manager-signed dispatches that pre-date the restriction
+    ///      without requiring separate nonce-rotation messages (Octane finding #7 related).
+    uint256 private constant NONCE_EPOCH_INCREMENT = 1 << 128;
+
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
 
@@ -95,39 +101,39 @@ contract SailKernel is EIP712, ReentrancyGuard {
     );
 
     /// @notice EIP-712 type hash for single-permission registration.
-    ///         Type string: "RegisterPermission(address account,address permission,uint256 nonce)"
+    ///         Type string: "RegisterPermission(address account,address permission,uint256 nonce,uint256 deadline)"
     bytes32 public constant REGISTER_PERMISSION_TYPEHASH = keccak256(
-        "RegisterPermission(address account,address permission,uint256 nonce)"
+        "RegisterPermission(address account,address permission,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for single-permission revocation.
-    ///         Type string: "RevokePermission(address account,address permission,uint256 nonce)"
+    ///         Type string: "RevokePermission(address account,address permission,uint256 nonce,uint256 deadline)"
     bytes32 public constant REVOKE_PERMISSION_TYPEHASH = keccak256(
-        "RevokePermission(address account,address permission,uint256 nonce)"
+        "RevokePermission(address account,address permission,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for atomic permission replacement.
-    ///         Type string: "ReplacePermission(address account,address oldPermission,address newPermission,uint256 nonce)"
+    ///         Type string: "ReplacePermission(address account,address oldPermission,address newPermission,uint256 nonce,uint256 deadline)"
     bytes32 public constant REPLACE_PERMISSION_TYPEHASH = keccak256(
-        "ReplacePermission(address account,address oldPermission,address newPermission,uint256 nonce)"
+        "ReplacePermission(address account,address oldPermission,address newPermission,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for session revocation.
-    ///         Type string: "RevokeSession(address account,uint256 nonce)"
+    ///         Type string: "RevokeSession(address account,uint256 nonce,uint256 deadline)"
     bytes32 public constant REVOKE_SESSION_TYPEHASH = keccak256(
-        "RevokeSession(address account,uint256 nonce)"
+        "RevokeSession(address account,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for session re-activation.
-    ///         Type string: "ActivateSession(address account,uint256 nonce)"
+    ///         Type string: "ActivateSession(address account,uint256 nonce,uint256 deadline)"
     bytes32 public constant ACTIVATE_SESSION_TYPEHASH = keccak256(
-        "ActivateSession(address account,uint256 nonce)"
+        "ActivateSession(address account,uint256 nonce,uint256 deadline)"
     );
 
     /// @notice EIP-712 type hash for fee policy updates.
-    ///         Type string: "SetFeePolicy(address account,address newFeePolicy,uint256 nonce)"
+    ///         Type string: "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce)"
     bytes32 public constant SET_FEE_POLICY_TYPEHASH = keccak256(
-        "SetFeePolicy(address account,address newFeePolicy,uint256 nonce)"
+        "SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce)"
     );
 
     /// @notice EIP-712 type hash for batch permission registration.
@@ -163,6 +169,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address manager;
         /// @dev Fee policy contract; address(0) means no fee policy is configured.
         address feePolicy;
+        /// @dev Canonical fee settlement token; address(0) = native ETH.
+        address feeAsset;
         /// @dev When false, all dispatch calls for this account are blocked.
         bool    sessionActive;
     }
@@ -400,8 +408,17 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
 
+    /// @dev Thrown by permission registration when the supplied address has no deployed code.
+    error NotAContract(address addr);
+
     /// @dev Thrown by `collectFees` when `distributorBps` returned by the policy exceeds 10 000.
     error DistributorBpsTooLarge(uint256 bps);
+
+    /// @dev Thrown by `collectFees` when the fee token does not match the account's configured canonical asset.
+    error FeeTokenMismatch(address provided, address expected);
+
+    /// @dev Thrown by `collectFees` when `grossFee` is zero.
+    error ZeroFee();
 
     /// @dev Thrown by `dispatch` / `collectFees` when the protocol is paused.
     error ProtocolPaused();
@@ -507,6 +524,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
+    /// @param  feeAsset          Canonical fee settlement token; address(0) = native ETH.
     /// @return account           Address of the newly deployed Safe proxy.
     function createAccount(
         address safeFactory,
@@ -515,14 +533,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 saltNonce,
         address permissionSigner,
         address manager,
-        address feePolicy
+        address feePolicy,
+        address feeAsset
     ) external returns (address account) {
         if (!governance.trustedSafeFactory(safeFactory))     revert UntrustedFactory(safeFactory);
         if (!governance.trustedSafeSingleton(safeSingleton)) revert UntrustedSingleton(safeSingleton);
         uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)));
         account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);
         if (!ISafe(account).isModuleEnabled(address(this))) revert ModuleNotEnabled();
-        _registerAccount(account, permissionSigner, manager, feePolicy);
+        _registerAccount(account, permissionSigner, manager, feePolicy, feeAsset);
     }
 
     /// @notice Register an existing Safe that has already added this kernel as a module.
@@ -532,12 +551,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
-    function registerAccount(address permissionSigner, address manager, address feePolicy) external {
-        _registerAccount(msg.sender, permissionSigner, manager, feePolicy);
+    /// @param  feeAsset          Canonical fee settlement token; address(0) = native ETH.
+    function registerAccount(address permissionSigner, address manager, address feePolicy, address feeAsset) external {
+        _registerAccount(msg.sender, permissionSigner, manager, feePolicy, feeAsset);
     }
 
     /// @dev Shared registration logic for `createAccount` and `registerAccount`.
-    function _registerAccount(address account, address permissionSigner, address manager, address feePolicy)
+    function _registerAccount(address account, address permissionSigner, address manager, address feePolicy, address feeAsset)
         internal
     {
         if (registered[account]) revert AccountAlreadyRegistered(account);
@@ -547,6 +567,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             permissionSigner: permissionSigner,
             manager:          manager,
             feePolicy:        feePolicy,
+            feeAsset:         feeAsset,
             sessionActive:    true
         });
         emit AccountRegistered(account, permissionSigner, manager);
@@ -560,14 +581,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         Requires a permissionSigner EIP-712 signature and an ETH registration fee.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to register.
+    /// @param  deadline   Unix timestamp after which the signature is invalid.
     /// @param  sig        EIP-712 signature over RegisterPermission struct by permissionSigner.
-    function registerPermission(address account, address permission, bytes calldata sig)
+    function registerPermission(address account, address permission, uint256 deadline, bytes calldata sig)
         external
         payable
         nonReentrant
         whenNotPaused
     {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+        if (permission == address(0)) revert ZeroAddress();
+        if (permission.code.length == 0) revert NotAContract(permission);
         if (_permissionIndex[account][permission] != 0) revert PermissionAlreadyRegistered(permission);
         uint256 limit = governance.maxPermissionsPerAccount();
         if (_permissions[account].length >= limit)
@@ -576,7 +601,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(REGISTER_PERMISSION_TYPEHASH, account, permission, nonce)),
+            keccak256(abi.encode(REGISTER_PERMISSION_TYPEHASH, account, permission, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
@@ -597,17 +622,21 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         permissions even during a protocol pause to reduce their exposure.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to revoke.
+    /// @param  deadline   Unix timestamp after which the signature is invalid.
     /// @param  sig        EIP-712 signature over RevokePermission struct by permissionSigner.
-    function revokePermission(address account, address permission, bytes calldata sig) external nonReentrant {
+    function revokePermission(address account, address permission, uint256 deadline, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(REVOKE_PERMISSION_TYPEHASH, account, permission, nonce)),
+            keccak256(abi.encode(REVOKE_PERMISSION_TYPEHASH, account, permission, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
         _removePermission(account, permission);
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit PermissionRevoked(account, permission);
     }
 
@@ -616,20 +645,25 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  account        The registered Safe account.
     /// @param  oldPermission  Permission to remove.
     /// @param  newPermission  Permission to add in its place.
+    /// @param  deadline       Unix timestamp after which the signature is invalid.
     /// @param  sig            EIP-712 signature over ReplacePermission struct by permissionSigner.
     function replacePermission(
         address account,
         address oldPermission,
         address newPermission,
+        uint256 deadline,
         bytes calldata sig
     ) external payable nonReentrant whenNotPaused {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
+        if (newPermission == address(0)) revert ZeroAddress();
+        if (newPermission.code.length == 0) revert NotAContract(newPermission);
         if (_permissionIndex[account][newPermission] != 0) revert PermissionAlreadyRegistered(newPermission);
 
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(REPLACE_PERMISSION_TYPEHASH, account, oldPermission, newPermission, nonce)),
+            keccak256(abi.encode(REPLACE_PERMISSION_TYPEHASH, account, oldPermission, newPermission, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
@@ -645,36 +679,44 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _permissionIndex[account][newPermission] = idx;
 
         _collectRegistrationFee(fee);
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit PermissionReplaced(account, oldPermission, newPermission);
     }
 
     /// @notice Suspend the manager session for an account. All `dispatch` calls will
     ///         revert with `SessionInactive` until `activateSession` is called.
-    /// @param  account The registered Safe account.
-    /// @param  sig     EIP-712 signature over RevokeSession struct by permissionSigner.
-    function revokeSession(address account, bytes calldata sig) external nonReentrant {
+    /// @param  account  The registered Safe account.
+    /// @param  deadline Unix timestamp after which the signature is invalid.
+    /// @param  sig      EIP-712 signature over RevokeSession struct by permissionSigner.
+    function revokeSession(address account, uint256 deadline, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(REVOKE_SESSION_TYPEHASH, account, nonce)),
+            keccak256(abi.encode(REVOKE_SESSION_TYPEHASH, account, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
         configs[account].sessionActive = false;
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit SessionRevoked(account);
     }
 
     /// @notice Re-activate a previously suspended session. Requires a fresh permissionSigner
     ///         signature to prove the key is still under the operator's control.
-    /// @param  account The registered Safe account.
-    /// @param  sig     EIP-712 signature over ActivateSession struct by permissionSigner.
-    function activateSession(address account, bytes calldata sig) external nonReentrant {
+    /// @param  account  The registered Safe account.
+    /// @param  deadline Unix timestamp after which the signature is invalid.
+    /// @param  sig      EIP-712 signature over ActivateSession struct by permissionSigner.
+    function activateSession(address account, uint256 deadline, bytes calldata sig) external nonReentrant {
         _requireRegistered(account);
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(ACTIVATE_SESSION_TYPEHASH, account, nonce)),
+            keccak256(abi.encode(ACTIVATE_SESSION_TYPEHASH, account, nonce, deadline)),
             sig
         );
         signerNonces[account] = nonce + 1;
@@ -686,17 +728,19 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         Setting `newFeePolicy = address(0)` clears the policy and blocks fee collection.
     /// @param  account      The registered Safe account.
     /// @param  newFeePolicy New fee policy contract address; address(0) = no fee policy.
+    /// @param  feeAsset     Canonical fee settlement token for the new policy; address(0) = native ETH.
     /// @param  sig          EIP-712 signature over SetFeePolicy struct by permissionSigner.
-    function setFeePolicy(address account, address newFeePolicy, bytes calldata sig) external nonReentrant whenNotPaused {
+    function setFeePolicy(address account, address newFeePolicy, address feeAsset, bytes calldata sig) external nonReentrant whenNotPaused {
         _requireRegistered(account);
         uint256 nonce = signerNonces[account];
         _verifySignerSig(
             account,
-            keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, nonce)),
+            keccak256(abi.encode(SET_FEE_POLICY_TYPEHASH, account, newFeePolicy, feeAsset, nonce)),
             sig
         );
         signerNonces[account] = nonce + 1;
         configs[account].feePolicy = newFeePolicy;
+        configs[account].feeAsset  = (newFeePolicy == address(0)) ? address(0) : feeAsset;
         emit FeePolicyUpdated(account, newFeePolicy);
     }
 
@@ -717,7 +761,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 deadline,
         bytes calldata sig
     ) external payable nonReentrant whenNotPaused {
-        if (permissions.length == 0) return;
+        if (permissions.length == 0) {
+            if (msg.value > 0) _collectRegistrationFee(0); // refunds full msg.value to caller
+            return;
+        }
         _requireRegistered(account);
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
@@ -744,9 +791,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 totalFee = _calcPermissionFee() * permissions.length;
         if (msg.value < totalFee) revert InsufficientFee(totalFee, msg.value);
 
-        // Add all permissions atomically — reverts if any duplicate found
+        // Add all permissions atomically — reverts if any duplicate or invalid address found
         for (uint256 i; i < permissions.length; i++) {
             address perm = permissions[i];
+            if (perm == address(0)) revert ZeroAddress();
+            if (perm.code.length == 0) revert NotAContract(perm);
             if (_permissionIndex[account][perm] != 0) revert PermissionAlreadyRegistered(perm);
             _permissions[account].push(perm);
             _permissionIndex[account][perm] = _permissions[account].length;
@@ -793,6 +842,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
             _removePermission(account, permissions[i]);
             emit PermissionRevoked(account, permissions[i]);
         }
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
     }
 
     /// @notice Return the full list of registered permission addresses for an account.
@@ -826,11 +877,17 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // defense via permission composition is not supported here — a separate
     // guard mechanism may be added later if needed.
     ///
-    /// @dev    The manager nonce is consumed before any external interaction to prevent
-    ///         replay even if the Safe call reverts. The permission is evaluated via
+    /// @dev    The manager nonce is incremented before external interaction; however, any revert
+    ///         will roll back this write, so failed attempts do not consume the nonce. To achieve
+    ///         strict single-use semantics, convert post-nonce failures to non-reverting denials
+    ///         or add an explicit cancel-nonce operation. The permission is evaluated via
     ///         staticcall with PERMISSION_GAS_CAP gas; a revert or gas exhaustion inside a
     ///         permission is treated as denial. The named permission must be pre-registered
     ///         on the account; this is the permissionSigner's trust anchor.
+    /// @dev    CONFIG SEQUENCING: Dispatch authorizes by permission address only, not by
+    ///         configuration state. To atomically tighten a permission's rules, use
+    ///         replacePermission rather than reconfiguring in place. An in-place configure
+    ///         is subject to a front-run window while the transaction is pending.
     /// @param  account     The registered Safe account to execute through.
     /// @param  permission  The registered permission that must authorise this call.
     /// @param  target      Call target address.
@@ -933,6 +990,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         nonReentrant, but rejecting kernel-targeted subcalls eliminates the
     ///         entire class of self-targeted attacks at the dispatch boundary.
     ///
+    /// @dev    CONFIG SEQUENCING: Dispatch authorizes by permission address only, not by
+    ///         configuration state. To atomically tighten a permission's rules, use
+    ///         replacePermission rather than reconfiguring in place. An in-place configure
+    ///         is subject to a front-run window while the transaction is pending.
+    ///
     /// @param  account     The registered Safe account to execute through.
     /// @param  permission  The batch-aware permission that authorises this batch.
     ///                     Must be registered on the account and implement IBatchPermission.
@@ -972,10 +1034,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
             deadline
         )));
         if (!_recoverOrERC1271(cfg.manager, digest, managerSig)) revert InvalidManagerSignature();
-        // Nonce is consumed here — before isBatchPermission detection, preflight, and evaluateBatch.
-        // A failure at any subsequent step (PermissionNotBatchAware, KernelSelfTarget, BatchPermissionDenied)
-        // still advances the nonce. This is consistent with dispatch() consuming the manager nonce before
-        // permission evaluation. Re-submission requires a fresh signature with the new nonce.
+        // NOTE: Nonce is incremented here, but any subsequent revert will roll back this write;
+        // failed attempts do not consume the nonce. To enforce single-use semantics, convert
+        // post-nonce failures to non-reverting denials or add an explicit cancel-nonce operation.
         batchNonces[account] = nonce + 1;
 
         // 5. Permission must implement IBatchPermission. Detection via staticcall
@@ -1148,6 +1209,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         but a dishonest manager could inflate `currentNav` to unlock a larger `maxFee`
     ///         ceiling and then pass a correspondingly large `grossFee`. Deployers must use a
     ///         fee policy that validates NAV independently if the manager is not trusted.
+    ///
+    /// @dev Fee collection is atomic: any failed transfer reverts the entire call.
+    ///      ETH mode (feeToken == address(0)) requires all recipients to be payable.
+    ///      To avoid DoS on non-payable recipients, prefer ERC-20 fee tokens.
     /// @param  account    The registered Safe account from which fees are collected.
     /// @param  grossFee   Requested fee amount. Must not exceed the policy's computed maximum.
     /// @param  currentNav Current net asset value reported by the manager.
@@ -1167,6 +1232,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (msg.sender != cfg.manager) revert NotManager(msg.sender, cfg.manager);
         address feePolicy = cfg.feePolicy;
         if (feePolicy == address(0)) revert FeePolicyNotSet();
+        if (grossFee == 0) revert ZeroFee();
+        if (feeToken != cfg.feeAsset) revert FeeTokenMismatch(feeToken, cfg.feeAsset);
 
         // Recipient is always pulled from the policy — prevents manager from redirecting fees.
         address recipient = IFeePolicy(feePolicy).feeRecipient();
@@ -1204,6 +1271,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     }
 
     /// @dev Execute a native ETH transfer out of the Safe via module call.
+    /// @dev Reverts the entire fee collection if the Safe call returns false.
+    ///      Intentional design: partial payouts would leave split invariants broken.
+    ///      Use ERC-20 tokens where recipient payability cannot be guaranteed.
     function _safeTransferETH(address account, address to, uint256 value) internal {
         if (!ISafe(account).execTransactionFromModule(to, value, "", 0)) revert FeeTransferFailed();
     }

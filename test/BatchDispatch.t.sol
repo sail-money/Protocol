@@ -197,7 +197,7 @@ contract BatchDispatchTest is Test {
 
         // Register account with the forwarding Safe.
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Tokens, router, batch template.
         tokenA = new MockERC20();
@@ -222,8 +222,9 @@ contract BatchDispatchTest is Test {
     function _signRegisterPermission(address account, address permission, uint256 nonce)
         internal view returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -233,7 +234,8 @@ contract BatchDispatchTest is Test {
         uint256 nonce = kernel.signerNonces(account);
         bytes memory sig = _signRegisterPermission(account, permission, nonce);
         uint256 fee = gov.permissionRegistrationFee();
-        kernel.registerPermission{value: fee}(account, permission, sig);
+        uint256 deadline = block.timestamp + 1 days;
+        kernel.registerPermission{value: fee}(account, permission, deadline, sig);
     }
 
     function _signConfigure(address account, bytes memory params, uint256 deadline)
@@ -618,17 +620,18 @@ contract BatchDispatchTest is Test {
         ForwardingMockSafe safeB = new ForwardingMockSafe();
         vm.deal(address(safeB), 10 ether);
         vm.prank(address(safeB));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Register batchPerm on safeB
         uint256 nonceReg = kernel.signerNonces(address(safeB));
+        uint256 regDeadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safeB), address(batchPerm), nonceReg
+            kernel.REGISTER_PERMISSION_TYPEHASH(), address(safeB), address(batchPerm), nonceReg, regDeadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         bytes memory regSig = abi.encodePacked(r, s, v);
         uint256 fee = gov.permissionRegistrationFee();
-        kernel.registerPermission{value: fee}(address(safeB), address(batchPerm), regSig);
+        kernel.registerPermission{value: fee}(address(safeB), address(batchPerm), regDeadline, regSig);
 
         Call[] memory calls = _buildHappyBatch(10 ether);
         uint256 deadline = block.timestamp + 1 hours;

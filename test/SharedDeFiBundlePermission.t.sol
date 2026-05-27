@@ -262,7 +262,7 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
         MockSafe safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
         vm.prank(address(safeB));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Configure bundle for Safe A only
         _configureDefault(address(safe));

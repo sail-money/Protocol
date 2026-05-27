@@ -197,7 +197,7 @@ contract PermissionDenialE2E is Script {
         }
         bytes memory regCall = abi.encodeCall(
             SailKernel.registerAccount,
-            (deployer, agent, address(0))
+            (deployer, agent, address(0), address(0))
         );
         uint256 safeNonce = ISafe(safe).nonce();
         bytes32 txHash = ISafe(safe).getTransactionHash(
@@ -251,18 +251,20 @@ contract PermissionDenialE2E is Script {
         );
 
         uint256 signerNonce = kernel.signerNonces(safe);
+        uint256 kDeadline   = block.timestamp + 1 days;
         bytes32 structHash  = keccak256(abi.encode(
             kernel.REGISTER_PERMISSION_TYPEHASH(),
             safe,
             predicted,
-            signerNonce
+            signerNonce,
+            kDeadline
         ));
         bytes32 digest      = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployerPk, digest);
         bytes memory kernelSig = abi.encodePacked(r, s, v);
 
         vm.startBroadcast(deployerPk);
-        clone = factory.deployAndAttach(safe, transferImpl, salt, initData, kernelSig);
+        clone = factory.deployAndAttach(safe, transferImpl, salt, initData, kDeadline, kernelSig);
         vm.stopBroadcast();
         require(clone == predicted, "predicted clone mismatch");
         console2.log("[setup] permission attached :", clone);
