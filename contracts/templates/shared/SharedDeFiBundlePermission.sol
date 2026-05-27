@@ -54,6 +54,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
         uint256   maxAmountPerTx;
         uint256   maxSlippageBps;
         address   priceOracle;
+        uint256   maxPriceAgeSec;
     }
 
     struct BorrowConfig {
@@ -63,6 +64,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
         uint256   maxLtvBps;
         address   collateralOracle;
         address   borrowOracle;
+        uint256   maxPriceAgeSec;
     }
 
     struct TransferConfig {
@@ -141,6 +143,9 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
     }
 
     function _applySwap(address account, SwapConfig memory cfg) internal {
+        // A configured oracle must come with a freshness bound; 0 would silently accept
+        // arbitrarily stale prices and re-open the staleness gap the oracle is meant to close.
+        if (cfg.priceOracle != address(0) && cfg.maxPriceAgeSec == 0) revert MissingPriceAge();
         if (cfg.routers.length  > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         if (cfg.tokensIn.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         if (cfg.tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
@@ -157,6 +162,11 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
     }
 
     function _applyBorrow(address account, BorrowConfig memory cfg) internal {
+        // The LTV check runs only when both oracles are set; in that case a freshness bound
+        // is mandatory. 0 would silently accept arbitrarily stale prices and re-open the gap.
+        if (cfg.collateralOracle != address(0) && cfg.borrowOracle != address(0) && cfg.maxPriceAgeSec == 0) {
+            revert MissingPriceAge();
+        }
         if (cfg.protocols.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         if (cfg.assets.length    > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         BorrowConfig storage s = _borrow[account];
@@ -289,7 +299,9 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
         uint256 amountOutMin
     ) internal view returns (bool) {
         if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
-        (uint256 price, uint8 dec,) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        // On L2s, check sequencer-uptime first.
+        (uint256 price, uint8 dec, uint256 updatedAt) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
+        if (s.maxPriceAgeSec > 0 && (updatedAt == 0 || block.timestamp - updatedAt > s.maxPriceAgeSec)) return false;
         if (price == 0) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
@@ -336,8 +348,13 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        // On L2s, check sequencer-uptime first.
+        (uint256 colValue, uint8 colDec, uint256 colUpdatedAt) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec, uint256 borUpdatedAt) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        if (s.maxPriceAgeSec > 0) {
+            if (colUpdatedAt == 0 || block.timestamp - colUpdatedAt > s.maxPriceAgeSec) return false;
+            if (borUpdatedAt == 0 || block.timestamp - borUpdatedAt > s.maxPriceAgeSec) return false;
+        }
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;

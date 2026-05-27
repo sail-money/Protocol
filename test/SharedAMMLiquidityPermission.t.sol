@@ -153,7 +153,7 @@ contract SharedAMMLiquidityPermissionTest is FactoryTestBase {
 
         safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

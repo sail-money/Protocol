@@ -215,22 +215,24 @@ contract Phase2_BoundedSwap is Script {
         address[] memory tokensOut     = new address[](1); tokensOut[0]     = USDC;
         bytes memory initData = abi.encodeCall(
             BoundedSwapPermission.initialize,
-            (routers, tokensIn, tokensOut, SWAP_CAP, 0, address(0), deployer)
+            (routers, tokensIn, tokensOut, SWAP_CAP, 0, address(0), 0, deployer)
         );
 
         uint256 signerNonce = kernel.signerNonces(safe);
+        uint256 kDeadline   = block.timestamp + 1 days;
         bytes32 structHash  = keccak256(abi.encode(
             kernel.REGISTER_PERMISSION_TYPEHASH(),
             safe,
             predicted,
-            signerNonce
+            signerNonce,
+            kDeadline
         ));
         bytes32 digest = kernel.hashTypedDataV4(structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(deployerPk, digest);
         bytes memory kernelSig = abi.encodePacked(r, s, v);
 
         vm.startBroadcast(deployerPk);
-        clone = factory.deployAndAttach(safe, boundedSwapImpl, salt, initData, kernelSig);
+        clone = factory.deployAndAttach(safe, boundedSwapImpl, salt, initData, kDeadline, kernelSig);
         vm.stopBroadcast();
         require(clone == predicted, "predicted clone mismatch");
         console2.log("[S.3] BoundedSwap clone attached:", clone);

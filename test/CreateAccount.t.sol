@@ -131,7 +131,7 @@ contract StealthSetup {
     }
 
     function run() external {
-        kernel.registerAccount(ps, mgr, address(0));
+        kernel.registerAccount(ps, mgr, address(0), address(0));
     }
 }
 
@@ -209,7 +209,7 @@ contract CreateAccountTest is Test {
     {
         vm.prank(caller);
         account = kernel.createAccount(
-            address(factory), SINGLETON, _initializer(address(moduleEnabler)), saltNonce, ps, mgr, fp
+            address(factory), SINGLETON, _initializer(address(moduleEnabler)), saltNonce, ps, mgr, fp, address(0)
         );
     }
 
@@ -234,7 +234,7 @@ contract CreateAccountTest is Test {
         assertEq(account, predicted, "deployed at predicted address");
         assertTrue(kernel.registered(account));
         assertTrue(ISafe(account).isModuleEnabled(address(kernel)), "module enabled via setup delegatecall");
-        (address ps, address mgr,, bool active) = kernel.configs(account);
+        (address ps, address mgr,,, bool active) = kernel.configs(account);
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
         assertTrue(active);
@@ -246,19 +246,19 @@ contract CreateAccountTest is Test {
         address rogue = address(0xBAD5E7);
         bytes memory init = _initializer(rogue); // `to` = non-allowlisted helper
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedModuleSetup.selector, rogue));
-        kernel.createAccount(address(factory), SINGLETON, init, 0, permSigner, manager, address(0));
+        kernel.createAccount(address(factory), SINGLETON, init, 0, permSigner, manager, address(0), address(0));
     }
 
     // ── 3. Short initializer → InvalidInitializer ─────────────────────────────
 
     function test_CreateAccount_RevertsOnShortInitializer() public {
         vm.expectRevert(SailKernel.InvalidInitializer.selector);
-        kernel.createAccount(address(factory), SINGLETON, hex"deadbeef", 0, permSigner, manager, address(0));
+        kernel.createAccount(address(factory), SINGLETON, hex"deadbeef", 0, permSigner, manager, address(0), address(0));
     }
 
     function test_CreateAccount_RevertsOnEmptyInitializer() public {
         vm.expectRevert(SailKernel.InvalidInitializer.selector);
-        kernel.createAccount(address(factory), SINGLETON, "", 0, permSigner, manager, address(0));
+        kernel.createAccount(address(factory), SINGLETON, "", 0, permSigner, manager, address(0), address(0));
     }
 
     // ── 4. Principal binding → different account address ──────────────────────
@@ -305,14 +305,14 @@ contract CreateAccountTest is Test {
         bytes32 ch = address(mal).codehash;
         vm.prank(address(mal));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, ch));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     function test_RegisterAccount_FromEOA_Reverts() public {
         address eoa = address(0xE0A);
         vm.prank(eoa);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, eoa.codehash));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ── 8. registerAccount from Safe with module NOT enabled → ModuleNotEnabled ─
@@ -331,7 +331,7 @@ contract CreateAccountTest is Test {
 
         vm.prank(address(safe));
         vm.expectRevert(SailKernel.ModuleNotEnabled.selector);
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     // ── 9. registerAccount from Safe with module enabled + correct codehash ───
@@ -341,10 +341,10 @@ contract CreateAccountTest is Test {
         assertTrue(safe.isModuleEnabled(address(kernel)));
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         assertTrue(kernel.registered(address(safe)));
-        (address ps, address mgr,,) = kernel.configs(address(safe));
+        (address ps, address mgr,,,) = kernel.configs(address(safe));
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
     }
@@ -367,6 +367,6 @@ contract CreateAccountTest is Test {
         // The stealth helper calls registerAccount during setup, before the module is enabled,
         // so it reverts ModuleNotEnabled → setup's require(ok) fails → factory's require fails.
         vm.expectRevert(bytes("proxy init failed"));
-        kernel.createAccount(address(factory), SINGLETON, init, 7777, permSigner, manager, address(0));
+        kernel.createAccount(address(factory), SINGLETON, init, 7777, permSigner, manager, address(0), address(0));
     }
 }

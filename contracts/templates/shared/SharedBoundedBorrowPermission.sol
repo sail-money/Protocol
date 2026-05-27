@@ -18,7 +18,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 uint256   maxAmountPerTx,
 ///                 uint256   maxLtvBps,
 ///                 address   collateralOracle,
-///                 address   borrowOracle
+///                 address   borrowOracle,
+///                 uint256   maxPriceAgeSec
 ///             )
 contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
@@ -36,6 +37,7 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
         uint256   maxLtvBps;
         address   collateralOracle;
         address   borrowOracle;
+        uint256   maxPriceAgeSec;
     }
 
     mapping(address account => Slot) private _slots;
@@ -57,11 +59,12 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
             uint256 maxAmountPerTx,
             uint256 maxLtvBps,
             address collateralOracle,
-            address borrowOracle
+            address borrowOracle,
+            uint256 maxPriceAgeSec
         )
     {
         Slot storage s = _slots[account];
-        return (s.protocols, s.assets, s.maxAmountPerTx, s.maxLtvBps, s.collateralOracle, s.borrowOracle);
+        return (s.protocols, s.assets, s.maxAmountPerTx, s.maxLtvBps, s.collateralOracle, s.borrowOracle, s.maxPriceAgeSec);
     }
 
     function _applyConfig(address account, bytes calldata params) internal override {
@@ -71,10 +74,16 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
             uint256 maxAmountPerTx,
             uint256 maxLtvBps,
             address collateralOracle,
-            address borrowOracle
-        ) = abi.decode(params, (address[], address[], uint256, uint256, address, address));
+            address borrowOracle,
+            uint256 maxPriceAgeSec
+        ) = abi.decode(params, (address[], address[], uint256, uint256, address, address, uint256));
 
         if (maxLtvBps > 10_000) revert LtvBpsTooLarge(maxLtvBps);
+        // The LTV check runs only when both oracles are set; in that case a freshness bound
+        // is mandatory. 0 would silently accept arbitrarily stale prices and re-open the gap.
+        if (collateralOracle != address(0) && borrowOracle != address(0) && maxPriceAgeSec == 0) {
+            revert MissingPriceAge();
+        }
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.protocols.length; i++) isAllowedProtocol[account][s.protocols[i]] = false;
@@ -89,6 +98,7 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
         s.maxLtvBps        = maxLtvBps;
         s.collateralOracle = collateralOracle;
         s.borrowOracle     = borrowOracle;
+        s.maxPriceAgeSec   = maxPriceAgeSec;
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
@@ -138,8 +148,13 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
     {
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
-        (uint256 colValue, uint8 colDec,) = IOracle(s.collateralOracle).getPrice(account, address(0));
-        (uint256 borPrice, uint8 borDec,) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        // On L2s, check sequencer-uptime first.
+        (uint256 colValue, uint8 colDec, uint256 colUpdatedAt) = IOracle(s.collateralOracle).getPrice(account, address(0));
+        (uint256 borPrice, uint8 borDec, uint256 borUpdatedAt) = IOracle(s.borrowOracle).getPrice(asset, address(0));
+        if (s.maxPriceAgeSec > 0) {
+            if (colUpdatedAt == 0 || block.timestamp - colUpdatedAt > s.maxPriceAgeSec) return false;
+            if (borUpdatedAt == 0 || block.timestamp - borUpdatedAt > s.maxPriceAgeSec) return false;
+        }
 
         if (colDec > 77 || borDec > 77) return false;
         if (colValue == 0) return false;

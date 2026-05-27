@@ -93,7 +93,7 @@ abstract contract FactoryTestBase is Test {
 
         // registerAccount is called by the Safe itself (msg.sender == account)
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
     }
 
     receive() external payable {}
@@ -128,8 +128,9 @@ abstract contract FactoryTestBase is Test {
         view
         returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REGISTER_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -162,8 +163,9 @@ abstract contract FactoryTestBase is Test {
         address newP,
         uint256 nonce
     ) internal view returns (bytes memory) {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce
+            kernel.REPLACE_PERMISSION_TYPEHASH(), account, oldP, newP, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);
@@ -174,8 +176,9 @@ abstract contract FactoryTestBase is Test {
         view
         returns (bytes memory)
     {
+        uint256 deadline = block.timestamp + 1 days;
         bytes32 sh = keccak256(abi.encode(
-            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce
+            kernel.REVOKE_PERMISSION_TYPEHASH(), account, permission, nonce, deadline
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, kernel.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

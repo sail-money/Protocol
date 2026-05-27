@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
 import "../contracts/templates/shared/SharedDeFiBundlePermission.sol";
+import {BaseSharedPermission} from "../contracts/templates/shared/BaseSharedPermission.sol";
 import "../contracts/interfaces/IOracle.sol";
 
 /// @dev Minimal price oracle for bundle LTV tests.
@@ -10,15 +11,24 @@ contract BundleTestOracle is IOracle {
     mapping(bytes32 => uint256) private _price;
     mapping(bytes32 => uint8)   private _dec;
 
+    bool    private _frozen;
+    uint256 private _updatedAt;
+
     function set(address base, address quote, uint256 price, uint8 dec) external {
         bytes32 k = keccak256(abi.encode(base, quote));
         _price[k] = price;
         _dec[k]   = dec;
     }
 
+    /// @notice Freeze the reported `updatedAt` to a specific value (including 0).
+    function setUpdatedAt(uint256 ts) external {
+        _frozen = true;
+        _updatedAt = ts;
+    }
+
     function getPrice(address base, address quote) external view returns (uint256, uint8, uint256) {
         bytes32 k = keccak256(abi.encode(base, quote));
-        return (_price[k], _dec[k], block.timestamp);
+        return (_price[k], _dec[k], _frozen ? _updatedAt : block.timestamp);
     }
 }
 
@@ -41,6 +51,7 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
     uint256 constant MAX_SWAP   = 10 ether;
     uint256 constant MAX_BORROW = 100_000e18;
     uint256 constant MAX_LTV    = 7_500; // 75%
+    uint256 constant MAX_AGE    = 3600;  // 1h freshness bound
 
     function setUp() public override {
         super.setUp();
@@ -81,7 +92,8 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
             tokensOut:      _arr1(USDC),
             maxAmountPerTx: MAX_SWAP,
             maxSlippageBps: 0,
-            priceOracle:    address(0)
+            priceOracle:    address(0),
+            maxPriceAgeSec: 0
         });
     }
 
@@ -92,7 +104,8 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
             maxAmountPerTx:   MAX_BORROW,
             maxLtvBps:        MAX_LTV,
             collateralOracle: address(colOracle),
-            borrowOracle:     address(borOracle)
+            borrowOracle:     address(borOracle),
+            maxPriceAgeSec:   MAX_AGE
         });
     }
 
@@ -192,6 +205,42 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
         assertFalse(bundle.evaluate(data, _ctx(address(safe), AAVE, SEL_AAVE)));
     }
 
+    function test_Borrow_StaleCollateralPrice_Denied() public {
+        _configureDefault(address(safe));
+        vm.warp(block.timestamp + MAX_AGE + 100);
+        colOracle.setUpdatedAt(block.timestamp - MAX_AGE - 1); // stale
+        borOracle.setUpdatedAt(block.timestamp);               // fresh
+        bytes memory data = _aave(USDC, 7_500, address(safe)); // within LTV if fresh
+        assertFalse(bundle.evaluate(data, _ctx(address(safe), AAVE, SEL_AAVE)));
+    }
+
+    function test_Borrow_StaleBorrowPrice_Denied() public {
+        _configureDefault(address(safe));
+        vm.warp(block.timestamp + MAX_AGE + 100);
+        colOracle.setUpdatedAt(block.timestamp);               // fresh
+        borOracle.setUpdatedAt(block.timestamp - MAX_AGE - 1); // stale
+        bytes memory data = _aave(USDC, 7_500, address(safe));
+        assertFalse(bundle.evaluate(data, _ctx(address(safe), AAVE, SEL_AAVE)));
+    }
+
+    function test_Borrow_FreshAtAgeBound_Permitted() public {
+        _configureDefault(address(safe));
+        vm.warp(block.timestamp + MAX_AGE + 100);
+        colOracle.setUpdatedAt(block.timestamp - MAX_AGE); // exactly at bound → fresh
+        borOracle.setUpdatedAt(block.timestamp - MAX_AGE);
+        bytes memory data = _aave(USDC, 7_500, address(safe));
+        assertTrue(bundle.evaluate(data, _ctx(address(safe), AAVE, SEL_AAVE)));
+    }
+
+    function test_Configure_RevertsWhenBorrowOraclesSetButAgeZero() public {
+        SharedDeFiBundlePermission.BorrowConfig memory bcfg = _defaultBorrowCfg();
+        bcfg.maxPriceAgeSec = 0; // both oracles set but no freshness bound
+        bytes memory params = abi.encode(_defaultSwapCfg(), bcfg, _defaultTransferCfg());
+        vm.prank(permSigner);
+        vm.expectRevert(BaseSharedPermission.MissingPriceAge.selector);
+        bundle.configureDirect(address(safe), params);
+    }
+
     function test_Borrow_ZeroCollateralPrice_Denied() public {
         // colValue = 0 (unset oracle) → fail-closed
         borOracle.set(USDC, address(0), 1, 0);
@@ -262,7 +311,7 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
         MockSafe safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
         vm.prank(address(safeB));
-        kernel.registerAccount(permSigner, manager, address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Configure bundle for Safe A only
         _configureDefault(address(safe));
