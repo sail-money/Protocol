@@ -1204,6 +1204,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         Intended for off-chain use only. Each permission may make up to 3 external
     ///         view calls; call with a generous gas limit on accounts with many permissions.
     ///         MUST NOT be called from dispatch — use isPermissionRegistered() for O(1) checks.
+    ///
+    /// @dev    External calls to user-deployed permission contracts are NOT gas-capped here.
+    ///         Off-chain consumers (indexers, dashboards) should apply their own gas limit or
+    ///         timeout when calling this function over RPC; a buggy or malicious permission can
+    ///         consume large amounts of gas or return large data. The kernel omits a cap because
+    ///         this is a view with no on-chain impact; the dispatch-path already gas-caps each
+    ///         permission evaluation via the protocol's per-permission gas isolation guarantee.
     /// @param  account The Safe account to query.
     /// @return infos   Array of PermissionInfo, one per registered permission, in registration order.
     function getPermissionsWithInfo(address account) external view returns (PermissionInfo[] memory infos) {
@@ -1237,8 +1244,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///           approved = true  → batch would pass evaluateBatch
     ///           approved = false → batch would be denied; `reason` has a short descriptor
     ///
-    ///         Does NOT check: account registration, session active, deadline, or sig.
+    ///         Does NOT check: session active, deadline, or sig.
     ///         Callers must verify those separately.
+    ///         DOES check: account registration and permission registration; returns
+    ///         (false, "AccountNotRegistered") or (false, "PermissionNotRegistered") accordingly.
     ///
     /// @param  account    The registered Safe account.
     /// @param  permission The batch-aware permission to evaluate.
