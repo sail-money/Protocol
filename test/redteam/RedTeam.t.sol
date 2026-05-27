@@ -90,6 +90,8 @@ contract ReentrancyAttacker {
 
     constructor(address _kernel) { kernel = SailKernel(_kernel); }
 
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
+
     function setReentryParams(address _account, address _perm2, bytes calldata _sig2) external {
         account    = _account;
         permission2 = _perm2;
@@ -192,6 +194,11 @@ abstract contract RedTeamBase is Test {
         safe = new MockSafe();
         safe.enableModule(address(kernel));
         vm.deal(address(safe), 100 ether);
+
+        // registerAccount requires the caller's codehash to be an allowlisted Safe proxy
+        // (Octane #4a). One seed covers all MockSafe instances (safe2/safe3/newSafe).
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         // Register the Safe account
         vm.prank(address(safe));
@@ -856,6 +863,11 @@ contract FeeAccountingTests is RedTeamBase {
         ReentrancyAttacker rAttacker = new ReentrancyAttacker(address(kernel));
         vm.deal(address(rAttacker), 10 ether);
 
+        // Allowlist the attacker contract's codehash so it can register and we can exercise
+        // the reentrancy guard (the property under test here, not the codehash gate).
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(rAttacker).codehash, true);
+
         // Register rAttacker's account (it calls registerAccount as itself)
         vm.prank(address(rAttacker));
         kernel.registerAccount(permSigner, manager, address(0));
@@ -1519,23 +1531,17 @@ contract AccountRegistrationTests is RedTeamBase {
         MockSafe newSafe = new MockSafe();
         newSafe.enableModule(address(kernel));
 
-        // Key property: registerAccount uses msg.sender as the account being registered.
-        // An attacker calling registerAccount registers THEMSELVES, not newSafe.
-        // They cannot impersonate newSafe's address — only newSafe itself can register newSafe.
-
-        // Attacker calls registerAccount directly — this registers the ATTACKER address, not newSafe.
+        // Post-fix (Octane #4a): registerAccount rejects any caller whose codehash is not an
+        // allowlisted Safe proxy. The attacker EOA therefore cannot self-register at all —
+        // strictly stronger than the prior "registers themselves, not newSafe" behavior.
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
         kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0));
 
-        // Attacker registered themselves — not a vulnerability, they control the attacker account.
-        assertTrue(kernel.registered(attacker));
-        (address attackerPermSigner,,,) = kernel.configs(attacker);
-        assertEq(attackerPermSigner, address(0xDEAD));
-
-        // newSafe is NOT registered — front-run protection works.
+        assertFalse(kernel.registered(attacker));
         assertFalse(kernel.registered(address(newSafe)));
 
-        // Only newSafe can register itself
+        // newSafe (allowlisted MockSafe codehash, module enabled) can register itself.
         vm.prank(address(newSafe));
         kernel.registerAccount(permSigner, manager, address(0));
         assertTrue(kernel.registered(address(newSafe)));

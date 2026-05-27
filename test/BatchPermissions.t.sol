@@ -15,6 +15,7 @@ contract BatchMockSafe {
     receive() external payable {}
     function execTransactionFromModule(address, uint256, bytes calldata, uint8)
         external pure returns (bool) { return true; }
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 contract BatchMockPermission is IPermission {
@@ -58,6 +59,9 @@ contract BatchPermissionsTest is Test {
         perm1  = new BatchMockPermission();
         perm2  = new BatchMockPermission();
         perm3  = new BatchMockPermission();
+
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));

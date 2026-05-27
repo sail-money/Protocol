@@ -68,6 +68,9 @@ contract AgentIdentityTest is Test {
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new AgentTestSafe();
 
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
 

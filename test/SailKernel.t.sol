@@ -53,6 +53,12 @@ contract MockSafeFactory {
     function createProxyWithNonce(address, bytes calldata, uint256) external returns (address) {
         return address(new MockSafe());
     }
+
+    // createAccount predicts the address first; returning address(0) (no code) makes the kernel
+    // proceed to deploy via createProxyWithNonce.
+    function calculateCreateProxyWithNonceAddress(address, bytes calldata, uint256) external pure returns (address) {
+        return address(0);
+    }
 }
 
 contract MockPermission is IPermission {
@@ -179,6 +185,12 @@ contract SailKernelTest is Test {
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
         feePolicy.setFeeRecipient(manager);
+
+        // registerAccount now requires the caller's codehash to be an allowlisted Safe proxy
+        // (Octane #4a). All MockSafe instances share this codehash, so one seed covers the
+        // safe2/safe3/newSafe accounts created across the tests below.
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
@@ -319,17 +331,33 @@ contract SailKernelTest is Test {
     // 1b. createAccount
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// @dev Build a Safe v1.4.1 `setup` initializer with `to` = `moduleSetup` (at bytes [68:100]),
+    ///      satisfying the kernel's initializer-length and trusted-`to` checks. The MockSafeFactory
+    ///      ignores the initializer body, so only the `to` field matters here.
+    function _setupInit(address moduleSetup) internal pure returns (bytes memory) {
+        address[] memory owners = new address[](1);
+        owners[0] = address(0xA0);
+        return abi.encodeWithSelector(
+            bytes4(0xb63e800d),
+            owners, uint256(1), moduleSetup, bytes(""),
+            address(0), address(0), uint256(0), payable(address(0))
+        );
+    }
+
     function test_CreateAccount_DeploysAndRegisters() public {
         MockSafeFactory factory = new MockSafeFactory();
-        address singleton = address(0xBEEF);
+        address singleton   = address(0xBEEF);
+        address moduleSetup = address(0xD00D);
 
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(singleton, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
 
         address account = kernel.createAccount(
-            address(factory), singleton, "", 0, permSigner, manager, address(feePolicy)
+            address(factory), singleton, _setupInit(moduleSetup), 0, permSigner, manager, address(feePolicy)
         );
 
         assertTrue(kernel.registered(account));
@@ -341,22 +369,28 @@ contract SailKernelTest is Test {
 
     function test_CreateAccount_RevertsOnZeroPermissionSigner() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(address(0), true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), "", 0, address(0), manager, address(0));
+        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, address(0), manager, address(0));
     }
 
     function test_CreateAccount_RevertsOnZeroManager() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeSingleton(address(0), true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), "", 0, permSigner, address(0), address(0));
+        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, permSigner, address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
