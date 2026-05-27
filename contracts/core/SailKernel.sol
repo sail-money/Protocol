@@ -18,6 +18,17 @@ interface ISafeFactory {
     function createProxyWithNonce(address singleton, bytes calldata initializer, uint256 saltNonce)
         external
         returns (address proxy);
+
+    /// @notice Deterministically predict the address `createProxyWithNonce` would deploy to
+    ///         for the given singleton/initializer/saltNonce, without deploying.
+    /// @dev    Exposed by the canonical Safe v1.4.1 SafeProxyFactory. Used by the kernel to
+    ///         predict the proxy address so that a legitimate front-runner deploying the exact
+    ///         same configuration can be detected (idempotency) instead of reverting.
+    function calculateCreateProxyWithNonceAddress(
+        address singleton,
+        bytes calldata initializer,
+        uint256 saltNonce
+    ) external view returns (address);
 }
 
 /// @dev Minimal Safe module interface — used for executing transactions and fee transfers.
@@ -415,6 +426,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `createAccount` when the provided Safe singleton is not in governance's trusted allowlist.
     error UntrustedSingleton(address singleton);
 
+    /// @dev Thrown by `createAccount` when `safeInitializer` is too short to contain the
+    ///      Safe.setup `to` field (selector + owners offset + threshold + to = 100 bytes).
+    error InvalidInitializer();
+
+    /// @dev Thrown by `createAccount` when the Safe.setup delegatecall `to` target is not
+    ///      in governance's trusted module-setup allowlist.
+    error UntrustedModuleSetup(address setup);
+
+    /// @dev Thrown by `registerAccount` when the caller's runtime codehash is not in
+    ///      governance's trusted Safe-proxy-codehash allowlist.
+    error UntrustedProxyCodehash(bytes32 codehash);
+
     /// @dev Thrown by `dispatchBatch` when the calls array is empty.
     error EmptyBatch();
 
@@ -496,18 +519,21 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
 
     /// @notice Deploy a new Safe via factory and register it with the kernel in one transaction.
-    /// @dev    The salt passed to the factory is derived from `keccak256(saltNonce, msg.sender)`
-    ///         to bind the CREATE2 address to the caller, preventing front-running attacks where
-    ///         an observer could claim registration of a Safe they did not deploy.
-    ///         Off-chain pre-computation: `boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)))`.
+    /// @dev    The salt passed to the factory is derived from `keccak256(saltNonce, msg.sender,
+    ///         permissionSigner, manager, feePolicy)` so that a front-runner supplying different
+    ///         principals lands at a different CREATE2 address and cannot squat the registration
+    ///         (Octane #4 / #16). The Safe.setup delegatecall `to` target embedded in
+    ///         `safeInitializer` is validated against the trusted module-setup allowlist, removing
+    ///         the arbitrary-delegatecall surface (Octane #1). If a proxy already exists at the
+    ///         predicted address (legitimate pre-deploy or retry) the factory call is skipped.
     /// @param  safeFactory       Address of the Safe proxy factory contract.
     /// @param  safeSingleton     Address of the Safe singleton (implementation) contract.
     /// @param  safeInitializer   Calldata for the Safe's `setup` call during deployment.
-    /// @param  saltNonce         Caller-chosen nonce; combined with msg.sender to form the CREATE2 salt.
+    /// @param  saltNonce         Caller-chosen nonce; combined with msg.sender + principals into the salt.
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
-    /// @return account           Address of the newly deployed Safe proxy.
+    /// @return account           Address of the deployed (or pre-existing) Safe proxy.
     function createAccount(
         address safeFactory,
         address safeSingleton,
@@ -519,20 +545,46 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ) external returns (address account) {
         if (!governance.trustedSafeFactory(safeFactory))     revert UntrustedFactory(safeFactory);
         if (!governance.trustedSafeSingleton(safeSingleton)) revert UntrustedSingleton(safeSingleton);
-        uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender)));
-        account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);
+
+        // Enforce that the delegatecall target inside Safe.setup is an allowlisted helper.
+        // setup() ABI layout: selector(4) + owners_offset(32) + threshold(32) + to(32) + ...
+        // 'to' is at bytes [68:100].
+        if (safeInitializer.length < 100) revert InvalidInitializer();
+        address setupTarget = address(uint160(uint256(bytes32(safeInitializer[68:100]))));
+        // address(0) means no delegatecall (vanilla Safe.setup) — always safe, no allowlist check needed.
+        if (setupTarget != address(0) && !governance.trustedModuleSetup(setupTarget)) revert UntrustedModuleSetup(setupTarget);
+
+        uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissionSigner, manager, feePolicy)));
+
+        address predicted = ISafeFactory(safeFactory).calculateCreateProxyWithNonceAddress(
+            safeSingleton, safeInitializer, boundSalt
+        );
+        if (predicted.code.length == 0) {
+            account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);
+        } else {
+            account = predicted;
+        }
+
         if (!ISafe(account).isModuleEnabled(address(this))) revert ModuleNotEnabled();
         _registerAccount(account, permissionSigner, manager, feePolicy);
     }
 
     /// @notice Register an existing Safe that has already added this kernel as a module.
-    /// @dev    MUST be called by the Safe itself via a Safe transaction (msg.sender == Safe).
-    ///         This prevents front-running: only the Safe's own signers can authorise
-    ///         registration by executing a transaction through the Safe's threshold mechanism.
+    /// @dev    MUST be called by the Safe itself (msg.sender == Safe). The caller must be a
+    ///         genuine Safe proxy (verified by runtime codehash against the trusted allowlist,
+    ///         blocking arbitrary-contract self-registration — finding #4a) and must already
+    ///         have this kernel enabled as a module (blocking stealth pre-registration during
+    ///         Safe.setup's delegatecall, when no module is yet enabled — finding #4b).
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
     function registerAccount(address permissionSigner, address manager, address feePolicy) external {
+        bytes32 codehash;
+        assembly { codehash := extcodehash(caller()) }
+        if (!governance.trustedSafeProxyCodehash(codehash)) revert UntrustedProxyCodehash(codehash);
+
+        if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
+
         _registerAccount(msg.sender, permissionSigner, manager, feePolicy);
     }
 

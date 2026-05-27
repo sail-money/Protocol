@@ -46,6 +46,8 @@ contract MockSafe {
         Call storage c = _calls[i];
         return (c.to, c.value, c.data, c.operation);
     }
+
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,6 +112,11 @@ contract IntegrationTest is Test {
         // 3. MockSafe
         mockSafe = new MockSafe();
         vm.deal(address(mockSafe), 100 ether); // ETH for fee-split transfers
+
+        // registerAccount requires the caller's codehash to be allowlisted (Octane #4a).
+        // All MockSafe instances share this codehash, so one seed covers safe2 etc.
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(mockSafe).codehash, true);
 
         // 4. BoundedSwapPermission: only ROUTER, WETH→USDC, 10 ETH cap, 2% slippage
         address[] memory routers   = _arr1(ROUTER);

@@ -26,6 +26,7 @@ contract BenchSafe {
         }
         return ok;
     }
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 contract BenchERC20 {
@@ -94,6 +95,8 @@ contract BatchDispatchBenchmark is Test {
 
         safe = new BenchSafe();
         vm.deal(address(safe), 10 ether);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
 

@@ -142,6 +142,11 @@ abstract contract RedTeamBase2 is Test {
         safe.enableModule(address(kernel));
         vm.deal(address(safe), 100 ether);
 
+        // registerAccount requires an allowlisted Safe-proxy codehash (Octane #4a). One seed
+        // covers all MockSafe2 instances (targetSafe/newSafe/unregisteredSafe).
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
 
@@ -1361,42 +1366,35 @@ contract BundleOrderingAttackTests is RedTeamBase2 {
 // =============================================================================
 contract RegisterAccountDeepTests is RedTeamBase2 {
 
-    // ── 20a. Attacker can register an EOA address they control as an account ──
-    //   Since registerAccount uses msg.sender as the account, the attacker registers
-    //   themselves — not a vulnerability, but confirms the intent.
-    //   The attacker's account will be separate from the victim's Safe.
+    // ── 20a. Attacker EOA cannot self-register (Octane #4a) ──
+    //   Post-fix, registerAccount rejects callers whose codehash is not an allowlisted Safe
+    //   proxy. An EOA (codehash 0) is rejected outright.
 
     function test_Attack_RegisterAccount_AttackerRegistersOwnAddress() public {
         assertFalse(kernel.registered(attacker));
 
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
         kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0));
 
-        assertTrue(kernel.registered(attacker));
-        // attacker's account is registered with attacker-controlled parameters
-        (address ps,,, ) = kernel.configs(attacker);
-        assertEq(ps, address(0xDEAD));
+        assertFalse(kernel.registered(attacker));
     }
 
-    // ── 20b. Victim's Safe cannot be front-run since only the Safe can call registerAccount
-    //   for itself (msg.sender == account in registerAccount). An EOA cannot register
-    //   the Safe's address because the Safe hasn't called the kernel.
+    // ── 20b. Victim's Safe cannot be front-run; attacker EOA is rejected by codehash gate ──
 
     function test_Attack_RegisterAccount_CannotFrontRunSafe() public {
         MockSafe2 targetSafe = new MockSafe2();
         targetSafe.enableModule(address(kernel));
 
-        // Attacker tries to register targetSafe's address — they cannot,
-        // because attacker's msg.sender != targetSafe's address.
-        // When attacker calls registerAccount, the kernel uses msg.sender (attacker) as account.
+        // Attacker EOA cannot register anything — codehash gate rejects it.
         vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
         kernel.registerAccount(address(0x111), address(0x222), address(0));
 
-        // attacker is registered, not targetSafe
-        assertTrue(kernel.registered(attacker));
+        assertFalse(kernel.registered(attacker));
         assertFalse(kernel.registered(address(targetSafe)));
 
-        // Now targetSafe registers itself
+        // Now targetSafe (allowlisted MockSafe2 codehash, module enabled) registers itself.
         vm.prank(address(targetSafe));
         kernel.registerAccount(permSigner, manager, address(0));
         assertTrue(kernel.registered(address(targetSafe)));
@@ -1425,12 +1423,13 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         MockSafe2 newSafe = new MockSafe2();
         newSafe.enableModule(address(kernel));
 
-        // Manager calls registerAccount — this registers the manager's address, not newSafe
+        // Manager is an EOA — codehash gate (Octane #4a) rejects its registration attempt.
         vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, manager.codehash));
         kernel.registerAccount(permSigner, address(0x1234), address(0));
 
-        assertTrue(kernel.registered(manager));   // manager registered itself
-        assertFalse(kernel.registered(address(newSafe))); // newSafe still unregistered
+        assertFalse(kernel.registered(manager));
+        assertFalse(kernel.registered(address(newSafe)));
     }
 }
 

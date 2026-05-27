@@ -58,6 +58,8 @@ contract ForwardingMockSafe {
         Entry storage e = _log[i];
         return (e.to, e.value, e.data, e.operation, e.success);
     }
+
+    function isModuleEnabled(address) external pure returns (bool) { return true; }
 }
 
 // =============================================================================
@@ -194,6 +196,11 @@ contract BatchDispatchTest is Test {
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new ForwardingMockSafe();
         vm.deal(address(safe), 10 ether);
+
+        // Seed the mock's codehash so registerAccount accepts it (Octane #4a). Same codehash
+        // for all ForwardingMockSafe instances, so this covers safeB created in later tests.
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
 
         // Register account with the forwarding Safe.
         vm.prank(address(safe));

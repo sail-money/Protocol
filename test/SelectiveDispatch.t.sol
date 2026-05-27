@@ -150,6 +150,9 @@ contract SelectiveDispatchTest is Test {
         safe   = new MockSafe();
         vm.deal(address(safe), 1 ether);
 
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0));
 
