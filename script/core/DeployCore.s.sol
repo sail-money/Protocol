@@ -137,7 +137,7 @@ contract DeployCore is Script {
     }
 
     function _envUintOr(string memory key, uint256 fallback_) internal view returns (uint256) {
-        try vm.envUint(key) returns (uint256 v) { return v == 0 ? fallback_ : v; }
+        try vm.envUint(key) returns (uint256 v) { return v; }
         catch { return fallback_; }
     }
 
