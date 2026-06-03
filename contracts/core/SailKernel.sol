@@ -19,16 +19,14 @@ interface ISafeFactory {
         external
         returns (address proxy);
 
-    /// @notice Deterministically predict the address `createProxyWithNonce` would deploy to
-    ///         for the given singleton/initializer/saltNonce, without deploying.
-    /// @dev    Exposed by the canonical Safe v1.4.1 SafeProxyFactory. Used by the kernel to
-    ///         predict the proxy address so that a legitimate front-runner deploying the exact
-    ///         same configuration can be detected (idempotency) instead of reverting.
-    function calculateCreateProxyWithNonceAddress(
-        address singleton,
-        bytes calldata initializer,
-        uint256 saltNonce
-    ) external view returns (address);
+    /// @notice The proxy creation bytecode the factory deploys (excludes the appended
+    ///         singleton constructor arg). For Safe v1.4.1 this is `type(SafeProxy).creationCode`.
+    /// @dev    The kernel uses this to predict the CREATE2 proxy address locally (see
+    ///         `createAccount`), so it can adopt an already-deployed proxy (idempotency /
+    ///         front-run resilience) without a factory-side predictor. Safe v1.4.1's factory
+    ///         exposes `proxyCreationCode()` but NOT a view address predictor —
+    ///         `calculateCreateProxyWithNonceAddress` was a revert-based simulator removed after v1.3.0.
+    function proxyCreationCode() external pure returns (bytes memory);
 }
 
 /// @dev Minimal Safe module interface — used for executing transactions and fee transfers.
@@ -593,8 +591,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
         uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissionSigner, manager, feePolicy)));
 
-        address predicted = ISafeFactory(safeFactory).calculateCreateProxyWithNonceAddress(
-            safeSingleton, safeInitializer, boundSalt
+        // Predict the proxy address with the same CREATE2 formula SafeProxyFactory uses, so a
+        // proxy already deployed at that address (a retry, or a same-config front-runner) is
+        // adopted instead of reverting. Computed locally rather than via a factory predictor:
+        // Safe v1.4.1's factory exposes no view predictor (only proxyCreationCode()).
+        //   salt           = keccak256(keccak256(initializer), saltNonce)
+        //   deploymentData = proxyCreationCode() ++ uint256(uint160(singleton))
+        bytes32 create2Salt = keccak256(abi.encodePacked(keccak256(safeInitializer), boundSalt));
+        bytes32 initCodeHash = keccak256(
+            abi.encodePacked(ISafeFactory(safeFactory).proxyCreationCode(), uint256(uint160(safeSingleton)))
+        );
+        address predicted = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), safeFactory, create2Salt, initCodeHash))))
         );
         if (predicted.code.length == 0) {
             account = ISafeFactory(safeFactory).createProxyWithNonce(safeSingleton, safeInitializer, boundSalt);

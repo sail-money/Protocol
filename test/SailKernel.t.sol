@@ -54,10 +54,12 @@ contract MockSafeFactory {
         return address(new MockSafe());
     }
 
-    // createAccount predicts the address first; returning address(0) (no code) makes the kernel
-    // proceed to deploy via createProxyWithNonce.
-    function calculateCreateProxyWithNonceAddress(address, bytes calldata, uint256) external pure returns (address) {
-        return address(0);
+    // The kernel predicts the CREATE2 address locally from proxyCreationCode(). This mock deploys
+    // a plain MockSafe (not at the predicted address), so the predicted slot is always empty and
+    // the kernel takes the createProxyWithNonce deploy path. The returned bytes only feed the
+    // (unmatched) prediction, so any value is fine.
+    function proxyCreationCode() external pure returns (bytes memory) {
+        return type(MockSafe).creationCode;
     }
 }
 
