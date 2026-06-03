@@ -92,10 +92,65 @@ contract DeployCore is Script {
         );
         console2.log("StandardFeePolicy  :", address(d.feePolicy));
 
+        // Genesis allowlist seeding: when SAIL_BOOTSTRAP_ALLOWLISTS is set, seed the onboarding
+        // allowlists in this same broadcast (deployer is still `governance`), bypassing the
+        // 48-hour timelock exactly once. Without it, fall back to the manual timelock path.
+        bool bootstrap = _boolEnv("SAIL_BOOTSTRAP_ALLOWLISTS");
+        if (bootstrap) {
+            _bootstrapAllowlists(cfg, d);
+        }
+
         vm.stopBroadcast();
 
-        _printAllowlistReminder(address(d.safeModuleEnabler));
+        if (!bootstrap) {
+            _printAllowlistReminder(address(d.safeModuleEnabler));
+        }
         _writeManifest(cfg, d);
+    }
+
+    /// @dev One-time genesis seeding of SailGovernance's onboarding allowlists, run inside the
+    ///      deployment broadcast while the deployer still holds `governance`. Trusts the canonical
+    ///      Safe v1.4.1 ProxyFactory, BOTH singleton variants (L2 + non-L2), the freshly deployed
+    ///      SafeModuleEnabler and StandardFeePolicy, and the SafeProxy runtime codehash supplied
+    ///      via the SAFE_PROXY_CODEHASH env var. Requires `governance == deployer` (the default).
+    function _bootstrapAllowlists(Config memory cfg, Deployment memory d) internal {
+        require(
+            d.governance.governance() == cfg.deployer,
+            "bootstrap must be sent by initialGovernance; set INITIAL_GOVERNANCE=deployer"
+        );
+
+        bytes32 proxyCodehash = vm.envBytes32("SAFE_PROXY_CODEHASH");
+        require(
+            proxyCodehash != bytes32(0),
+            "SAFE_PROXY_CODEHASH env required: cast keccak $(cast code <a 1.4.1 SafeProxy> --rpc-url $RPC)"
+        );
+
+        address[] memory factories = new address[](1);
+        factories[0] = SafeConstants.SAFE_PROXY_FACTORY_1_4_1;
+
+        address[] memory singletons = new address[](2);
+        singletons[0] = SafeConstants.SAFE_SINGLETON_1_4_1;
+        singletons[1] = SafeConstants.SAFE_SINGLETON_L2_1_4_1;
+
+        address[] memory setups = new address[](1);
+        setups[0] = address(d.safeModuleEnabler);
+
+        address[] memory policies = new address[](1);
+        policies[0] = address(d.feePolicy);
+
+        bytes32[] memory codehashes = new bytes32[](1);
+        codehashes[0] = proxyCodehash;
+
+        d.governance.bootstrapAllowlists(factories, singletons, setups, policies, codehashes);
+
+        console2.log("=== BOOTSTRAPPED allowlists at genesis (no timelock) ===");
+        console2.log("trustedSafeFactory         :", factories[0]);
+        console2.log("trustedSafeSingleton       :", singletons[0]);
+        console2.log("trustedSafeSingleton (L2)  :", singletons[1]);
+        console2.log("trustedModuleSetup         :", setups[0]);
+        console2.log("trustedFeePolicy           :", policies[0]);
+        console2.log("trustedSafeProxyCodehash   :");
+        console2.logBytes32(codehashes[0]);
     }
 
     /// @dev The onboarding allowlist setters on SailGovernance are `onlyTimelock`, so they

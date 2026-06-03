@@ -37,6 +37,13 @@ contract FaithfulSafeProxy {
     Rec[] private _calls;
     bool public moduleCallSuccess = true;
 
+    /// @dev Mirrors Safe v1.4.1 SafeProxy, which takes the singleton as a constructor arg —
+    ///      so the deployed init code (creationCode ++ singleton) and thus the CREATE2 address
+    ///      match what the kernel now predicts locally. The arg is intentionally NOT stored as
+    ///      an immutable, so the runtime code (and codehash) stays singleton-independent, exactly
+    ///      like a real SafeProxy (which holds the singleton in storage slot 0, not in code).
+    constructor(address) {}
+
     receive() external payable {}
 
     function setup(
@@ -88,27 +95,37 @@ contract FaithfulSafeProxy {
 /// @dev Faithful Safe proxy factory: deterministic CREATE2 deploy + address prediction
 ///      matching Safe v1.4.1 semantics (salt = keccak256(keccak256(initializer), saltNonce)).
 contract FaithfulSafeFactory is ISafeFactory {
-    function createProxyWithNonce(address, bytes calldata initializer, uint256 saltNonce)
+    function createProxyWithNonce(address singleton, bytes calldata initializer, uint256 saltNonce)
         external
         override
         returns (address proxy)
     {
         bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), saltNonce));
-        proxy = address(new FaithfulSafeProxy{salt: salt}());
+        // Pass the singleton as a constructor arg so init code = creationCode ++ singleton,
+        // exactly as Safe v1.4.1 deploys — keeps the CREATE2 address faithful.
+        proxy = address(new FaithfulSafeProxy{salt: salt}(singleton));
         if (initializer.length > 0) {
             (bool ok, ) = proxy.call(initializer);
             require(ok, "proxy init failed");
         }
     }
 
-    function calculateCreateProxyWithNonceAddress(address, bytes calldata initializer, uint256 saltNonce)
+    /// @inheritdoc ISafeFactory
+    function proxyCreationCode() external pure override returns (bytes memory) {
+        return type(FaithfulSafeProxy).creationCode;
+    }
+
+    /// @dev Test-side address predictor (not part of ISafeFactory). Matches the kernel's
+    ///      local CREATE2 computation: init code = creationCode ++ uint256(uint160(singleton)).
+    function calculateCreateProxyWithNonceAddress(address singleton, bytes calldata initializer, uint256 saltNonce)
         external
         view
-        override
         returns (address)
     {
         bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), saltNonce));
-        return Create2.computeAddress(salt, keccak256(type(FaithfulSafeProxy).creationCode), address(this));
+        bytes32 initCodeHash =
+            keccak256(abi.encodePacked(type(FaithfulSafeProxy).creationCode, uint256(uint160(singleton))));
+        return Create2.computeAddress(salt, initCodeHash, address(this));
     }
 }
 
@@ -162,7 +179,7 @@ contract CreateAccountTest is Test {
         factory       = new FaithfulSafeFactory();
         moduleEnabler = new SafeModuleEnabler();
 
-        proxyCodehash = address(new FaithfulSafeProxy()).codehash;
+        proxyCodehash = address(new FaithfulSafeProxy(SINGLETON)).codehash;
 
         _allowlist(abi.encodeCall(gov.setTrustedSafeFactory,        (address(factory), true)));
         _allowlist(abi.encodeCall(gov.setTrustedSafeSingleton,      (SINGLETON, true)));

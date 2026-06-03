@@ -115,6 +115,12 @@ contract SailGovernance {
     ///         genuine Safe proxy rather than arbitrary attacker bytecode.
     mapping(bytes32 => bool) public trustedSafeProxyCodehash;
 
+    /// @notice True once the one-time genesis allowlist seeding (`bootstrapAllowlists`) has run.
+    ///         Latches true forever; afterwards every allowlist change MUST go through the
+    ///         48-hour timelock. Starts false so a fresh deployment can seed its initial
+    ///         onboarding allowlists in the deployment transaction without the timelock delay.
+    bool public allowlistBootstrapped;
+
     /// @notice Emitted when a Safe factory's trusted status changes.
     /// @param  factory  The factory address.
     /// @param  trusted  True if added to the allowlist, false if removed.
@@ -139,6 +145,10 @@ contract SailGovernance {
     /// @param  codehash The proxy runtime codehash.
     /// @param  trusted  True if added to the allowlist, false if removed.
     event SafeProxyCodehashTrusted(bytes32 indexed codehash, bool trusted);
+
+    /// @notice Emitted once, when the one-time genesis allowlist bootstrap runs.
+    /// @param  by The governance address that performed the bootstrap.
+    event AllowlistBootstrapped(address indexed by);
 
     /// @notice Add or remove a Safe proxy factory from the trusted allowlist.
     /// @param  factory  Address of the factory contract.
@@ -184,6 +194,68 @@ contract SailGovernance {
     function setTrustedSafeProxyCodehash(bytes32 codehash, bool trusted) external onlyTimelock {
         trustedSafeProxyCodehash[codehash] = trusted;
         emit SafeProxyCodehashTrusted(codehash, trusted);
+    }
+
+    /// @notice One-time genesis seeding of the onboarding allowlists, callable by the initial
+    ///         governance address WITHOUT the 48-hour timelock — and only before any other
+    ///         allowlist entry has been set.
+    /// @dev    The `trusted*` setters are `onlyTimelock` so that every change during normal
+    ///         operation is delayed and publicly visible. That delay serves no purpose at
+    ///         genesis: the deployer already chooses the entire bytecode and initial config, so
+    ///         seeding the canonical Safe v1.4.1 factory/singleton/module-setup, the deployed fee
+    ///         policy, and the SafeProxy codehash within the deployment transaction grants no
+    ///         capability the deployer did not already hold. This function therefore bypasses the
+    ///         timelock exactly once: `allowlistBootstrapped` latches true on first call, after
+    ///         which it always reverts and EVERY further allowlist change must go through the
+    ///         48-hour timelock. Intended to be invoked from the deploy script in the same
+    ///         broadcast as the core deployment, while `governance` is still the deployer.
+    /// @param  safeFactories        Safe proxy factories to trust (e.g. Safe v1.4.1 ProxyFactory).
+    /// @param  safeSingletons       Safe singletons (implementations) to trust.
+    /// @param  moduleSetups         `SafeModuleSetup`-style helpers to trust (the Sail SafeModuleEnabler).
+    /// @param  feePolicies          Fee policy contracts to trust (the deployed StandardFeePolicy).
+    /// @param  safeProxyCodehashes  SafeProxy runtime codehashes to trust.
+    function bootstrapAllowlists(
+        address[] calldata safeFactories,
+        address[] calldata safeSingletons,
+        address[] calldata moduleSetups,
+        address[] calldata feePolicies,
+        bytes32[] calldata safeProxyCodehashes
+    ) external onlyGovernance {
+        if (allowlistBootstrapped) revert AlreadyBootstrapped();
+        allowlistBootstrapped = true;
+
+        for (uint256 i; i < safeFactories.length; ++i) {
+            address factory = safeFactories[i];
+            if (factory == address(0)) revert ZeroAddress();
+            trustedSafeFactory[factory] = true;
+            emit SafeFactoryTrusted(factory, true);
+        }
+        for (uint256 i; i < safeSingletons.length; ++i) {
+            address singleton = safeSingletons[i];
+            if (singleton == address(0)) revert ZeroAddress();
+            trustedSafeSingleton[singleton] = true;
+            emit SafeSingletonTrusted(singleton, true);
+        }
+        for (uint256 i; i < moduleSetups.length; ++i) {
+            address setup = moduleSetups[i];
+            if (setup == address(0)) revert ZeroAddress();
+            trustedModuleSetup[setup] = true;
+            emit ModuleSetupTrusted(setup, true);
+        }
+        for (uint256 i; i < feePolicies.length; ++i) {
+            address policy = feePolicies[i];
+            if (policy == address(0)) revert ZeroAddress();
+            trustedFeePolicy[policy] = true;
+            emit FeePolicyTrusted(policy, true);
+        }
+        for (uint256 i; i < safeProxyCodehashes.length; ++i) {
+            bytes32 codehash = safeProxyCodehashes[i];
+            if (codehash == bytes32(0)) revert ZeroCodehash();
+            trustedSafeProxyCodehash[codehash] = true;
+            emit SafeProxyCodehashTrusted(codehash, true);
+        }
+
+        emit AllowlistBootstrapped(msg.sender);
     }
 
     // -------------------------------------------------------------------------
@@ -260,6 +332,13 @@ contract SailGovernance {
 
     /// @dev Thrown when a governance-related address argument is the zero address.
     error ZeroAddress();
+
+    /// @dev Thrown by `bootstrapAllowlists` when a supplied SafeProxy codehash is zero.
+    error ZeroCodehash();
+
+    /// @dev Thrown by `bootstrapAllowlists` after the one-time genesis seeding has already run.
+    ///      All subsequent allowlist changes must go through the 48-hour timelock.
+    error AlreadyBootstrapped();
 
     /// @dev Thrown by `proposeGovernance` when the candidate is the current governance address.
     error SameAddress();
