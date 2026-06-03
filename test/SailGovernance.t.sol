@@ -546,4 +546,95 @@ contract SailGovernanceTest is Test {
         emit PermissionRegistrationFeeUpdated(0, 0.001 ether);
         _timelockExecute(data, salt);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // bootstrapAllowlists — one-time genesis seeding (no timelock)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    address constant SAFE_FACTORY   = address(0xFAC0);
+    address constant SAFE_SINGLETON = address(0x5147);
+    address constant MODULE_SETUP   = address(0x5E70);
+    address constant FEE_POLICY     = address(0xFEE0);
+    bytes32 constant PROXY_CODEHASH = keccak256("safe-proxy-1.4.1");
+
+    function _bootstrapArgs()
+        internal
+        pure
+        returns (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c)
+    {
+        f = new address[](1); f[0] = SAFE_FACTORY;
+        s = new address[](1); s[0] = SAFE_SINGLETON;
+        m = new address[](1); m[0] = MODULE_SETUP;
+        p = new address[](1); p[0] = FEE_POLICY;
+        c = new bytes32[](1); c[0] = PROXY_CODEHASH;
+    }
+
+    function test_Bootstrap_SeedsAllowlistsWithoutTimelock() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c) =
+            _bootstrapArgs();
+        vm.prank(TEAM); // governance == TEAM at deploy
+        gov.bootstrapAllowlists(f, s, m, p, c);
+
+        assertTrue(gov.allowlistBootstrapped());
+        assertTrue(gov.trustedSafeFactory(SAFE_FACTORY));
+        assertTrue(gov.trustedSafeSingleton(SAFE_SINGLETON));
+        assertTrue(gov.trustedModuleSetup(MODULE_SETUP));
+        assertTrue(gov.trustedFeePolicy(FEE_POLICY));
+        assertTrue(gov.trustedSafeProxyCodehash(PROXY_CODEHASH));
+    }
+
+    function test_Bootstrap_RevertsForNonGovernance() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c) =
+            _bootstrapArgs();
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.NotGovernance.selector);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+    }
+
+    function test_Bootstrap_RevertsOnSecondCall() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c) =
+            _bootstrapArgs();
+        vm.prank(TEAM);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.AlreadyBootstrapped.selector);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+    }
+
+    function test_Bootstrap_RevertsOnZeroCodehash() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p,) = _bootstrapArgs();
+        bytes32[] memory c = new bytes32[](1); c[0] = bytes32(0);
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.ZeroCodehash.selector);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+    }
+
+    function test_Bootstrap_EmitsEvent() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c) =
+            _bootstrapArgs();
+        vm.prank(TEAM);
+        vm.expectEmit(true, false, false, false);
+        emit AllowlistBootstrapped(TEAM);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+    }
+
+    /// @dev After genesis bootstrap, allowlist changes are timelock-only again — the EOA path is closed.
+    function test_Bootstrap_PostBootstrapStillTimelockGated() public {
+        (address[] memory f, address[] memory s, address[] memory m, address[] memory p, bytes32[] memory c) =
+            _bootstrapArgs();
+        vm.prank(TEAM);
+        gov.bootstrapAllowlists(f, s, m, p, c);
+
+        // Direct EOA call to a trusted setter still reverts (onlyTimelock).
+        vm.prank(TEAM);
+        vm.expectRevert(SailGovernance.NotTimelock.selector);
+        gov.setTrustedSafeFactory(address(0xBEEF), true);
+
+        // The timelock path still works.
+        _timelockExec(abi.encodeCall(gov.setTrustedSafeFactory, (address(0xBEEF), true)));
+        assertTrue(gov.trustedSafeFactory(address(0xBEEF)));
+    }
+
+    event AllowlistBootstrapped(address indexed by);
 }
