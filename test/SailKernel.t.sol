@@ -1413,6 +1413,152 @@ contract SailKernelTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Manager rotation (setManager)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetManager_RotatesAndClearsMandates() public {
+        _registerPermission(address(perm));
+        assertTrue(kernel.isPermissionRegistered(address(safe), address(perm)));
+        assertEq(kernel.getPermissions(address(safe)).length, 1);
+        assertEq(kernel.getManager(address(safe)), manager);
+
+        address newManager = vm.addr(0xCAFE);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+
+        // Manager rotated, visible via getter and config.
+        assertEq(kernel.getManager(address(safe)), newManager);
+        (, address mgr,,,) = kernel.configs(address(safe));
+        assertEq(mgr, newManager);
+
+        // Every mandate cleared — fail closed until re-approved.
+        assertFalse(kernel.isPermissionRegistered(address(safe), address(perm)));
+        assertEq(kernel.getPermissions(address(safe)).length, 0);
+
+        // In-flight dispatch/batch signatures invalidated via the nonce epoch bump.
+        assertGe(kernel.managerNonces(address(safe)), uint256(1) << 128);
+        assertGe(kernel.batchNonces(address(safe)), uint256(1) << 128);
+    }
+
+    function test_SetManager_EmitsManagerChanged() public {
+        address newManager = vm.addr(0xCAFE);
+        vm.expectEmit(true, true, true, false);
+        emit SailKernel.ManagerChanged(address(safe), manager, newManager);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+    }
+
+    function test_SetManager_RevertsOnZeroManager() public {
+        vm.prank(address(safe));
+        vm.expectRevert(SailKernel.ZeroAddress.selector);
+        kernel.setManager(address(0));
+    }
+
+    function test_SetManager_RevertsWhenUnchanged() public {
+        vm.prank(address(safe));
+        vm.expectRevert(SailKernel.ManagerUnchanged.selector);
+        kernel.setManager(manager);
+    }
+
+    function test_SetManager_RevertsForUnregisteredCaller() public {
+        address stranger = address(0x9999);
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountNotRegistered.selector, stranger));
+        kernel.setManager(vm.addr(0xCAFE));
+    }
+
+    /// @dev setManager has no `account` parameter — a caller can only ever rotate its own
+    ///      manager, so one account cannot touch another's. Confirms cross-account isolation.
+    function test_SetManager_OnlyAffectsCallersOwnAccount() public {
+        MockSafe safe2 = new MockSafe();
+        vm.prank(address(safe2));
+        kernel.registerAccount(permSigner, manager, address(0), address(0));
+
+        address newManager = vm.addr(0xCAFE);
+        vm.prank(address(safe2));
+        kernel.setManager(newManager);
+
+        assertEq(kernel.getManager(address(safe2)), newManager);
+        assertEq(kernel.getManager(address(safe)), manager); // the original account is untouched
+    }
+
+    /// @dev After rotation the mandate is gone, so a dispatch fails closed with
+    ///      PermissionNotRegistered — even before any signature is checked.
+    function test_SetManager_ClearedMandateBlocksDispatch() public {
+        _registerPermission(address(perm));
+        address newManager = vm.addr(0xCAFE);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce    = kernel.managerNonces(address(safe));
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, "", nonce, deadline);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.PermissionNotRegistered.selector, address(perm)));
+        kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, "", sig, deadline);
+    }
+
+    /// @dev The full recovery loop: rotate → re-approve the mandate → only the NEW manager
+    ///      can dispatch through it; the old manager's signature is rejected.
+    function test_SetManager_ReApprovalBindsNewManager() public {
+        bytes memory data = abi.encodeWithSignature("go()");
+
+        _registerPermission(address(perm));
+        _dispatch(address(perm), address(0xABCD), 0, data); // old manager works
+        assertEq(safe.callCount(), 1);
+
+        uint256 newKey     = 0xCAFE;
+        address newManager = vm.addr(newKey);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+
+        // Owner re-approves the mandate (permissionSigner signs the fresh registration).
+        _registerPermission(address(perm));
+        assertTrue(kernel.isPermissionRegistered(address(safe), address(perm)));
+
+        // The old manager can no longer produce a valid dispatch signature.
+        {
+            uint256 deadline = block.timestamp + 1 hours;
+            uint256 nonce    = kernel.managerNonces(address(safe));
+            bytes memory oldSig = _signDispatch(address(safe), address(perm), address(0xABCD), 0, data, nonce, deadline);
+            vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
+            kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, data, oldSig, deadline);
+        }
+
+        // The new manager signs and the dispatch succeeds.
+        {
+            uint256 deadline = block.timestamp + 1 hours;
+            uint256 nonce    = kernel.managerNonces(address(safe));
+            bytes32 structHash = keccak256(abi.encode(
+                kernel.DISPATCH_TYPEHASH(),
+                address(safe), address(perm), address(0xABCD), uint256(0), keccak256(data), nonce, deadline
+            ));
+            bytes32 digest = kernel.hashTypedDataV4(structHash);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(newKey, digest);
+            kernel.dispatch(address(safe), address(perm), address(0xABCD), 0, data, abi.encodePacked(r, s, v), deadline);
+        }
+        assertEq(safe.callCount(), 2);
+    }
+
+    /// @dev Rotation is a recovery action and must work during a protocol pause (it moves no
+    ///      funds), mirroring the whenNotPaused exemption on revokeSession/revokePermission.
+    function test_SetManager_WorksWhenPaused() public {
+        _registerPermission(address(perm));
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+
+        address newManager = vm.addr(0xCAFE);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+
+        assertEq(kernel.getManager(address(safe)), newManager);
+        assertEq(kernel.getPermissions(address(safe)).length, 0);
+    }
+
+    function test_GetManager_ReturnsConfiguredManager() public view {
+        assertEq(kernel.getManager(address(safe)), manager);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

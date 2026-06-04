@@ -298,6 +298,14 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newFeePolicy  The new fee policy contract address (address(0) = cleared).
     event FeePolicyUpdated(address indexed account, address indexed newFeePolicy);
 
+    /// @notice Emitted when an account's manager (delegated signer) is rotated.
+    /// @dev    Rotation clears the account's permission set, so a `ManagerChanged` is
+    ///         accompanied by a `PermissionRevoked` for each previously-registered mandate.
+    /// @param  account    The Safe account whose manager changed.
+    /// @param  oldManager The previous manager address.
+    /// @param  newManager The new manager address.
+    event ManagerChanged(address indexed account, address indexed oldManager, address indexed newManager);
+
     /// @notice Emitted on each successful dispatch.
     /// @dev    `dataHash` is keccak256(calldata) — the raw bytes are recoverable from the tx.
     /// @param  account     The Safe account that executed the transaction.
@@ -422,6 +430,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @dev Thrown when a required address argument is the zero address.
     error ZeroAddress();
+
+    /// @dev Thrown by `setManager` when the new manager equals the current one — a no-op
+    ///      rotation would needlessly clear mandates and bump the nonce epoch.
+    error ManagerUnchanged();
 
     /// @dev Thrown by permission registration when the supplied address has no deployed code.
     error NotAContract(address addr);
@@ -650,6 +662,54 @@ contract SailKernel is EIP712, ReentrancyGuard {
             sessionActive:    true
         });
         emit AccountRegistered(account, permissionSigner, manager);
+    }
+
+    /// @notice Rotate the manager (delegated signer) for an account, clearing every
+    ///         attached mandate in the same transaction.
+    /// @dev    AUTHORIZATION: MUST be called by the Safe itself (`msg.sender == account`).
+    ///         Authorization therefore flows through the Safe's own owner threshold — the
+    ///         custody anchor — and replay protection comes from the Safe's nonce, so no
+    ///         kernel signature or nonce is needed. This mirrors `registerAccount`'s
+    ///         `msg.sender == Safe` trust model. `_requireRegistered` ensures only an
+    ///         already-registered account (a genuine Safe proxy, vetted at registration)
+    ///         can reach this path, and an account can only rotate its own manager.
+    ///
+    ///         MANDATE RESET: A rotated signer must never silently inherit authority the
+    ///         owner approved for the old one. Rather than leave mandates attached but
+    ///         inert, this clears the permission set outright (fail-closed: subsequent
+    ///         dispatches revert with `PermissionNotRegistered` until the owner re-approves
+    ///         each mandate via the normal `registerPermission(s)` flow — which binds them
+    ///         to the new manager). A `PermissionRevoked` is emitted per cleared mandate.
+    ///
+    ///         IN-FLIGHT DISPATCHES: `managerNonces`/`batchNonces` are bumped by
+    ///         `NONCE_EPOCH_INCREMENT` so any dispatch the old manager pre-signed but did
+    ///         not submit is invalidated, consistent with every other mandate-mutating op.
+    ///
+    ///         PAUSE: Intentionally exempt from `whenNotPaused` — losing the agent key is
+    ///         exactly the kind of incident during which recovery must remain possible, and
+    ///         rotation moves no funds. (See `revokeSession`/`revokePermission`.)
+    /// @param  newManager New address authorised to sign dispatches. Must be non-zero and
+    ///                    different from the current manager.
+    function setManager(address newManager) external nonReentrant {
+        address account = msg.sender;
+        _requireRegistered(account);
+        if (newManager == address(0)) revert ZeroAddress();
+        address oldManager = configs[account].manager;
+        if (newManager == oldManager) revert ManagerUnchanged();
+
+        configs[account].manager = newManager;
+        _clearPermissions(account);
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
+
+        emit ManagerChanged(account, oldManager, newManager);
+    }
+
+    /// @notice The address currently authorised to sign dispatches for an account.
+    /// @param  account The Safe account to query.
+    /// @return         The account's manager (delegated signer); address(0) if unregistered.
+    function getManager(address account) external view returns (address) {
+        return configs[account].manager;
     }
 
     // -------------------------------------------------------------------------
@@ -1564,6 +1624,24 @@ contract SailKernel is EIP712, ReentrancyGuard {
         }
         perms.pop();
         delete _permissionIndex[account][permission];
+    }
+
+    /// @dev Remove every permission registered for an account, clearing both the ordered
+    ///      list and the index mapping, and emitting `PermissionRevoked` for each. Used by
+    ///      `setManager` to reset mandates on signer rotation. Bounded by
+    ///      governance.maxPermissionsPerAccount(). Unlike `_removePermission`, this does not
+    ///      swap-and-pop per element: it reads each entry, clears its index, then deletes the
+    ///      whole array in one shot — so the array is never mutated mid-iteration.
+    function _clearPermissions(address account) internal {
+        address[] storage perms = _permissions[account];
+        uint256 len = perms.length;
+        for (uint256 i; i < len;) {
+            address perm = perms[i];
+            delete _permissionIndex[account][perm];
+            emit PermissionRevoked(account, perm);
+            unchecked { ++i; }
+        }
+        delete _permissions[account];
     }
 
     /// @dev EIP-712-compliant encoding of `address[]`:
