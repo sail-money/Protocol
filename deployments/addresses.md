@@ -85,6 +85,28 @@ This directory contains the canonical deployment manifests for the Sail protocol
 
 ---
 
+## Unichain (Chain ID 130)
+
+| Contract              | Address                                      |
+|-----------------------|----------------------------------------------|
+| SailGovernance        | `0xAb5C90ECfF2763f6f20f8E553E3b8778dD9C349A` |
+| TimelockController    | `0xd44FbBB37f01e235E0EE5386948F216d36D0CEf2` |
+| SailKernel            | `0xD985029960a9B7C2E7E38e102C448b8b8539B156` |
+| MandateFactory        | `0x8edDb62Aa49CeB837abf2653be2d93Ad9Fe6777D` |
+| StandardFeePolicy     | `0x7bBA8BE3c01c972757aA4a230A00D58aB600A1F1` |
+| SafeModuleEnabler     | `0xFE9227A9F2baf704060c604466df354a5A137b9B` |
+
+**Manifests**
+- `core.json`
+- `templates.shared.json`
+- `templates.standalone.json`
+
+**Deployed at block** `49897206` (git commit `2c9e3257...`)
+
+> Allowlists were **seeded at genesis** via `bootstrapAllowlists` (no 48h timelock): Safe v1.4.1 factory, both singletons (L2 + non-L2), the deployed `SafeModuleEnabler`, the `StandardFeePolicy`, and SafeProxy codehash `0xd7d408eb…fb4c` (verified on-chain — factory bytecode is byte-identical to Base). Onboarding is usable immediately.
+
+---
+
 ## Notes
 
 - All three deployments were performed with **zero fees** (`MGMT_FEE_BPS=0`, `PERF_FEE_BPS=0`).

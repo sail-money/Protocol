@@ -70,6 +70,7 @@ chain_id_for() {
     base_sepolia) echo 84532 ;;
     arbitrum)     echo 42161 ;;
     optimism)     echo 10 ;;
+    unichain)     echo 130 ;;
     *)            echo "" ;;
   esac
 }

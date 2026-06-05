@@ -8,7 +8,7 @@ The protocol is positioned for developers and crypto-native builders deploying a
 
 The trusted kernel is 804 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
 
-The trusted core is deployed on Base, Base Sepolia, and Arbitrum as staging deployments for testing and integration ahead of a formal launch. These deployments run the selective dispatch model, are under an ongoing external audit by [Octane Security](https://octane.security), and are not final. They should not be used with funds you are not prepared to lose. Permission templates are not yet deployed against these kernels; mainnet launch will follow audit completion.
+The trusted core is deployed on Base, Base Sepolia, Arbitrum, and Unichain as staging deployments for testing and integration ahead of a formal launch. These deployments run the selective dispatch model, are under an ongoing external audit by [Octane Security](https://octane.security), and are not final. They should not be used with funds you are not prepared to lose. Permission templates are not yet deployed against the Base, Arbitrum, and Base Sepolia kernels (Unichain ships the full template suite); mainnet launch will follow audit completion.
 
 ---
 
@@ -388,7 +388,7 @@ test/
 
 ## Deployments
 
-The trusted core is live on the following chains as **staging deployments** ahead of a formal launch. All run the selective dispatch model with zero fees. Permission templates are not yet deployed against these kernels.
+The trusted core is live on the following chains as **staging deployments** ahead of a formal launch. All run the selective dispatch model with zero fees. Permission templates are not yet deployed against the Base, Arbitrum, and Base Sepolia kernels; the **Unichain** deployment additionally ships the full template suite (7 shared + 12 standalone, all source-verified) and has its onboarding allowlists seeded at genesis, so account creation is usable without waiting on the 48-hour timelock.
 
 ### Base (8453)
 
@@ -426,7 +426,50 @@ The trusted core is live on the following chains as **staging deployments** ahea
 | SafeModuleEnabler | `0xB2C2B52d94412e3472C9fb2B52186eA12a935869` |
 | Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
 
-These addresses are sourced from the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`), the canonical registry.
+### Unichain (130)
+
+Core, the full template suite, and the genesis allowlist bootstrap are all live and source-verified on [uniscan.xyz](https://uniscan.xyz). This is the first chain to ship templates against the kernel.
+
+| Contract | Address |
+|---|---|
+| SailKernel | `0xD985029960a9B7C2E7E38e102C448b8b8539B156` |
+| SailGovernance | `0xAb5C90ECfF2763f6f20f8E553E3b8778dD9C349A` |
+| Timelock | `0xd44FbBB37f01e235E0EE5386948F216d36D0CEf2` |
+| PermissionFactory | `0x8edDb62Aa49CeB837abf2653be2d93Ad9Fe6777D` |
+| StandardFeePolicy | `0x7bBA8BE3c01c972757aA4a230A00D58aB600A1F1` |
+| SafeModuleEnabler | `0xFE9227A9F2baf704060c604466df354a5A137b9B` |
+| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+
+**Shared templates** (multi-tenant singletons, bound to the kernel)
+
+| Template | Address |
+|---|---|
+| SharedAMMLiquidityPermission | `0xbD624eC67e2685872A60c0aF8F020727e20D096e` |
+| SharedApproveAndCallBatchPermission | `0x9d386605518FA81ff536b351ff055d26203229A9` |
+| SharedBoundedBorrowPermission | `0x948a9F9a6f2828E50f7e71bd569ba75A69da2BEb` |
+| SharedBoundedSwapPermission | `0xfD19fad56Ca3d6FaCd4279a2F84f09bef8967f6a` |
+| SharedDeFiBundlePermission | `0x900cd03ee15e629bC4e94F6344d5529F4862071c` |
+| SharedPendlePermission | `0x1dF90a2484bCF3c6Da2FB035aa0C9f523e77Cd62` |
+| SharedTransferTargetPermission | `0x851Ad196b7DC6c05eaf0B9420f2a72dc336D7739` |
+
+**Standalone templates** (EIP-1167 clone implementations)
+
+| Template | Address |
+|---|---|
+| AzuroPredictionPermission | `0xd48cdBB25bF0A214dEffECac3c9431650834b046` |
+| BoundedApprovePermission | `0xbF7089A905081054c9dA628707f2e1EF70A7F300` |
+| BoundedBorrowPermission | `0x17D466309C7E0237960f68126Cc4A109D194ac28` |
+| BoundedDepositPermission | `0xf49E304EDf806AF46E8f17740e56C1CBFad5d264` |
+| BoundedLiFiPermission | `0x6a0171013FeD6B2Eda16A4dd4DB33Fa34b7F3e3f` |
+| BoundedSwapPermission | `0x06696F9dd4bD0994f55b075600627Dc6E54635c9` |
+| BoundedWithdrawPermission | `0xE207CfC8c2204b15ee5fD22B79472929706c7E4b` |
+| GainsNetworkPerpPermission | `0x1297673f71A9be02bc876Dbd0ceaB3c96D268bE3` |
+| GMXPerpPermission | `0xB1bb967aC11D61C0599c8458D9B950461db5D4E9` |
+| LimitlessPredictionPermission | `0x2bE4280d8816626e1dea4E94A83d9334A971AF90` |
+| SynthetixPerpPermission | `0x711a70B16D013a9B96Bd6733F4b3097e5787f860` |
+| TransferTargetPermission | `0x8428155b6b9eea4E78b9a52c2312752eD04Baf16` |
+
+These addresses are sourced from the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`), the canonical registry. The Unichain core + template addresses also live in `deployments/130/`.
 
 ---
 

@@ -64,6 +64,27 @@
         "templatesShared": "templates.shared.json",
         "templatesStandalone": "templates.standalone.json"
       }
+    },
+    "130": {
+      "name": "unichain",
+      "core": {
+        "governance": "0xAb5C90ECfF2763f6f20f8E553E3b8778dD9C349A",
+        "timelock": "0xd44FbBB37f01e235E0EE5386948F216d36D0CEf2",
+        "kernel": "0xD985029960a9B7C2E7E38e102C448b8b8539B156",
+        "mandateFactory": "0x8edDb62Aa49CeB837abf2653be2d93Ad9Fe6777D",
+        "standardFeePolicy": "0x7bBA8BE3c01c972757aA4a230A00D58aB600A1F1",
+        "safeModuleEnabler": "0xFE9227A9F2baf704060c604466df354a5A137b9B"
+      },
+      "fees": {
+        "managementFeeBps": 0,
+        "performanceFeeBps": 0,
+        "initialPermissionRegistrationFee": 0
+      },
+      "manifests": {
+        "core": "core.json",
+        "templatesShared": "templates.shared.json",
+        "templatesStandalone": "templates.standalone.json"
+      }
     }
   }
 }
