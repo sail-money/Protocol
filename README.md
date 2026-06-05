@@ -6,9 +6,9 @@ Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an 
 
 The protocol is positioned for developers and crypto-native builders deploying autonomous agents on top of Safe accounts. Sail provides the custody layer agents need to act on-chain without being given private keys, and the permission infrastructure that LPs need to bound what an agent can do.
 
-The trusted kernel is ~590 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
+The trusted kernel is 804 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
 
-Sail is currently in audit-prep state. The protocol has not been externally audited and is not deployed on mainnet.
+The trusted core is deployed on Base, Base Sepolia, and Arbitrum as staging deployments for testing and integration ahead of a formal launch. These deployments run the selective dispatch model, are under an ongoing external audit by [Octane Security](https://octane.security), and are not final. They should not be used with funds you are not prepared to lose. Permission templates are not yet deployed against these kernels; mainnet launch will follow audit completion.
 
 ---
 
@@ -89,26 +89,26 @@ Governance is a contract initially held by the team multisig, transferable to a 
 
 | Component | Role | SLOC |
 |---|---|---|
-| `SailKernel` | Account registration, permission registry, EIP-712 signature verification, selective and batch manager dispatch via Safe modules, fee collection, principal tracking. | 590 |
-| `SailGovernance` | Protocol parameter governance with 48h timelock, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 146 |
+| `SailKernel` | Account registration, permission registry, EIP-712 signature verification, selective and batch manager dispatch via Safe modules, fee collection, principal tracking. | 804 |
+| `SailGovernance` | Protocol parameter governance with 48h timelock, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 212 |
 | Interfaces | `IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`, `IBatchPermission`, `IPermissionIntrospection`, `IAgentIdentityResolver`, `SailCapabilities` | 113 |
-| **Total** | | **849** |
+| **Total** | | **1,129** |
 
 **Template layer** — independently deployable and auditable; a bug affects only registered accounts.
 
 | Component | Role | SLOC |
 |---|---|---|
-| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 86 |
-| `StandardFeePolicy` | Reference fee policy. Management fee on AUM, performance fee above high-water mark. Manager-attested NAV model. | 147 |
-| `SharedBoundedSwapPermission` | AMM swaps. Router allowlist, token allowlist, amount cap, optional oracle slippage. | 159 |
-| `SharedBoundedBorrowPermission` | Aave V3, Morpho, Compound borrows. Protocol allowlist, asset allowlist, LTV check. | 129 |
+| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 123 |
+| `StandardFeePolicy` | Reference fee policy. Management fee on AUM, performance fee above high-water mark. Manager-attested NAV model. | 156 |
+| `SharedBoundedSwapPermission` | AMM swaps. Router allowlist, token allowlist, amount cap, optional oracle slippage. | 165 |
+| `SharedBoundedBorrowPermission` | Aave V3, Morpho, Compound borrows. Protocol allowlist, asset allowlist, LTV check. | 140 |
 | `SharedTransferTargetPermission` | ERC-20 transfers. Recipient allowlist, token allowlist. | 77 |
-| `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in one registered permission. Selector-routed evaluation. | 273 |
+| `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in one registered permission. Selector-routed evaluation. | 284 |
 | `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. | 262 |
 | `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. | 197 |
-| `SharedApproveAndCallBatchPermission` | Batch dispatch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. | 133 |
-| `MandateFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 137 |
-| **Total** | | **1,600** |
+| `SharedApproveAndCallBatchPermission` | Batch dispatch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. | 142 |
+| `MandateFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 185 |
+| **Total** | | **1,731** |
 
 ---
 
@@ -386,6 +386,50 @@ test/
 
 ---
 
+## Deployments
+
+The trusted core is live on the following chains as **staging deployments** ahead of a formal launch. All run the selective dispatch model with zero fees. Permission templates are not yet deployed against these kernels.
+
+### Base (8453)
+
+| Contract | Address |
+|---|---|
+| SailKernel | `0x6319d3dfDDe3804ba93D65752b00c52bFb05a1ab` |
+| SailGovernance | `0x7E897D919872b1587577617ffFC42113679d0C50` |
+| Timelock | `0x8eC3Ca951E193C6E3713A70022454d7A1f083281` |
+| PermissionFactory | `0x7724EACd97C8601d5AC244Aadbf76ad87353Ff31` |
+| StandardFeePolicy | `0x65850a8D5050aeAade68289ff96c4F119a24B82e` |
+| SafeModuleEnabler | `0xC84EdE78f93291A1fab19F51c4c7e938AB302Edf` |
+| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+
+### Arbitrum (42161)
+
+| Contract | Address |
+|---|---|
+| SailKernel | `0x2716B12832DED0EF5688519c5Fe069EFc0374E02` |
+| SailGovernance | `0xd6AbB7A1036ADc7958Abffec9Da03450c5a2Ec8e` |
+| Timelock | `0x114CB7110C780f7E3a6093AfE0B52463a569857C` |
+| PermissionFactory | `0x23681A8A4C9819D8EaB37E46B858da6F3c85E683` |
+| StandardFeePolicy | `0xAdfB986D48480bC67a7cF3751d30599161632e0D` |
+| SafeModuleEnabler | `0xabe2a6D03F592BC602cA1dBDCD885ba2493274f9` |
+| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+
+### Base Sepolia (84532)
+
+| Contract | Address |
+|---|---|
+| SailKernel | `0xf1D0F4C9893612627409948BAa9d82a01a373799` |
+| SailGovernance | `0xEaD44bC6999E7b00b9b2E11c1660248DC2a30993` |
+| Timelock | `0x97B863e392C9859336788D5Ec454527d33C95B74` |
+| PermissionFactory | `0xdfF6a2272F667cDf78Af4681b9c88A219998db95` |
+| StandardFeePolicy | `0x05570F7973b46Eb9Ed4518422891EFC26BD58b97` |
+| SafeModuleEnabler | `0xB2C2B52d94412e3472C9fb2B52186eA12a935869` |
+| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+
+These addresses are sourced from the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`), the canonical registry.
+
+---
+
 ## Build and test
 
 Requirements:
@@ -405,38 +449,38 @@ Current test count: 1,114 across 23 test files (including the red-team adversari
 
 ## Security
 
-The protocol has not yet been externally audited. An external audit is planned before mainnet deployment.
+The trusted core is under an ongoing external audit by [Octane Security](https://octane.security). An audit of the template layer will follow core audit completion.
 
-### Audit scope (planned)
+### Audit scope
 
-**Primary audit scope — Trusted core (~849 SLOC)**
+**Primary audit scope — Trusted core (1,129 SLOC)**
 
 This is the mandatory audit surface. A bug anywhere in the trusted core puts every account on the protocol at risk.
 
 | Component | SLOC |
 |---|---|
-| `SailKernel` | 590 |
-| `SailGovernance` | 146 |
+| `SailKernel` | 804 |
+| `SailGovernance` | 212 |
 | Interfaces (8 files) | 113 |
-| **Total** | **~849** |
+| **Total** | **1,129** |
 
-**Secondary audit scope — Template layer (~1,600 SLOC)**
+**Secondary audit scope — Template layer (1,731 SLOC)**
 
 Each template is independently auditable. A bug in one template affects only accounts that have registered that template. New templates can be deployed and audited post-launch without re-auditing the trusted core.
 
 | Component | SLOC |
 |---|---|
-| `BaseSharedPermission` | 86 |
-| `StandardFeePolicy` | 147 |
-| `SharedBoundedSwapPermission` | 159 |
-| `SharedBoundedBorrowPermission` | 129 |
+| `BaseSharedPermission` | 123 |
+| `StandardFeePolicy` | 156 |
+| `SharedBoundedSwapPermission` | 165 |
+| `SharedBoundedBorrowPermission` | 140 |
 | `SharedTransferTargetPermission` | 77 |
-| `SharedDeFiBundlePermission` | 273 |
+| `SharedDeFiBundlePermission` | 284 |
 | `SharedPendlePermission` | 262 |
 | `SharedAMMLiquidityPermission` | 197 |
-| `SharedApproveAndCallBatchPermission` | 133 |
-| `MandateFactory` | 137 |
-| **Total** | **~1,600** |
+| `SharedApproveAndCallBatchPermission` | 142 |
+| `MandateFactory` | 185 |
+| **Total** | **1,731** |
 
 `MandateFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
 
