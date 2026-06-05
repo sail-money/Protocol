@@ -34,3 +34,4 @@ base          = { key = "${ETHERSCAN_API_KEY}", chain = 8453,     url = "https:/
 base_sepolia  = { key = "${ETHERSCAN_API_KEY}", chain = 84532,    url = "https://api.etherscan.io/v2/api?chainid=84532" }
 arbitrum      = { key = "${ETHERSCAN_API_KEY}", chain = 42161,    url = "https://api.etherscan.io/v2/api?chainid=42161" }
 optimism      = { key = "${ETHERSCAN_API_KEY}", chain = 10,       url = "https://api.etherscan.io/v2/api?chainid=10" }
+unichain      = { key = "${ETHERSCAN_API_KEY}", chain = 130,      url = "https://api.etherscan.io/v2/api?chainid=130" }
