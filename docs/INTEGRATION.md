@@ -48,9 +48,11 @@ SailGovernance governance = new SailGovernance(
 ```
 
 `maxPermissionFeeWei` is immutable after deployment and is itself capped at `0.001 ether` by the
-constructor. The constructor reverts unless the injected `timelock` reports a minimum delay of
-exactly 48 hours (`TimelockDelayMismatch`) and grants `PROPOSER_ROLE` to `initialGovernance`
-(`GovernanceNotProposer`).
+constructor. The constructor enforces all four injected-timelock invariants and reverts if any fails:
+- **`TimelockDelayMismatch`** — `getMinDelay()` is not exactly 48 hours.
+- **`GovernanceNotProposer`** — `initialGovernance` does not hold `PROPOSER_ROLE`.
+- **`GovernanceNotExecutor`** — `initialGovernance` does not hold `EXECUTOR_ROLE` (rejects open-executor timelocks).
+- **`TimelockNotSelfAdministered`** — the governance EOA holds the admin role over the timelock's roles (rejects timelocks deployed with `admin == initialGovernance`).
 
 ### 3. Deploy SailKernel
 
@@ -61,7 +63,7 @@ SailKernel kernel = new SailKernel(
 );
 ```
 
-### 3b. Configure Governance Parameters
+### 4. Configure Governance Parameters
 
 All parameter changes flow through the **48-hour timelock** (the setters are `onlyTimelock`):
 schedule each call on `governance.timelock()`, wait 48 hours, then execute.
@@ -74,7 +76,7 @@ governance.setPermissionRegistrationFee(0.0005 ether); // flat fee per permissio
 governance.setMaxPermissionsPerAccount(10);
 ```
 
-### 4. Deploy Permission Templates
+### 5. Deploy Permission Templates
 
 Deploy one or more permission templates for your allowed trading scope:
 
@@ -101,7 +103,7 @@ BoundedSwapPermission swapPerm = new BoundedSwapPermission(
 );
 ```
 
-### 5. Deploy a Fee Policy
+### 6. Deploy a Fee Policy
 
 ```solidity
 StandardFeePolicy feePolicy = new StandardFeePolicy(
@@ -114,7 +116,7 @@ StandardFeePolicy feePolicy = new StandardFeePolicy(
 );
 ```
 
-### 6. Register an Account
+### 7. Register an Account
 
 **New Safe (createAccount):**
 
@@ -139,7 +141,7 @@ kernel.registerAccount(permissionSignerAddress, managerAddress, address(feePolic
 
 Before calling `registerAccount`, the Safe must have added the kernel as a module. This is typically done in the same Safe transaction that calls `registerAccount`.
 
-### 7. Register Permissions
+### 8. Register Permissions
 
 Off-chain, build the EIP-712 signature for `RegisterPermission` using the current `signerNonces[account]`:
 
@@ -167,7 +169,7 @@ kernel.registerPermissions{value: totalFee}(
 );
 ```
 
-### 8. Manager Dispatch
+### 9. Manager Dispatch
 
 Once permissions are registered, the manager can sign and submit dispatch calls:
 
