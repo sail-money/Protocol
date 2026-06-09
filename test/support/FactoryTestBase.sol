@@ -7,6 +7,7 @@ import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/MandateFactory.sol";
 import "../../contracts/templates/shared/BaseSharedPermission.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {TimelockDeployer} from "./TimelockDeployer.sol";
 
 /// @notice Records every execTransactionFromModule call and forwards plain-ETH transfers
 ///         so fee splits land in real balances.
@@ -76,7 +77,7 @@ abstract contract FactoryTestBase is Test {
 
         // Deploy governance with this test contract as governance + emergencyAdmin,
         // seeding the initial permission-registration fee directly via the constructor.
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, TimelockDeployer.deploy(address(this)));
         vm.prank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
 

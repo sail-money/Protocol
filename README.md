@@ -90,9 +90,9 @@ Governance is a contract initially held by the team multisig, transferable to a 
 | Component | Role | SLOC |
 |---|---|---|
 | `SailKernel` | Account registration, permission registry, EIP-712 signature verification, selective and batch manager dispatch via Safe modules, fee collection, principal tracking. | 804 |
-| `SailGovernance` | Protocol parameter governance with 48h timelock, two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 212 |
+| `SailGovernance` | Protocol parameter governance with 48h timelock (injected at construction), two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 215 |
 | Interfaces | `IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`, `IBatchPermission`, `IPermissionIntrospection`, `IAgentIdentityResolver`, `SailCapabilities` | 113 |
-| **Total** | | **1,129** |
+| **Total** | | **1,132** |
 
 **Template layer** — independently deployable and auditable; a bug affects only registered accounts.
 
@@ -388,88 +388,41 @@ test/
 
 ## Deployments
 
-The trusted core is live on the following chains as **staging deployments** ahead of a formal launch. All run the selective dispatch model with zero fees. Permission templates are not yet deployed against the Base, Arbitrum, and Base Sepolia kernels; the **Unichain** deployment additionally ships the full template suite (7 shared + 12 standalone, all source-verified) and has its onboarding allowlists seeded at genesis, so account creation is usable without waiting on the 48-hour timelock.
+The trusted core deploys via **deterministic CREATE2 with a global, chain-independent salt per contract** (through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`). Because each contract's creation bytecode and constructor arguments are identical across chains, **every core contract has the same address on every chain** — and so does the resulting Safe initializer, giving users the **same Separately-Managed-Account (SMA) address on every supported chain**. (See [`SailGovernance`'s injected timelock](./docs/GOVERNANCE.md) — extracting the timelock from the constructor is what makes the constructor arguments chain-independent.)
 
-### Base (8453)
+The same-address guarantee holds only when the deployment uses **identical configuration on every chain** (governance wallet, treasury, emergency admin, fee manager, distributor, and all fee parameters). The CREATE2 factory and the Safe v1.4.1 proxy factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical addresses on all six supported chains.
 
-| Contract | Address |
-|---|---|
-| SailKernel | `0x6319d3dfDDe3804ba93D65752b00c52bFb05a1ab` |
-| SailGovernance | `0x7E897D919872b1587577617ffFC42113679d0C50` |
-| Timelock | `0x8eC3Ca951E193C6E3713A70022454d7A1f083281` |
-| PermissionFactory | `0x7724EACd97C8601d5AC244Aadbf76ad87353Ff31` |
-| StandardFeePolicy | `0x65850a8D5050aeAade68289ff96c4F119a24B82e` |
-| SafeModuleEnabler | `0xC84EdE78f93291A1fab19F51c4c7e938AB302Edf` |
-| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+> **Redeploy in progress.** The protocol is being redeployed under this new CREATE2 deterministic scheme. The addresses below are placeholders until that redeploy completes; once published, each contract's address will be identical across all six chains.
 
-### Arbitrum (42161)
+### Core (identical address on every chain)
 
 | Contract | Address |
 |---|---|
-| SailKernel | `0x2716B12832DED0EF5688519c5Fe069EFc0374E02` |
-| SailGovernance | `0xd6AbB7A1036ADc7958Abffec9Da03450c5a2Ec8e` |
-| Timelock | `0x114CB7110C780f7E3a6093AfE0B52463a569857C` |
-| PermissionFactory | `0x23681A8A4C9819D8EaB37E46B858da6F3c85E683` |
-| StandardFeePolicy | `0xAdfB986D48480bC67a7cF3751d30599161632e0D` |
-| SafeModuleEnabler | `0xabe2a6D03F592BC602cA1dBDCD885ba2493274f9` |
-| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+| SailKernel | `<to be populated on CREATE2 redeploy>` |
+| SailGovernance | `<to be populated on CREATE2 redeploy>` |
+| Timelock | `<to be populated on CREATE2 redeploy>` |
+| MandateFactory | `<to be populated on CREATE2 redeploy>` |
+| StandardFeePolicy | `<to be populated on CREATE2 redeploy>` |
+| SafeModuleEnabler | `<to be populated on CREATE2 redeploy>` |
 
-### Base Sepolia (84532)
+### Supported chains
 
-| Contract | Address |
-|---|---|
-| SailKernel | `0xf1D0F4C9893612627409948BAa9d82a01a373799` |
-| SailGovernance | `0xEaD44bC6999E7b00b9b2E11c1660248DC2a30993` |
-| Timelock | `0x97B863e392C9859336788D5Ec454527d33C95B74` |
-| PermissionFactory | `0xdfF6a2272F667cDf78Af4681b9c88A219998db95` |
-| StandardFeePolicy | `0x05570F7973b46Eb9Ed4518422891EFC26BD58b97` |
-| SafeModuleEnabler | `0xB2C2B52d94412e3472C9fb2B52186eA12a935869` |
-| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+Each chain runs the **same** core addresses listed above.
 
-### Unichain (130)
+| Chain | Chain ID | Status |
+|---|---|---|
+| Ethereum | 1 | pending CREATE2 redeploy |
+| Base | 8453 | pending CREATE2 redeploy |
+| Arbitrum | 42161 | pending CREATE2 redeploy |
+| Unichain | 130 | pending CREATE2 redeploy |
+| Base Sepolia | 84532 | pending CREATE2 redeploy |
+| Eth Sepolia | 11155111 | pending CREATE2 redeploy |
 
-Core, the full template suite, and the genesis allowlist bootstrap are all live and source-verified on [uniscan.xyz](https://uniscan.xyz). This is the first chain to ship templates against the kernel.
+### Permission templates
 
-| Contract | Address |
-|---|---|
-| SailKernel | `0xD985029960a9B7C2E7E38e102C448b8b8539B156` |
-| SailGovernance | `0xAb5C90ECfF2763f6f20f8E553E3b8778dD9C349A` |
-| Timelock | `0xd44FbBB37f01e235E0EE5386948F216d36D0CEf2` |
-| PermissionFactory | `0x8edDb62Aa49CeB837abf2653be2d93Ad9Fe6777D` |
-| StandardFeePolicy | `0x7bBA8BE3c01c972757aA4a230A00D58aB600A1F1` |
-| SafeModuleEnabler | `0xFE9227A9F2baf704060c604466df354a5A137b9B` |
-| Treasury | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` |
+The permission templates (7 shared multi-tenant singletons + 12 standalone EIP-1167 clone implementations) are deployed separately and bind to the kernel address. They will be **republished after the core CREATE2 redeploy completes**; their addresses are not listed here to avoid pointing at the superseded (pre-CREATE2) deployment.
 
-**Shared templates** (multi-tenant singletons, bound to the kernel)
-
-| Template | Address |
-|---|---|
-| SharedAMMLiquidityPermission | `0xbD624eC67e2685872A60c0aF8F020727e20D096e` |
-| SharedApproveAndCallBatchPermission | `0x9d386605518FA81ff536b351ff055d26203229A9` |
-| SharedBoundedBorrowPermission | `0x948a9F9a6f2828E50f7e71bd569ba75A69da2BEb` |
-| SharedBoundedSwapPermission | `0xfD19fad56Ca3d6FaCd4279a2F84f09bef8967f6a` |
-| SharedDeFiBundlePermission | `0x900cd03ee15e629bC4e94F6344d5529F4862071c` |
-| SharedPendlePermission | `0x1dF90a2484bCF3c6Da2FB035aa0C9f523e77Cd62` |
-| SharedTransferTargetPermission | `0x851Ad196b7DC6c05eaf0B9420f2a72dc336D7739` |
-
-**Standalone templates** (EIP-1167 clone implementations)
-
-| Template | Address |
-|---|---|
-| AzuroPredictionPermission | `0xd48cdBB25bF0A214dEffECac3c9431650834b046` |
-| BoundedApprovePermission | `0xbF7089A905081054c9dA628707f2e1EF70A7F300` |
-| BoundedBorrowPermission | `0x17D466309C7E0237960f68126Cc4A109D194ac28` |
-| BoundedDepositPermission | `0xf49E304EDf806AF46E8f17740e56C1CBFad5d264` |
-| BoundedLiFiPermission | `0x6a0171013FeD6B2Eda16A4dd4DB33Fa34b7F3e3f` |
-| BoundedSwapPermission | `0x06696F9dd4bD0994f55b075600627Dc6E54635c9` |
-| BoundedWithdrawPermission | `0xE207CfC8c2204b15ee5fD22B79472929706c7E4b` |
-| GainsNetworkPerpPermission | `0x1297673f71A9be02bc876Dbd0ceaB3c96D268bE3` |
-| GMXPerpPermission | `0xB1bb967aC11D61C0599c8458D9B950461db5D4E9` |
-| LimitlessPredictionPermission | `0x2bE4280d8816626e1dea4E94A83d9334A971AF90` |
-| SynthetixPerpPermission | `0x711a70B16D013a9B96Bd6733F4b3097e5787f860` |
-| TransferTargetPermission | `0x8428155b6b9eea4E78b9a52c2312752eD04Baf16` |
-
-These addresses are sourced from the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`), the canonical registry. The Unichain core + template addresses also live in `deployments/130/`.
+The canonical address registry is the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`); per-chain manifests are written to `deployments/<chainId>/` by the deploy scripts.
 
 ---
 
@@ -486,7 +439,7 @@ forge build
 forge test
 ```
 
-Current test count: 1,114 across 23 test files (including the red-team adversarial suite under `test/redteam/`).
+Current test count: 1,207 (including the red-team adversarial suite under `test/redteam/`).
 
 ---
 
@@ -496,16 +449,16 @@ The trusted core is under an ongoing external audit by [Octane Security](https:/
 
 ### Audit scope
 
-**Primary audit scope — Trusted core (1,129 SLOC)**
+**Primary audit scope — Trusted core (1,132 SLOC)**
 
 This is the mandatory audit surface. A bug anywhere in the trusted core puts every account on the protocol at risk.
 
 | Component | SLOC |
 |---|---|
 | `SailKernel` | 804 |
-| `SailGovernance` | 212 |
+| `SailGovernance` | 215 |
 | Interfaces (8 files) | 113 |
-| **Total** | **1,129** |
+| **Total** | **1,132** |
 
 **Secondary audit scope — Template layer (1,731 SLOC)**
 

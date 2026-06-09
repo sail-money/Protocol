@@ -1,16 +1,56 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Script, console2}  from "forge-std/Script.sol";
-import {ManifestIO}        from "../lib/ManifestIO.sol";
-import {SailGovernance}    from "../../contracts/governance/SailGovernance.sol";
-import {SailKernel}        from "../../contracts/core/SailKernel.sol";
-import {MandateFactory} from "../../contracts/factory/MandateFactory.sol";
-import {StandardFeePolicy} from "../../contracts/policies/StandardFeePolicy.sol";
-import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
-import {SafeConstants}     from "../SafeConstants.sol";
+import {Script, console2}     from "forge-std/Script.sol";
+import {ManifestIO}           from "../lib/ManifestIO.sol";
+import {SailGovernance}       from "../../contracts/governance/SailGovernance.sol";
+import {SailKernel}           from "../../contracts/core/SailKernel.sol";
+import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
+import {StandardFeePolicy}    from "../../contracts/policies/StandardFeePolicy.sol";
+import {SafeModuleEnabler}    from "../../contracts/safe/SafeModuleEnabler.sol";
+import {SafeConstants}        from "../SafeConstants.sol";
+import {TimelockController}   from "@openzeppelin/contracts/governance/TimelockController.sol";
 
-/// @notice Core protocol deployment.
+/// @notice Core protocol deployment via deterministic CREATE2 (global, chain-independent salts).
+///
+///         ── Same address on every chain ──────────────────────────────────────────────────────
+///         Every core contract is deployed through the standard deterministic CREATE2 factory
+///         (Arachnid / Nick's factory) at 0x4e59b44847b379578588920cA78FbF26c0B4956C, using a
+///         GLOBAL salt per contract (NO chainId mixed into the salt). A CREATE2 address is
+///         `keccak256(0xff ++ factory ++ salt ++ keccak256(initCode))[12:]`, so the address is
+///         identical across chains iff `initCode` (creation bytecode ++ ABI-encoded constructor
+///         args) is identical across chains. Because:
+///           • the creation bytecode is the compiled artifact (identical across chains), and
+///           • every constructor argument is chain-independent (the deployer config below MUST
+///             be identical on every chain, and inter-contract references resolve to the same
+///             deterministic addresses),
+///         the entire dependency chain — TimelockController → SailGovernance → SailKernel →
+///         MandateFactory / StandardFeePolicy, plus the arg-less SafeModuleEnabler — lands at the
+///         SAME address on Base, Arbitrum, Unichain, Ethereum, Base Sepolia, and Eth Sepolia.
+///         That in turn makes the Safe initializer (which embeds SafeModuleEnabler + SailKernel)
+///         identical across chains, giving users the SAME Separately-Managed-Account address
+///         everywhere.
+///
+///         ── CRITICAL: identical config across chains ─────────────────────────────────────────
+///         The same-address property holds ONLY if the deployer uses the SAME values for every
+///         config knob below on every chain (same INITIAL_GOVERNANCE, TREASURY, EMERGENCY_ADMIN,
+///         FEE_MANAGER, DISTRIBUTOR, MAX_PERMISSION_FEE_WEI, INITIAL_PERMISSION_REGISTRATION_FEE,
+///         MGMT_FEE_BPS, PERF_FEE_BPS, DISTRIBUTOR_BPS). A single differing value changes that
+///         contract's initCode and therefore its address on that chain — and cascades to every
+///         contract that references it. The deployer is responsible for keeping config identical.
+///
+///         ── Why the timelock is deployed first ───────────────────────────────────────────────
+///         SailGovernance no longer constructs its TimelockController inline; it accepts one as a
+///         constructor argument (see contracts/governance/SailGovernance.sol). The timelock is
+///         deployed FIRST, with the team governance wallet (`initialGovernance`) as its sole
+///         proposer / executor / canceller and `address(0)` as admin (self-administered). There
+///         is NO circular dependency: the timelock references the team WALLET, not the (not-yet-
+///         deployed) SailGovernance contract — so no address prediction is needed for wiring.
+///         The timelock's deployed address is read back and passed straight into SailGovernance.
+///
+///         ── Verification ─────────────────────────────────────────────────────────────────────
+///         Every deployment computes its predicted CREATE2 address up front and asserts the
+///         factory deployed code at exactly that address — failing loudly on any mismatch.
 ///
 ///         Writes `deployments/<chainId>/core.json`.
 ///
@@ -28,9 +68,32 @@ import {SafeConstants}     from "../SafeConstants.sol";
 ///           PERF_FEE_BPS              default: 1000
 ///           DISTRIBUTOR_BPS           default: 0
 ///           SAIL_DEPLOY_FRESH=1       allow overwriting an existing core manifest
+///           SAIL_BOOTSTRAP_ALLOWLISTS=1  seed onboarding allowlists at genesis (needs SAFE_PROXY_CODEHASH)
 contract DeployCore is Script {
     string internal constant SCHEMA = "sail.deploy.core";
     string internal constant TARGET = "core";
+
+    // The standard deterministic CREATE2 factory (Arachnid / Nick's factory) at
+    // 0x4e59b44847b379578588920cA78FbF26c0B4956C is inherited from forge-std as the constant
+    // `CREATE2_FACTORY` (CommonBase). It is present at that address on every target chain;
+    // the factory call in `_deploy2` reverts if it is somehow absent.
+
+    // ── Global, versioned, chain-independent salts ────────────────────────────────────────────
+    // One salt per contract. NO chainId is mixed in — that is the whole point: a global salt with
+    // identical initCode yields the SAME address on every chain. Bump the version suffix (`.v1` →
+    // `.v2`) only when a deliberate address rotation is wanted (e.g. a new audited bytecode that
+    // must NOT collide with the previous deployment's address).
+    bytes32 internal constant SALT_TIMELOCK        = keccak256("sail.timelock.v1");
+    bytes32 internal constant SALT_GOVERNANCE      = keccak256("sail.governance.v1");
+    bytes32 internal constant SALT_KERNEL          = keccak256("sail.kernel.v1");
+    bytes32 internal constant SALT_MANDATE_FACTORY = keccak256("sail.mandatefactory.v1");
+    bytes32 internal constant SALT_FEE_POLICY      = keccak256("sail.feepolicy.v1");
+    bytes32 internal constant SALT_MODULE_ENABLER  = keccak256("sail.modulenabler.v1");
+
+    /// @notice Timelock minimum delay — MUST match SailGovernance.REQUIRED_TIMELOCK_DELAY.
+    ///         SailGovernance's constructor reverts (`TimelockDelayMismatch`) unless the injected
+    ///         timelock reports exactly this delay.
+    uint256 internal constant TIMELOCK_DELAY = 48 hours;
 
     struct Config {
         address deployer;
@@ -47,11 +110,12 @@ contract DeployCore is Script {
     }
 
     struct Deployment {
-        SafeModuleEnabler safeModuleEnabler;
-        SailGovernance    governance;
-        SailKernel        kernel;
-        MandateFactory factory;
-        StandardFeePolicy feePolicy;
+        TimelockController timelock;
+        SafeModuleEnabler  safeModuleEnabler;
+        SailGovernance     governance;
+        SailKernel         kernel;
+        MandateFactory     factory;
+        StandardFeePolicy  feePolicy;
     }
 
     function run() external returns (Deployment memory d) {
@@ -64,39 +128,90 @@ contract DeployCore is Script {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(pk);
 
-        d.safeModuleEnabler = new SafeModuleEnabler();
-        console2.log("SafeModuleEnabler  :", address(d.safeModuleEnabler));
-
-        d.governance = new SailGovernance(
-            cfg.initialGovernance,
-            cfg.maxPermissionFeeWei,
-            cfg.emergencyAdmin,
-            cfg.initialPermissionRegistrationFee
+        // (1) TimelockController — deployed FIRST so its (deterministic) address can be injected
+        //     into SailGovernance. Sole proposer/executor/canceller is the team governance wallet;
+        //     admin is address(0) (self-administered). These args are chain-independent.
+        address[] memory proposers = new address[](1);
+        proposers[0] = cfg.initialGovernance;
+        address[] memory executors = new address[](1);
+        executors[0] = cfg.initialGovernance;
+        bytes memory timelockInit = abi.encodePacked(
+            type(TimelockController).creationCode,
+            abi.encode(TIMELOCK_DELAY, proposers, executors, address(0))
         );
-        console2.log("SailGovernance     :", address(d.governance));
-        console2.log("  timelock         :", address(d.governance.timelock()));
+        d.timelock = TimelockController(payable(_deploy2(SALT_TIMELOCK, timelockInit, "TimelockController")));
 
-        d.kernel = new SailKernel(address(d.governance), cfg.treasury);
-        console2.log("SailKernel         :", address(d.kernel));
-
-        d.factory = new MandateFactory(address(d.kernel));
-        console2.log("MandateFactory  :", address(d.factory));
-
-        d.feePolicy = new StandardFeePolicy(
-            cfg.managementFeeBps,
-            cfg.performanceFeeBps,
-            cfg.distributor,
-            cfg.distributorBps,
-            address(d.kernel),
-            cfg.feeManager
+        // Self-administration assertion: confirm no EOA holds admin over the timelock's roles, so
+        // roles cannot be granted/revoked and the delay cannot be altered outside the 48-hour
+        // process. This closes the one timelock property the SailGovernance constructor cannot
+        // observe. In OpenZeppelin's AccessControl, `getRoleAdmin(role)` returns the *admin role*
+        // (a bytes32), not an address: PROPOSER_ROLE is administered by DEFAULT_ADMIN_ROLE, and a
+        // self-administered timelock is one where the timelock contract ITSELF holds that admin
+        // role while no external party (deployer or governance wallet) does.
+        bytes32 adminRole = d.timelock.getRoleAdmin(d.timelock.PROPOSER_ROLE());
+        require(adminRole == d.timelock.DEFAULT_ADMIN_ROLE(), "proposer admin role must be DEFAULT_ADMIN_ROLE");
+        require(
+            d.timelock.hasRole(adminRole, address(d.timelock)),
+            "timelock not self-administered (must hold its own admin role)"
         );
-        console2.log("StandardFeePolicy  :", address(d.feePolicy));
+        require(!d.timelock.hasRole(adminRole, cfg.deployer),          "deployer must not hold timelock admin role");
+        require(!d.timelock.hasRole(adminRole, cfg.initialGovernance), "governance wallet must not hold timelock admin role");
+        console2.log("  timelock minDelay  :", d.timelock.getMinDelay());
+
+        // (2) SailGovernance — receives the injected timelock. Its constructor independently
+        //     re-verifies the timelock's 48h delay and that initialGovernance holds PROPOSER_ROLE.
+        bytes memory governanceInit = abi.encodePacked(
+            type(SailGovernance).creationCode,
+            abi.encode(
+                cfg.initialGovernance,
+                cfg.maxPermissionFeeWei,
+                cfg.emergencyAdmin,
+                cfg.initialPermissionRegistrationFee,
+                address(d.timelock)
+            )
+        );
+        d.governance = SailGovernance(_deploy2(SALT_GOVERNANCE, governanceInit, "SailGovernance"));
+
+        // (3) SailKernel — references the (deterministic) governance address + treasury.
+        bytes memory kernelInit = abi.encodePacked(
+            type(SailKernel).creationCode,
+            abi.encode(address(d.governance), cfg.treasury)
+        );
+        d.kernel = SailKernel(_deploy2(SALT_KERNEL, kernelInit, "SailKernel"));
+
+        // (4) MandateFactory — references the (deterministic) kernel address.
+        bytes memory factoryInit = abi.encodePacked(
+            type(MandateFactory).creationCode,
+            abi.encode(address(d.kernel))
+        );
+        d.factory = MandateFactory(payable(_deploy2(SALT_MANDATE_FACTORY, factoryInit, "MandateFactory")));
+
+        // (5) StandardFeePolicy — references the (deterministic) kernel address + fee config.
+        bytes memory feePolicyInit = abi.encodePacked(
+            type(StandardFeePolicy).creationCode,
+            abi.encode(
+                cfg.managementFeeBps,
+                cfg.performanceFeeBps,
+                cfg.distributor,
+                cfg.distributorBps,
+                address(d.kernel),
+                cfg.feeManager
+            )
+        );
+        d.feePolicy = StandardFeePolicy(_deploy2(SALT_FEE_POLICY, feePolicyInit, "StandardFeePolicy"));
+
+        // (6) SafeModuleEnabler — no constructor args, so its initCode (and therefore its address)
+        //     is trivially identical on every chain.
+        bytes memory enablerInit = type(SafeModuleEnabler).creationCode;
+        d.safeModuleEnabler = SafeModuleEnabler(_deploy2(SALT_MODULE_ENABLER, enablerInit, "SafeModuleEnabler"));
 
         // Genesis allowlist seeding: when SAIL_BOOTSTRAP_ALLOWLISTS is set, seed the onboarding
         // allowlists in this same broadcast (deployer is still `governance`), bypassing the
         // 48-hour timelock exactly once. Without it, fall back to the manual timelock path.
+        // The bootstrap call is a direct call from the deployer EOA (NOT routed through the CREATE2
+        // factory), so msg.sender is the deployer — which must equal initialGovernance.
         bool bootstrap = _boolEnv("SAIL_BOOTSTRAP_ALLOWLISTS");
-        if (bootstrap) {
+        if (bootstrap && !d.governance.allowlistBootstrapped()) {
             _bootstrapAllowlists(cfg, d);
         }
 
@@ -106,6 +221,44 @@ contract DeployCore is Script {
             _printAllowlistReminder(address(d.safeModuleEnabler));
         }
         _writeManifest(cfg, d);
+    }
+
+    // -------------------------------------------------------------------------
+    // CREATE2 deployment helper
+    // -------------------------------------------------------------------------
+
+    /// @dev Deploy `initCode` through the deterministic CREATE2 factory under `salt`, and verify
+    ///      the result lands at the predicted address. Fails loudly on any mismatch.
+    ///
+    ///      The factory's calldata layout is `salt (32 bytes) ++ initCode`; it performs the CREATE2
+    ///      and (in the canonical implementation) returns the 20-byte deployed address. Rather than
+    ///      depend on the factory's return-data encoding, we compute the predicted address with
+    ///      `vm.computeCreate2Address` and confirm code exists there after the call — robust across
+    ///      factory implementations.
+    ///
+    ///      Idempotent across re-runs: if code already exists at the predicted address (e.g. a
+    ///      re-broadcast on the same chain), the existing deployment is reused. CREATE2 guarantees
+    ///      it is byte-for-byte what this salt+initCode would have produced.
+    function _deploy2(bytes32 salt, bytes memory initCode, string memory label)
+        internal
+        returns (address deployed)
+    {
+        address predicted = vm.computeCreate2Address(salt, keccak256(initCode), CREATE2_FACTORY);
+
+        if (predicted.code.length != 0) {
+            console2.log(string.concat(label, " (already deployed):"), predicted);
+            return predicted;
+        }
+
+        (bool ok, ) = CREATE2_FACTORY.call(abi.encodePacked(salt, initCode));
+        require(ok, string.concat("CREATE2 deploy failed (factory present?): ", label));
+        require(
+            predicted.code.length != 0,
+            string.concat("CREATE2 produced no code at predicted address: ", label)
+        );
+
+        deployed = predicted;
+        console2.log(string.concat(label, ":"), deployed);
     }
 
     /// @dev One-time genesis seeding of SailGovernance's onboarding allowlists, run inside the
@@ -207,7 +360,8 @@ contract DeployCore is Script {
     }
 
     function _printConfig(Config memory c) internal pure {
-        console2.log("=== Sail core deploy ===");
+        console2.log("=== Sail core deploy (CREATE2, global salt - same address every chain) ===");
+        console2.log("NOTE: config below MUST be identical on every chain or addresses will differ.");
         console2.log("deployer             :", c.deployer);
         console2.log("initialGovernance    :", c.initialGovernance);
         console2.log("treasury             :", c.treasury);
@@ -229,10 +383,15 @@ contract DeployCore is Script {
         string memory k = "sail-core";
         ManifestIO.serializeHeader(k, SCHEMA, c.deployer);
 
+        // Deterministic-deployment metadata: records that addresses are CREATE2-derived with a
+        // global salt and are therefore identical across all chains deployed with the same config.
+        vm.serializeString(k, "deploymentMode", "create2-global-salt");
+        vm.serializeAddress(k, "create2Factory", CREATE2_FACTORY);
+
         // addresses
         vm.serializeAddress(k, "safeModuleEnabler",  address(d.safeModuleEnabler));
         vm.serializeAddress(k, "governance",         address(d.governance));
-        vm.serializeAddress(k, "timelock",           address(d.governance.timelock()));
+        vm.serializeAddress(k, "timelock",           address(d.timelock));
         // initialGovernance is the admin wallet passed to SailGovernance's constructor —
         // distinct from the deployed governance contract address. Stored explicitly so
         // verify.sh can reconstruct ABI-encoded constructor args without re-reading config.

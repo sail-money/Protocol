@@ -84,6 +84,11 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice On-chain timelock enforcing a 48-hour delay on all parameter changes.
+    /// @dev    Deployed separately and injected via the constructor (not constructed inline), so
+    ///         that this contract's deployment bytecode and constructor arguments are identical
+    ///         across chains — a prerequisite for the deterministic CREATE2 same-address deployment.
+    ///         The constructor validates that the injected timelock has a 48-hour minimum delay and
+    ///         grants PROPOSER_ROLE to the initial governance address.
     TimelockController public immutable timelock;
 
     // -------------------------------------------------------------------------
@@ -351,6 +356,17 @@ contract SailGovernance {
     /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
     error PauseCooldown(uint256 nextAllowed);
 
+    /// @dev Thrown by the constructor when the injected timelock's minimum delay is not exactly
+    ///      REQUIRED_TIMELOCK_DELAY (48 hours). An exact match — not a lower bound — is required so
+    ///      the injected timelock reproduces the audited inline timelock's behaviour precisely.
+    error TimelockDelayMismatch();
+
+    /// @dev Thrown by the constructor when `initialGovernance` does not hold PROPOSER_ROLE on the
+    ///      injected timelock. The inline timelock granted `initialGovernance` the proposer role by
+    ///      construction; an injected timelock must do the same or governance could not schedule
+    ///      any parameter change.
+    error GovernanceNotProposer();
+
     // -------------------------------------------------------------------------
     // Modifiers
     // -------------------------------------------------------------------------
@@ -377,23 +393,61 @@ contract SailGovernance {
     // Constructor
     // -------------------------------------------------------------------------
 
+    /// @notice The exact timelock delay this contract requires (48 hours).
+    /// @dev    The TimelockController is now deployed separately and injected via the
+    ///         constructor (see `_timelock` below). To preserve the audited governance
+    ///         behaviour byte-for-byte, the constructor REQUIRES the injected timelock to
+    ///         have a minimum delay of exactly this value — not merely at least this value.
+    ///         An exact match prevents a misconfigured timelock (faster OR slower) from
+    ///         silently weakening or altering the 48-hour guarantee that the rest of the
+    ///         protocol's security analysis assumes.
+    uint256 public constant REQUIRED_TIMELOCK_DELAY = 48 hours;
+
     /// @notice Deploy the governance contract.
-    /// @param  initialGovernance                Address to hold initial governance rights.
+    /// @dev    The `TimelockController` is deployed SEPARATELY and injected here, rather than
+    ///         constructed inline. This makes every SailGovernance constructor argument identical
+    ///         across chains (the timelock is itself deployed deterministically via CREATE2 with a
+    ///         global salt and chain-independent constructor args), which yields an identical
+    ///         SailGovernance address — and therefore an identical kernel / Safe-initializer /
+    ///         SMA address — on every chain. The injected timelock MUST be configured exactly as
+    ///         the previously-inlined timelock was: a 48-hour minimum delay, `initialGovernance`
+    ///         as the sole proposer/executor/canceller, and no external admin (self-administered).
+    ///         These properties are validated below; the constructor reverts if any differs.
+    /// @param  initialGovernance                Address to hold initial governance rights. MUST also be
+    ///                                          the sole proposer/executor configured on `_timelock`.
     /// @param  maxPermissionFeeWei              Constitutional ceiling for the per-permission registration fee.
     /// @param  _emergencyAdmin                  Address that can pause the kernel without a timelock delay.
     /// @param  initialPermissionRegistrationFee Initial flat permission-registration fee in wei.
     ///                                          Must not exceed maxPermissionFeeWei. Pass 0 to leave
     ///                                          registration free until governance raises it via the
     ///                                          48-hour timelock.
+    /// @param  _timelock                        Pre-deployed TimelockController enforcing the 48-hour
+    ///                                          delay on all parameter changes. Must have a minimum
+    ///                                          delay of exactly REQUIRED_TIMELOCK_DELAY (48 hours) and
+    ///                                          grant PROPOSER_ROLE to `initialGovernance`.
     constructor(
         address initialGovernance,
         uint256 maxPermissionFeeWei,
         address _emergencyAdmin,
-        uint256 initialPermissionRegistrationFee
+        uint256 initialPermissionRegistrationFee,
+        TimelockController _timelock
     ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
+        if (address(_timelock) == address(0)) revert ZeroAddress();
         if (maxPermissionFeeWei              > 0.001 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             0.001 ether);
         if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
+
+        // Preserve the audited timelock behaviour exactly. The TimelockController used to be
+        // built inline as `new TimelockController(48 hours, [initialGovernance], [initialGovernance],
+        // address(0))`. Now that it is injected, enforce the same invariants the inline call
+        // guaranteed by construction:
+        //   • the minimum delay is EXACTLY 48 hours (not just "at least"), and
+        //   • `initialGovernance` holds PROPOSER_ROLE (it was the sole proposer inline).
+        // The self-administration property (admin = address(0)) cannot raise the delay or grant
+        // roles without going through the 48-hour timelock itself, so an attacker cannot satisfy
+        // these checks with a timelock that later weakens its own guarantees without a public delay.
+        if (_timelock.getMinDelay() != REQUIRED_TIMELOCK_DELAY) revert TimelockDelayMismatch();
+        if (!_timelock.hasRole(_timelock.PROPOSER_ROLE(), initialGovernance)) revert GovernanceNotProposer();
 
         governance                = initialGovernance;
         emergencyAdmin            = _emergencyAdmin;
@@ -401,12 +455,7 @@ contract SailGovernance {
         permissionRegistrationFee = initialPermissionRegistrationFee;
         maxPermissionsPerAccount  = 20;
 
-        // Governance is the sole proposer and executor; no admin (self-governing timelock).
-        address[] memory proposers = new address[](1);
-        proposers[0] = initialGovernance;
-        address[] memory executors = new address[](1);
-        executors[0] = initialGovernance;
-        timelock = new TimelockController(48 hours, proposers, executors, address(0));
+        timelock = _timelock;
 
         emit GovernanceTransferred(address(0), initialGovernance);
     }

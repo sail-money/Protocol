@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 
 contract SailGovernanceTest is Test {
     SailGovernance gov;
@@ -25,7 +26,7 @@ contract SailGovernanceTest is Test {
     event Unpaused();
 
     function setUp() public {
-        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0);
+        gov = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(TEAM));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -83,31 +84,62 @@ contract SailGovernanceTest is Test {
     }
 
     function test_Constructor_EmitsGovernanceTransferred() public {
+        // Deploy the injected timelock first, so expectEmit wraps only the SailGovernance
+        // construction (which is the call that emits GovernanceTransferred).
+        TimelockController tl = TimelockDeployer.deploy(TEAM);
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(address(0), TEAM);
-        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, tl);
     }
 
     function test_Constructor_RevertsOnZeroGovernance() public {
+        TimelockController tl = TimelockDeployer.deploy(TEAM);
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN, 0);
+        new SailGovernance(address(0), MAX_FEE, EMERGENCY_ADMIN, 0, tl);
     }
 
     function test_Constructor_RevertsOnZeroEmergencyAdmin() public {
+        TimelockController tl = TimelockDeployer.deploy(TEAM);
         vm.expectRevert(SailGovernance.ZeroAddress.selector);
-        new SailGovernance(TEAM, MAX_FEE, address(0), 0);
+        new SailGovernance(TEAM, MAX_FEE, address(0), 0, tl);
     }
 
     function test_Constructor_RevertsOnInitialFeeAboveCap() public {
+        TimelockController tl = TimelockDeployer.deploy(TEAM);
         vm.expectRevert(abi.encodeWithSelector(
             SailGovernance.FeeExceedsCap.selector, MAX_FEE + 1, MAX_FEE
         ));
-        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, MAX_FEE + 1);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, MAX_FEE + 1, tl);
     }
 
     function test_Constructor_SeedsInitialPermissionRegistrationFee() public {
-        SailGovernance g = new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0.001 ether);
+        SailGovernance g =
+            new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0.001 ether, TimelockDeployer.deploy(TEAM));
         assertEq(g.permissionRegistrationFee(), 0.001 ether);
+    }
+
+    function test_Constructor_RevertsOnZeroTimelock() public {
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, TimelockController(payable(address(0))));
+    }
+
+    /// @dev The injected timelock must report a minimum delay of EXACTLY 48 hours. A timelock with
+    ///      any other delay (here 24h) must be rejected so the audited 48h guarantee is preserved.
+    function test_Constructor_RevertsOnWrongTimelockDelay() public {
+        address[] memory p = new address[](1); p[0] = TEAM;
+        address[] memory e = new address[](1); e[0] = TEAM;
+        TimelockController badDelay = new TimelockController(24 hours, p, e, address(0));
+        vm.expectRevert(SailGovernance.TimelockDelayMismatch.selector);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, badDelay);
+    }
+
+    /// @dev The injected timelock must grant PROPOSER_ROLE to `initialGovernance`. A timelock whose
+    ///      sole proposer is some other address must be rejected — otherwise governance could not
+    ///      schedule any parameter change.
+    function test_Constructor_RevertsWhenGovernanceNotProposer() public {
+        TimelockController wrongProposer = TimelockDeployer.deploy(ALICE); // proposer is ALICE, not TEAM
+        vm.expectRevert(SailGovernance.GovernanceNotProposer.selector);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, wrongProposer);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

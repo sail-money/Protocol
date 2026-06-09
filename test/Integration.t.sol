@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../contracts/core/SailKernel.sol";
 import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import "../contracts/templates/BoundedSwapPermission.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
@@ -101,7 +102,7 @@ contract IntegrationTest is Test {
         vm.deal(address(this), 10 ether); // enough to pay registration fees
 
         // 1. Governance (test contract is initial governance)
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN, 0);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(address(this)));
         _govExec(abi.encodeCall(gov.setProtocolCutBps, (PROTOCOL_CUT_BPS)));
         _govExec(abi.encodeCall(gov.setPermissionRegistrationFee, (BASE_FEE)));
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0

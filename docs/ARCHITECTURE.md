@@ -126,7 +126,7 @@ SailKernel
   └── inherits EIP712, ReentrancyGuard
 
 SailGovernance
-  └── (no imports — standalone parameter store)
+  └── imports TimelockController      (OpenZeppelin; deployed separately and injected via constructor)
 
 StandardFeePolicy
   ├── implements IFeePolicy

@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {SailKernel}        from "../contracts/core/SailKernel.sol";
 import {SailGovernance}    from "../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer}  from "./support/TimelockDeployer.sol";
 import {Context}           from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
 import {SharedApproveAndCallBatchPermission}   from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
@@ -191,7 +192,7 @@ contract BatchDispatchTest is Test {
 
         vm.deal(address(this), 100 ether);
 
-        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE);
+        gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, TimelockDeployer.deploy(address(this)));
 
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new ForwardingMockSafe();
