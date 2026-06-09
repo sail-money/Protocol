@@ -142,6 +142,33 @@ contract SailGovernanceTest is Test {
         new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, wrongProposer);
     }
 
+    /// @dev Review finding M1: the injected timelock must grant EXECUTOR_ROLE to `initialGovernance`.
+    ///      Here the timelock makes TEAM the proposer but ALICE the sole executor — TEAM is not an
+    ///      executor, so construction must revert with GovernanceNotExecutor.
+    function test_Constructor_RevertsWhenGovernanceNotExecutor() public {
+        address[] memory proposers = new address[](1); proposers[0] = TEAM;
+        address[] memory executors = new address[](1); executors[0] = ALICE; // not TEAM
+        TimelockController wrongExecutor = new TimelockController(48 hours, proposers, executors, address(0));
+        vm.expectRevert(SailGovernance.GovernanceNotExecutor.selector);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, wrongExecutor);
+    }
+
+    /// @dev Review finding M2: the injected timelock must self-administer its roles — the governance
+    ///      EOA must not hold admin over them. Here the timelock is deployed with the governance EOA
+    ///      (TEAM = initialGovernance) as admin instead of address(0), so construction must revert
+    ///      with TimelockNotSelfAdministered.
+    ///
+    ///      NOTE: a real OZ TimelockController always self-grants DEFAULT_ADMIN_ROLE to itself, so the
+    ///      detected condition is specifically "initialGovernance also holds the admin role" — the
+    ///      realistic misconfiguration. An arbitrary unrelated EOA admin is not detectable in-contract
+    ///      (TimelockController is not AccessControlEnumerable); see the constructor NatSpec.
+    function test_Constructor_RevertsWhenTimelockNotSelfAdministered() public {
+        address[] memory roles = new address[](1); roles[0] = TEAM;
+        TimelockController govAdmin = new TimelockController(48 hours, roles, roles, TEAM); // TEAM = initialGovernance as admin
+        vm.expectRevert(SailGovernance.TimelockNotSelfAdministered.selector);
+        new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, govAdmin);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Constitutional caps — enforced at execution time via timelock
     // ─────────────────────────────────────────────────────────────────────────

@@ -143,8 +143,11 @@ contract DeployCore is Script {
 
         // Self-administration assertion: confirm no EOA holds admin over the timelock's roles, so
         // roles cannot be granted/revoked and the delay cannot be altered outside the 48-hour
-        // process. This closes the one timelock property the SailGovernance constructor cannot
-        // observe. In OpenZeppelin's AccessControl, `getRoleAdmin(role)` returns the *admin role*
+        // process. NOTE: as of review finding M2, the SailGovernance constructor ALSO enforces this
+        // (it reverts with TimelockNotSelfAdministered), so this assertion is now defense-in-depth —
+        // kept deliberately because it fails earlier and with a clearer, deploy-time message, and
+        // additionally checks that neither the deployer nor the governance wallet holds the admin
+        // role. In OpenZeppelin's AccessControl, `getRoleAdmin(role)` returns the *admin role*
         // (a bytes32), not an address: PROPOSER_ROLE is administered by DEFAULT_ADMIN_ROLE, and a
         // self-administered timelock is one where the timelock contract ITSELF holds that admin
         // role while no external party (deployer or governance wallet) does.
