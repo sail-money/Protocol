@@ -1,124 +1,74 @@
 # Sail Protocol — Deployed Addresses
 
-> **⚠️ Important: Use the Previous Kernels for Now**
+> **⚠️ Redeploy in progress — CREATE2 deterministic scheme**
 >
-> The addresses in this directory come from the post-Octane audit remediation redeploy (May 2026).
+> The protocol is being redeployed so that every core contract is deployed via **deterministic
+> CREATE2 with a global (chain-independent) salt per contract**, through the standard CREATE2
+> factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
 >
-> **The new kernels are not yet usable for onboarding.**
+> The practical consequence: **each core contract has the SAME address on every chain**, and so
+> does the resulting Safe initializer — giving users the **same Separately-Managed-Account (SMA)
+> address on every supported chain**. This is enabled by extracting the `TimelockController` from
+> `SailGovernance`'s constructor (it is now deployed separately and injected), which makes every
+> constructor argument chain-independent.
 >
-> `createAccount()` and `registerAccount()` will revert on these new deployments until the four `onlyTimelock` allowlists are populated via the 48-hour timelock on each chain:
->
-> - `setTrustedSafeFactory`
-> - `setTrustedSafeSingleton`
-> - `setTrustedModuleSetup` (the new `SafeModuleEnabler`)
-> - `setTrustedSafeProxyCodehash`
->
-> **Recommendation:**
-> - On **Arbitrum** and **Base**: Continue using the *previous* kernel deployments for creating/registering accounts and attaching permissions.
-> - On **Base Sepolia**: There is no previous kernel. You must complete the timelock allowlisting steps before you can use this deployment.
->
-> Once the timelock proposals are executed, the new kernels (with hardened onboarding logic) will become active.
+> **Addresses below are placeholders** until the redeploy completes. Do not treat them as live.
+> Once published, the address for a given contract will be identical across all six chains.
 
-This directory contains the canonical deployment manifests for the Sail protocol.
-
-**All deployments below use zero fees** (`managementFeeBps: 0`, `performanceFeeBps: 0`).
+This directory contains the canonical deployment manifests for the Sail protocol. Per-chain
+manifests are written to `deployments/<chainId>/core.json` by `script/core/DeployCore.s.sol`.
 
 ---
 
-## Arbitrum (Chain ID 42161)
+## Core addresses (identical on every chain)
+
+Under the CREATE2 global-salt scheme, the following addresses are the same on Ethereum, Base,
+Arbitrum, Unichain, Base Sepolia, and Eth Sepolia, provided the deployment uses identical
+configuration across chains.
 
 | Contract              | Address                                      |
 |-----------------------|----------------------------------------------|
-| SailGovernance        | `0xA3ee24e4fB7800c4f4c1481Bd920A4034Dfc34cf` |
-| TimelockController    | `0xD6cBDe852186b5b51b01950bB45399A9768acb76` |
-| SailKernel            | `0x7542c3BCEd0014C14d79dA9A98Ec043F1ceC63E2` |
-| MandateFactory        | `0x19BD2629790e602aF22840b37208e44e4F9B0aaE` |
-| StandardFeePolicy     | `0x0Da0fc382E0F990bB08Bf9868fa469904D4E1cdF` |
-| SafeModuleEnabler     | `0x9FCaEfc7791cE24dF88804655916E0Ef91c94DeC` |
+| SailGovernance        | `<to be populated on CREATE2 redeploy>`      |
+| TimelockController    | `<to be populated on CREATE2 redeploy>`      |
+| SailKernel            | `<to be populated on CREATE2 redeploy>`      |
+| MandateFactory        | `<to be populated on CREATE2 redeploy>`      |
+| StandardFeePolicy     | `<to be populated on CREATE2 redeploy>`      |
+| SafeModuleEnabler     | `<to be populated on CREATE2 redeploy>`      |
 
-**Manifests**
-- `core.json`
-- `templates.shared.json`
-- `templates.standalone.json`
+## Supported chains
 
-**Deployed at block** `25193607` (git commit `a40fc0bc...`)
+| Chain        | Chain ID  | Status                    |
+|--------------|-----------|---------------------------|
+| Ethereum     | 1         | pending CREATE2 redeploy  |
+| Base         | 8453      | pending CREATE2 redeploy  |
+| Arbitrum     | 42161     | pending CREATE2 redeploy  |
+| Unichain     | 130       | pending CREATE2 redeploy  |
+| Base Sepolia | 84532     | pending CREATE2 redeploy  |
+| Eth Sepolia  | 11155111  | pending CREATE2 redeploy  |
 
----
-
-## Base (Chain ID 8453)
-
-| Contract              | Address                                      |
-|-----------------------|----------------------------------------------|
-| SailGovernance        | `0xe88668dEd183ef283A606b0D7f6Dbcc4D3f4639B` |
-| TimelockController    | `0x4f19ea113c92711166FA423d859c0d099Dd8bA00` |
-| SailKernel            | `0x852553c5ceb0B2c4c429F355fFBB719ECeF6d0d4` |
-| MandateFactory        | `0x0402b812cCD90608Ca91AdE265082aCa0b8780C8` |
-| StandardFeePolicy     | `0xa4d4F6A0Ebfe1c0798371f897Da85126d6722534` |
-| SafeModuleEnabler     | `0xc7Ad7e2Cfe71050bd905aa6a67b3056730E5017a` |
-
-**Manifests**
-- `core.json`
-- `templates.shared.json`
-- `templates.standalone.json`
-
-**Deployed at block** `46589301` (git commit `a40fc0bc...`)
-
----
-
-## Base Sepolia (Chain ID 84532)
-
-| Contract              | Address                                      |
-|-----------------------|----------------------------------------------|
-| SailGovernance        | `0x2287e52c7fDb5748bB05a857c026D732D1634707` |
-| TimelockController    | `0xFcB810e1127f40266d70DfB8f74320c3F7a14695` |
-| SailKernel            | `0x2e22Cc96F5C069C9eC8B9310E1BbF08C41Ae613E` |
-| MandateFactory        | `0x19650F55577242953Cea668D59F5049a6faf3480` |
-| StandardFeePolicy     | `0xf47689F681a8bEb4595DB51AE7d464D03CbC8b63` |
-| SafeModuleEnabler     | `0x6B05cD59e748364a3dB8f7A3005AA0979859321B` |
-
-**Manifests**
-- `core.json`
-- `templates.shared.json`
-- `templates.standalone.json`
-
-**Deployed at block** `42099572` (git commit `a40fc0bc...`)
-
----
-
-## Unichain (Chain ID 130)
-
-| Contract              | Address                                      |
-|-----------------------|----------------------------------------------|
-| SailGovernance        | `0xAb5C90ECfF2763f6f20f8E553E3b8778dD9C349A` |
-| TimelockController    | `0xd44FbBB37f01e235E0EE5386948F216d36D0CEf2` |
-| SailKernel            | `0xD985029960a9B7C2E7E38e102C448b8b8539B156` |
-| MandateFactory        | `0x8edDb62Aa49CeB837abf2653be2d93Ad9Fe6777D` |
-| StandardFeePolicy     | `0x7bBA8BE3c01c972757aA4a230A00D58aB600A1F1` |
-| SafeModuleEnabler     | `0xFE9227A9F2baf704060c604466df354a5A137b9B` |
-
-**Manifests**
-- `core.json`
-- `templates.shared.json`
-- `templates.standalone.json`
-
-**Deployed at block** `49897206` (git commit `2c9e3257...`)
-
-> Allowlists were **seeded at genesis** via `bootstrapAllowlists` (no 48h timelock): Safe v1.4.1 factory, both singletons (L2 + non-L2), the deployed `SafeModuleEnabler`, the `StandardFeePolicy`, and SafeProxy codehash `0xd7d408eb…fb4c` (verified on-chain — factory bytecode is byte-identical to Base). Onboarding is usable immediately.
+The CREATE2 factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) and the Safe v1.4.1 proxy
+factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical
+addresses on all six chains, so the same-address property is achievable on each.
 
 ---
 
 ## Notes
 
-- All three deployments were performed with **zero fees** (`MGMT_FEE_BPS=0`, `PERF_FEE_BPS=0`).
-- `initialPermissionRegistrationFee` is set to `0` on all chains.
-- `maxPermissionFeeWei` is set to the constitutional cap (`0.001 ETH`).
-- The `StandardFeePolicy` on each chain can be updated later by the `feeManager` (currently the deployer EOA).
-- After each core deployment, the four allowlist entries must be configured via the 48-hour timelock before accounts can be created:
+- Deployments are intended to use **zero fees** (`MGMT_FEE_BPS=0`, `PERF_FEE_BPS=0`),
+  `initialPermissionRegistrationFee = 0`, and `maxPermissionFeeWei` at the constitutional cap
+  (`0.001 ETH`) — and these values **must be identical across chains** for the addresses to match.
+- The `TimelockController` is deployed first, with the governance wallet (`INITIAL_GOVERNANCE`) as
+  its sole proposer/executor/canceller and `address(0)` as admin (self-administered, 48h delay).
+  Its address is injected into `SailGovernance`, whose constructor re-verifies the 48h delay and
+  the proposer role.
+- After each core deployment, the onboarding allowlists must be configured before accounts can be
+  created — either seeded at genesis via `bootstrapAllowlists` (the `SAIL_BOOTSTRAP_ALLOWLISTS`
+  path in `DeployCore`) or, in normal operation, via the 48-hour timelock:
   - `setTrustedSafeFactory`
   - `setTrustedSafeSingleton`
-  - `setTrustedModuleSetup` (points to the chain-specific `SafeModuleEnabler`)
+  - `setTrustedModuleSetup` (points to the deployed `SafeModuleEnabler`)
   - `setTrustedSafeProxyCodehash` (capture `extcodehash` of any SafeProxy deployed by the v1.4.1 factory)
+- **Template contracts** (shared + standalone) are deployed separately, bind to the kernel address,
+  and will be republished after the core redeploy.
 
-**Template contracts** (shared + standalone) are listed in the respective `templates.*.json` files in each chain directory. They are bound to the kernel address shown above.
-
-Last updated: 2026-05-28 (post-Octane audit remediation redeploy)
+Last updated: pending CREATE2 redeploy (deterministic same-address scheme).

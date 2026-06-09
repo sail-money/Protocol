@@ -11,6 +11,7 @@ import {IPermission, Context}              from "../contracts/interfaces/IPermis
 import {SailCapabilities}                  from "../contracts/interfaces/SailCapabilities.sol";
 import {SailKernel}                        from "../contracts/core/SailKernel.sol";
 import {SailGovernance}                    from "../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer}                  from "./support/TimelockDeployer.sol";
 import {MockAgentIdentityPermission,
         MockAccountAgentIdentityPermission} from "./mocks/MockAgentIdentityPermission.sol";
 
@@ -64,7 +65,7 @@ contract AgentIdentityTest is Test {
         manager    = vm.addr(MANAGER_KEY);
         permSigner = vm.addr(SIGNER_KEY);
 
-        gov    = new SailGovernance(address(this), 0.001 ether, address(this), 0);
+        gov    = new SailGovernance(address(this), 0.001 ether, address(this), 0, TimelockDeployer.deploy(address(this)));
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new AgentTestSafe();
 

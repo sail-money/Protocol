@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}               from "forge-std/Test.sol";
 import {SailKernel, ISafeFactory, ISafe} from "../contracts/core/SailKernel.sol";
 import {SailGovernance}     from "../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer}   from "./support/TimelockDeployer.sol";
 import {SafeModuleEnabler}  from "../contracts/safe/SafeModuleEnabler.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {Create2}            from "@openzeppelin/contracts/utils/Create2.sol";
@@ -174,7 +175,7 @@ contract CreateAccountTest is Test {
     bytes32 proxyCodehash;
 
     function setUp() public {
-        gov           = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0);
+        gov           = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, TimelockDeployer.deploy(TEAM));
         kernel        = new SailKernel(address(gov), TREASURY);
         factory       = new FaithfulSafeFactory();
         moduleEnabler = new SafeModuleEnabler();

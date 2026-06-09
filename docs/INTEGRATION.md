@@ -8,18 +8,53 @@ This guide covers three audiences: operators deploying the protocol, developers 
 
 This section walks through deploying a fully functional Sail instance from scratch.
 
-### 1. Deploy SailGovernance
+> **Use the canonical deploy script.** In practice you should deploy with
+> `script/core/DeployCore.s.sol`, which deploys the whole core via **deterministic CREATE2 with a
+> global salt** so every contract lands at the **same address on every chain** (Base, Arbitrum,
+> Unichain, Ethereum, Base Sepolia, Eth Sepolia) and users get the same SMA address everywhere.
+> The hand-written steps below show the dependency order and constructor arguments; the script
+> wraps them in CREATE2 calls and verifies each deployed address against its predicted address.
+
+### 1. Deploy the TimelockController
+
+`SailGovernance` does not construct its own timelock — it accepts a pre-deployed one as a
+constructor argument (this is what makes its constructor arguments chain-independent, and so the
+CREATE2 address identical across chains). Deploy the timelock first, with the governance wallet as
+the sole proposer/executor/canceller, no admin (self-administered), and a **48-hour** delay:
 
 ```solidity
-SailGovernance governance = new SailGovernance(
-    multisigAddress,        // initialGovernance — use a multisig in production
-    1e18                    // maxPermissionFeeWei — constitutional cap on registration fee
+address[] memory proposers = new address[](1);
+proposers[0] = multisigAddress;            // governance wallet — sole proposer
+address[] memory executors = new address[](1);
+executors[0] = multisigAddress;            // ...and sole executor
+TimelockController timelock = new TimelockController(
+    48 hours,                              // MUST be exactly 48h — SailGovernance enforces this
+    proposers,
+    executors,
+    address(0)                             // no admin: self-administered
 );
 ```
 
-`maxPermissionFeeWei` is immutable after deployment. Set it to a value that covers your intended fee schedule without being so large that it could cause UI/UX friction. `1e18` (1 ETH equivalent) is a reasonable production ceiling for most deployments.
+### 2. Deploy SailGovernance
 
-### 2. Deploy SailKernel
+```solidity
+SailGovernance governance = new SailGovernance(
+    multisigAddress,        // initialGovernance — use a multisig in production; must be the timelock proposer
+    0.001 ether,            // maxPermissionFeeWei — constitutional cap on registration fee (max 0.001 ether)
+    emergencyAdmin,         // may pause the kernel for up to 72h without a timelock delay
+    0,                      // initialPermissionRegistrationFee — 0 leaves registration free
+    timelock                // injected TimelockController (48h delay, multisigAddress as proposer)
+);
+```
+
+`maxPermissionFeeWei` is immutable after deployment and is itself capped at `0.001 ether` by the
+constructor. The constructor enforces all four injected-timelock invariants and reverts if any fails:
+- **`TimelockDelayMismatch`** — `getMinDelay()` is not exactly 48 hours.
+- **`GovernanceNotProposer`** — `initialGovernance` does not hold `PROPOSER_ROLE`.
+- **`GovernanceNotExecutor`** — `initialGovernance` does not hold `EXECUTOR_ROLE` (rejects open-executor timelocks).
+- **`TimelockNotSelfAdministered`** — the governance EOA holds the admin role over the timelock's roles (rejects timelocks deployed with `admin == initialGovernance`).
+
+### 3. Deploy SailKernel
 
 ```solidity
 SailKernel kernel = new SailKernel(
@@ -28,18 +63,20 @@ SailKernel kernel = new SailKernel(
 );
 ```
 
-### 3. Configure Governance Parameters
+### 4. Configure Governance Parameters
+
+All parameter changes flow through the **48-hour timelock** (the setters are `onlyTimelock`):
+schedule each call on `governance.timelock()`, wait 48 hours, then execute.
 
 ```solidity
-// All calls from the governance multisig
-governance.setProtocolCutBps(500);          // 5% of each fee collection to protocol
-governance.setBaseFee(0.001 ether);         // flat fee per permission registration
-governance.setComplexityRate(1_000);        // 1_000 wei per byte of permission bytecode
+// Encoded and scheduled/executed via the TimelockController by the governance wallet:
+governance.setProtocolCutBps(500);                  // 5% of each fee collection to protocol
+governance.setPermissionRegistrationFee(0.0005 ether); // flat fee per permission registration (<= maxPermissionFeeWei)
 // maxPermissionsPerAccount defaults to 20; leave or adjust:
 governance.setMaxPermissionsPerAccount(10);
 ```
 
-### 4. Deploy Permission Templates
+### 5. Deploy Permission Templates
 
 Deploy one or more permission templates for your allowed trading scope:
 
@@ -66,7 +103,7 @@ BoundedSwapPermission swapPerm = new BoundedSwapPermission(
 );
 ```
 
-### 5. Deploy a Fee Policy
+### 6. Deploy a Fee Policy
 
 ```solidity
 StandardFeePolicy feePolicy = new StandardFeePolicy(
@@ -79,7 +116,7 @@ StandardFeePolicy feePolicy = new StandardFeePolicy(
 );
 ```
 
-### 6. Register an Account
+### 7. Register an Account
 
 **New Safe (createAccount):**
 
@@ -104,7 +141,7 @@ kernel.registerAccount(permissionSignerAddress, managerAddress, address(feePolic
 
 Before calling `registerAccount`, the Safe must have added the kernel as a module. This is typically done in the same Safe transaction that calls `registerAccount`.
 
-### 7. Register Permissions
+### 8. Register Permissions
 
 Off-chain, build the EIP-712 signature for `RegisterPermission` using the current `signerNonces[account]`:
 
@@ -132,7 +169,7 @@ kernel.registerPermissions{value: totalFee}(
 );
 ```
 
-### 8. Manager Dispatch
+### 9. Manager Dispatch
 
 Once permissions are registered, the manager can sign and submit dispatch calls:
 

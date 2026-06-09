@@ -20,6 +20,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
 import {SailGovernance}          from "../../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer}        from "../support/TimelockDeployer.sol";
 import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}       from "../../contracts/policies/StandardFeePolicy.sol";
 import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
@@ -184,7 +185,7 @@ abstract contract RedTeamBase is Test {
         vm.deal(attacker,      100 ether);
 
         // Deploy governance
-        gov = new SailGovernance(address(this), 0.001 ether, address(this), 0);
+        gov = new SailGovernance(address(this), 0.001 ether, address(this), 0, TimelockDeployer.deploy(address(this)));
         vm.startPrank(address(gov.timelock()));
         gov.setProtocolCutBps(1_000);
         gov.setPermissionRegistrationFee(0.001 ether);

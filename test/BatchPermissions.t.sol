@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {SailKernel} from "../contracts/core/SailKernel.sol";
 import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 
@@ -52,7 +53,7 @@ contract BatchPermissionsTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
         manager    = vm.addr(MANAGER_KEY);
 
-        gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0);
+        gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(TEAM));
         kernel = new SailKernel(address(gov), TREASURY);
         safe   = new BatchMockSafe();
 

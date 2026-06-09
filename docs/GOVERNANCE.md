@@ -11,6 +11,25 @@ The contract distinguishes two categories of settings:
 
 ---
 
+## Timelock and Deployment
+
+All parameter changes flow through a `TimelockController` enforcing a **48-hour delay** (the parameter setters are `onlyTimelock`). The emergency admin may pause the kernel for up to 72 hours without a timelock.
+
+**The timelock is injected, not constructed inline.** `SailGovernance` accepts a pre-deployed `TimelockController` as its final constructor argument rather than building one in its constructor. The timelock is deployed first — with the governance wallet as its sole proposer / executor / canceller, `address(0)` as admin (self-administered), and a 48-hour minimum delay. The `SailGovernance` constructor then validates the injected timelock:
+
+- it reverts with `TimelockDelayMismatch` unless `getMinDelay()` is **exactly** 48 hours (`REQUIRED_TIMELOCK_DELAY`),
+- it reverts with `GovernanceNotProposer` unless `initialGovernance` holds `PROPOSER_ROLE`,
+- it reverts with `GovernanceNotExecutor` unless `initialGovernance` holds `EXECUTOR_ROLE` (rejects open-executor timelocks where `address(0)` is executor), and
+- it reverts with `TimelockNotSelfAdministered` unless the timelock holds the admin role over its own `PROPOSER_ROLE` and `initialGovernance` does not (rejects timelocks deployed with the governance EOA as admin).
+
+The deploy script independently asserts the same self-administration property and additionally checks the deployer does not hold the admin role.
+
+**Why injected?** Extracting the timelock makes every `SailGovernance` constructor argument chain-independent. Combined with deterministic **CREATE2** deployment using a **global, chain-independent salt** (see `script/core/DeployCore.s.sol`), this yields the **same `SailGovernance` address — and the same kernel, Safe initializer, and SMA address — on every chain**. The on-chain security behaviour is identical to constructing the timelock inline; only the deployment transaction that creates the timelock moves into the deploy script.
+
+> **Note:** the parameter-name and function-signature tables below predate later contract changes (e.g. the single `permissionRegistrationFee` / `setPermissionRegistrationFee` replaced the earlier `baseFee` + `complexityRate`, and the parameter setters and `proposeGovernance` are now `onlyTimelock`). Treat `contracts/governance/SailGovernance.sol` as the source of truth.
+
+---
+
 ## Constitutional Caps
 
 These values are locked at deployment and cannot be raised by any governance action.

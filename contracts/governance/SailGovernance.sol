@@ -84,6 +84,11 @@ contract SailGovernance {
     // -------------------------------------------------------------------------
 
     /// @notice On-chain timelock enforcing a 48-hour delay on all parameter changes.
+    /// @dev    Deployed separately and injected via the constructor (not constructed inline), so
+    ///         that this contract's deployment bytecode and constructor arguments are identical
+    ///         across chains — a prerequisite for the deterministic CREATE2 same-address deployment.
+    ///         The constructor validates that the injected timelock has a 48-hour minimum delay and
+    ///         grants PROPOSER_ROLE to the initial governance address.
     TimelockController public immutable timelock;
 
     // -------------------------------------------------------------------------
@@ -351,6 +356,33 @@ contract SailGovernance {
     /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
     error PauseCooldown(uint256 nextAllowed);
 
+    /// @dev Thrown by the constructor when the injected timelock's minimum delay is not exactly
+    ///      REQUIRED_TIMELOCK_DELAY (48 hours). An exact match — not a lower bound — is required so
+    ///      the injected timelock reproduces the audited inline timelock's behaviour precisely.
+    error TimelockDelayMismatch();
+
+    /// @dev Thrown by the constructor when `initialGovernance` does not hold PROPOSER_ROLE on the
+    ///      injected timelock. The inline timelock granted `initialGovernance` the proposer role by
+    ///      construction; an injected timelock must do the same or governance could not schedule
+    ///      any parameter change.
+    error GovernanceNotProposer();
+
+    /// @dev Thrown by the constructor when `initialGovernance` does not hold EXECUTOR_ROLE on the
+    ///      injected timelock. The inline timelock made `initialGovernance` the sole executor. An
+    ///      injected timelock that omits this (e.g. `address(0)` as executor, OZ's "open executor"
+    ///      mode where anyone may execute after the delay) deviates from the audited model and is
+    ///      rejected. (Review finding M1.)
+    error GovernanceNotExecutor();
+
+    /// @dev Thrown by the constructor when the injected timelock is not self-administered — i.e. the
+    ///      timelock does not hold the admin role over its own PROPOSER_ROLE, OR `initialGovernance`
+    ///      holds that admin role. The inline timelock was deployed with `admin == address(0)`, so
+    ///      only the timelock holds its own admin role and every role change must pass through the
+    ///      48-hour timelock. A timelock where the governance EOA holds the admin role could re-grant
+    ///      roles or alter the delay outside the timelock process, so it is rejected. (Review finding
+    ///      M2.) See the constructor NatSpec for the detection limitation.
+    error TimelockNotSelfAdministered();
+
     // -------------------------------------------------------------------------
     // Modifiers
     // -------------------------------------------------------------------------
@@ -377,23 +409,94 @@ contract SailGovernance {
     // Constructor
     // -------------------------------------------------------------------------
 
+    /// @notice The exact timelock delay this contract requires (48 hours).
+    /// @dev    The TimelockController is now deployed separately and injected via the
+    ///         constructor (see `_timelock` below). To preserve the audited governance
+    ///         behaviour byte-for-byte, the constructor REQUIRES the injected timelock to
+    ///         have a minimum delay of exactly this value — not merely at least this value.
+    ///         An exact match prevents a misconfigured timelock (faster OR slower) from
+    ///         silently weakening or altering the 48-hour guarantee that the rest of the
+    ///         protocol's security analysis assumes.
+    uint256 public constant REQUIRED_TIMELOCK_DELAY = 48 hours;
+
     /// @notice Deploy the governance contract.
-    /// @param  initialGovernance                Address to hold initial governance rights.
+    /// @dev    The `TimelockController` is deployed SEPARATELY and injected here, rather than
+    ///         constructed inline. This makes every SailGovernance constructor argument identical
+    ///         across chains (the timelock is itself deployed deterministically via CREATE2 with a
+    ///         global salt and chain-independent constructor args), which yields an identical
+    ///         SailGovernance address — and therefore an identical kernel / Safe-initializer /
+    ///         SMA address — on every chain. The injected timelock MUST be configured exactly as
+    ///         the previously-inlined timelock was: a 48-hour minimum delay, `initialGovernance`
+    ///         as the sole proposer/executor/canceller, and no external admin (self-administered).
+    ///         The constructor validates the injected timelock for ALL of the following and reverts
+    ///         if any differs:
+    ///           • non-zero address (`ZeroAddress`),
+    ///           • minimum delay of exactly REQUIRED_TIMELOCK_DELAY / 48 hours (`TimelockDelayMismatch`),
+    ///           • `initialGovernance` holds PROPOSER_ROLE (`GovernanceNotProposer`),
+    ///           • `initialGovernance` holds EXECUTOR_ROLE (`GovernanceNotExecutor`; review finding M1),
+    ///           • the timelock self-administers its roles — the admin role of PROPOSER_ROLE is held
+    ///             by the timelock itself AND is NOT held by `initialGovernance`
+    ///             (`TimelockNotSelfAdministered`; review finding M2).
+    ///
+    ///         M2 detection limitation: a real OpenZeppelin `TimelockController` ALWAYS self-grants
+    ///         `DEFAULT_ADMIN_ROLE` to itself in its constructor, so the "timelock holds its own admin
+    ///         role" half of the check is a no-op for genuine timelocks. The operative half rejects
+    ///         the realistic misconfiguration — deploying the timelock with `admin == initialGovernance`
+    ///         (the governance EOA holding timelock admin). Because `TimelockController` is not
+    ///         `AccessControlEnumerable`, neither this constructor nor the deploy-script assertion can
+    ///         detect an arbitrary UNRELATED EOA admin (one this contract has no reference to); both
+    ///         can only check known addresses. This is an accepted, documented limitation.
+    /// @param  initialGovernance                Address to hold initial governance rights. MUST also be
+    ///                                          the sole proposer AND executor configured on `_timelock`.
     /// @param  maxPermissionFeeWei              Constitutional ceiling for the per-permission registration fee.
     /// @param  _emergencyAdmin                  Address that can pause the kernel without a timelock delay.
     /// @param  initialPermissionRegistrationFee Initial flat permission-registration fee in wei.
     ///                                          Must not exceed maxPermissionFeeWei. Pass 0 to leave
     ///                                          registration free until governance raises it via the
     ///                                          48-hour timelock.
+    /// @param  _timelock                        Pre-deployed TimelockController enforcing the 48-hour
+    ///                                          delay on all parameter changes. Must have a minimum
+    ///                                          delay of exactly REQUIRED_TIMELOCK_DELAY (48 hours),
+    ///                                          grant PROPOSER_ROLE and EXECUTOR_ROLE to
+    ///                                          `initialGovernance`, and self-administer its roles
+    ///                                          (admin == address(0) at deployment).
     constructor(
         address initialGovernance,
         uint256 maxPermissionFeeWei,
         address _emergencyAdmin,
-        uint256 initialPermissionRegistrationFee
+        uint256 initialPermissionRegistrationFee,
+        TimelockController _timelock
     ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
+        if (address(_timelock) == address(0)) revert ZeroAddress();
         if (maxPermissionFeeWei              > 0.001 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             0.001 ether);
         if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
+
+        // Preserve the audited timelock behaviour exactly. The TimelockController used to be
+        // built inline as `new TimelockController(48 hours, [initialGovernance], [initialGovernance],
+        // address(0))`. Now that it is injected, enforce every invariant the inline call guaranteed
+        // by construction:
+        //   • the minimum delay is EXACTLY 48 hours (not just "at least"),
+        //   • `initialGovernance` holds PROPOSER_ROLE (it was the sole proposer inline),
+        //   • `initialGovernance` holds EXECUTOR_ROLE (it was the sole executor inline — rejecting
+        //     an injected timelock with an open/foreign executor; review finding M1), and
+        //   • the timelock self-administers its roles, i.e. the admin role of PROPOSER_ROLE is held
+        //     by the timelock itself and not by any EOA (the inline timelock used admin=address(0);
+        //     review finding M2). A self-administered timelock cannot re-grant roles or change the
+        //     delay outside the 48-hour process, so these checks cannot be satisfied by a timelock
+        //     that later weakens its own guarantees without a public, delayed operation.
+        if (_timelock.getMinDelay() != REQUIRED_TIMELOCK_DELAY) revert TimelockDelayMismatch();
+        if (!_timelock.hasRole(_timelock.PROPOSER_ROLE(), initialGovernance)) revert GovernanceNotProposer();
+        if (!_timelock.hasRole(_timelock.EXECUTOR_ROLE(), initialGovernance)) revert GovernanceNotExecutor();
+        // Self-administration: the timelock must hold the admin role over its own PROPOSER_ROLE, and
+        // the governance EOA must NOT hold that admin role. NOTE: a real OZ TimelockController ALWAYS
+        // self-grants DEFAULT_ADMIN_ROLE to itself, so the first check alone is a no-op for genuine
+        // timelocks — the operative check is the second, which rejects the realistic misconfiguration
+        // of deploying the timelock with `admin == initialGovernance`. See the constructor NatSpec for
+        // the limitation (an arbitrary unrelated EOA admin cannot be detected without enumeration).
+        bytes32 proposerAdminRole = _timelock.getRoleAdmin(_timelock.PROPOSER_ROLE());
+        if (!_timelock.hasRole(proposerAdminRole, address(_timelock))) revert TimelockNotSelfAdministered();
+        if (_timelock.hasRole(proposerAdminRole, initialGovernance))   revert TimelockNotSelfAdministered();
 
         governance                = initialGovernance;
         emergencyAdmin            = _emergencyAdmin;
@@ -401,12 +504,7 @@ contract SailGovernance {
         permissionRegistrationFee = initialPermissionRegistrationFee;
         maxPermissionsPerAccount  = 20;
 
-        // Governance is the sole proposer and executor; no admin (self-governing timelock).
-        address[] memory proposers = new address[](1);
-        proposers[0] = initialGovernance;
-        address[] memory executors = new address[](1);
-        executors[0] = initialGovernance;
-        timelock = new TimelockController(48 hours, proposers, executors, address(0));
+        timelock = _timelock;
 
         emit GovernanceTransferred(address(0), initialGovernance);
     }

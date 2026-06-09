@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import {Test}                 from "forge-std/Test.sol";
 import {SailKernel}           from "../contracts/core/SailKernel.sol";
 import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
+import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}           from "../contracts/interfaces/IFeePolicy.sol";
 
@@ -60,7 +61,7 @@ contract Octane03_Signatures is Test {
         permSigner = vm.addr(SIGNER_KEY);
         manager    = vm.addr(MANAGER_KEY);
 
-        gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0);
+        gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
         kernel   = new SailKernel(address(gov), address(0x2222));
         safe     = new _O3Safe();
         perm     = new _O3Perm();
