@@ -1,17 +1,17 @@
 {
-  "version": "pending-create2-redeploy",
-  "note": "Core contracts deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each core contract therefore has the SAME address on every chain, and so does the resulting Safe initializer / SMA address. Addresses below are placeholders until the redeploy completes; do not treat them as live. The same-address property holds only when the deployment uses identical configuration across all chains (governance, treasury, emergencyAdmin, feeManager, distributor, and all fee parameters). All deployments use zero fees (managementFeeBps=0, performanceFeeBps=0, initialPermissionRegistrationFee=0).",
+  "version": "create2-2026-06-09",
+  "note": "Core contracts deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each core contract therefore has the SAME address on every chain, and so does the resulting Safe initializer / SMA address. Addresses below are LIVE on chains 1, 8453, 42161, 130, 84532, 11155111 (deployed 2026-06-09, commit 1199b33) with onboarding allowlists seeded at genesis via bootstrapAllowlists. The same-address property holds because the deployment used identical configuration across all chains (governance, treasury, emergencyAdmin, feeManager, distributor, and all fee parameters). All deployments use zero fees (managementFeeBps=0, performanceFeeBps=0, initialPermissionRegistrationFee=0).",
   "deploymentMode": "create2-global-salt",
   "create2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
   "safeProxyFactory_1_4_1": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
   "core": {
-    "_comment": "Identical address on every supported chain once redeployed. Placeholders until then.",
-    "governance": "<to be populated on CREATE2 redeploy>",
-    "timelock": "<to be populated on CREATE2 redeploy>",
-    "kernel": "<to be populated on CREATE2 redeploy>",
-    "mandateFactory": "<to be populated on CREATE2 redeploy>",
-    "standardFeePolicy": "<to be populated on CREATE2 redeploy>",
-    "safeModuleEnabler": "<to be populated on CREATE2 redeploy>"
+    "_comment": "Identical address on every supported chain (live on 1, 8453, 42161, 130, 84532).",
+    "governance": "0x7A478118715791728BDE3bc7A4D7ECfdEB89C6EC",
+    "timelock": "0xE48Ba8DB6d748adafD13155c3590f62e58a77f56",
+    "kernel": "0x02ABC18B65A328de2e749F56ba79ACF2718a6659",
+    "mandateFactory": "0x14EDd6c2a56EfC0d71E215ab13094B9AF90543d2",
+    "standardFeePolicy": "0xe7B5901b839cFFDEd9D4108A22712C8BfdA1D80D",
+    "safeModuleEnabler": "0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F"
   },
   "fees": {
     "managementFeeBps": 0,
@@ -19,11 +19,11 @@
     "initialPermissionRegistrationFee": 0
   },
   "chains": {
-    "1": { "name": "ethereum", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" },
-    "8453": { "name": "base", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" },
-    "42161": { "name": "arbitrum", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" },
-    "130": { "name": "unichain", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" },
-    "84532": { "name": "base_sepolia", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" },
-    "11155111": { "name": "eth_sepolia", "status": "pending CREATE2 redeploy", "core": "see top-level core (identical across chains)" }
+    "1": { "name": "ethereum", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
+    "8453": { "name": "base", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
+    "42161": { "name": "arbitrum", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
+    "130": { "name": "unichain", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
+    "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
+    "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" }
   }
 }
