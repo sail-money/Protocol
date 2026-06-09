@@ -1,10 +1,10 @@
 # Sail Protocol — Deployed Addresses
 
-> **⚠️ Redeploy in progress — CREATE2 deterministic scheme**
+> **✅ Deployed — CREATE2 deterministic scheme (deployed 2026-06-09, commit `1199b33`)**
 >
-> The protocol is being redeployed so that every core contract is deployed via **deterministic
-> CREATE2 with a global (chain-independent) salt per contract**, through the standard CREATE2
-> factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
+> Every core contract is deployed via **deterministic CREATE2 with a global (chain-independent)
+> salt per contract**, through the standard CREATE2 factory
+> `0x4e59b44847b379578588920cA78FbF26c0B4956C`.
 >
 > The practical consequence: **each core contract has the SAME address on every chain**, and so
 > does the resulting Safe initializer — giving users the **same Separately-Managed-Account (SMA)
@@ -12,8 +12,8 @@
 > `SailGovernance`'s constructor (it is now deployed separately and injected), which makes every
 > constructor argument chain-independent.
 >
-> **Addresses below are placeholders** until the redeploy completes. Do not treat them as live.
-> Once published, the address for a given contract will be identical across all six chains.
+> The addresses below are **live** on all six chains (Ethereum, Base, Arbitrum, Unichain, Base
+> Sepolia, Eth Sepolia), and the onboarding allowlists were seeded at genesis (`bootstrapAllowlists`).
 
 This directory contains the canonical deployment manifests for the Sail protocol. Per-chain
 manifests are written to `deployments/<chainId>/core.json` by `script/core/DeployCore.s.sol`.
@@ -28,23 +28,23 @@ configuration across chains.
 
 | Contract              | Address                                      |
 |-----------------------|----------------------------------------------|
-| SailGovernance        | `<to be populated on CREATE2 redeploy>`      |
-| TimelockController    | `<to be populated on CREATE2 redeploy>`      |
-| SailKernel            | `<to be populated on CREATE2 redeploy>`      |
-| MandateFactory        | `<to be populated on CREATE2 redeploy>`      |
-| StandardFeePolicy     | `<to be populated on CREATE2 redeploy>`      |
-| SafeModuleEnabler     | `<to be populated on CREATE2 redeploy>`      |
+| SailGovernance        | `0x7A478118715791728BDE3bc7A4D7ECfdEB89C6EC` |
+| TimelockController    | `0xE48Ba8DB6d748adafD13155c3590f62e58a77f56` |
+| SailKernel            | `0x02ABC18B65A328de2e749F56ba79ACF2718a6659` |
+| MandateFactory        | `0x14EDd6c2a56EfC0d71E215ab13094B9AF90543d2` |
+| StandardFeePolicy     | `0xe7B5901b839cFFDEd9D4108A22712C8BfdA1D80D` |
+| SafeModuleEnabler     | `0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F` |
 
 ## Supported chains
 
-| Chain        | Chain ID  | Status                    |
-|--------------|-----------|---------------------------|
-| Ethereum     | 1         | pending CREATE2 redeploy  |
-| Base         | 8453      | pending CREATE2 redeploy  |
-| Arbitrum     | 42161     | pending CREATE2 redeploy  |
-| Unichain     | 130       | pending CREATE2 redeploy  |
-| Base Sepolia | 84532     | pending CREATE2 redeploy  |
-| Eth Sepolia  | 11155111  | pending CREATE2 redeploy  |
+| Chain        | Chain ID  | Status                       |
+|--------------|-----------|------------------------------|
+| Ethereum     | 1         | live (CREATE2, bootstrapped) |
+| Base         | 8453      | live (CREATE2, bootstrapped) |
+| Arbitrum     | 42161     | live (CREATE2, bootstrapped) |
+| Unichain     | 130       | live (CREATE2, bootstrapped) |
+| Base Sepolia | 84532     | live (CREATE2, bootstrapped) |
+| Eth Sepolia  | 11155111  | live (CREATE2, bootstrapped) |
 
 The CREATE2 factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) and the Safe v1.4.1 proxy
 factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical
@@ -71,4 +71,4 @@ addresses on all six chains, so the same-address property is achievable on each.
 - **Template contracts** (shared + standalone) are deployed separately, bind to the kernel address,
   and will be republished after the core redeploy.
 
-Last updated: pending CREATE2 redeploy (deterministic same-address scheme).
+Last updated: 2026-06-09 — CREATE2 deterministic deploy (commit `1199b33`) live on chains 1, 8453, 42161, 130, 84532, 11155111; bootstrapped at genesis.

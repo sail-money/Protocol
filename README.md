@@ -392,18 +392,18 @@ The trusted core deploys via **deterministic CREATE2 with a global, chain-indepe
 
 The same-address guarantee holds only when the deployment uses **identical configuration on every chain** (governance wallet, treasury, emergency admin, fee manager, distributor, and all fee parameters). The CREATE2 factory and the Safe v1.4.1 proxy factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical addresses on all six supported chains.
 
-> **Redeploy in progress.** The protocol is being redeployed under this new CREATE2 deterministic scheme. The addresses below are placeholders until that redeploy completes; once published, each contract's address will be identical across all six chains.
+The core is deployed and bootstrapped (onboarding allowlists seeded at genesis) on all six chains listed below; each contract has the identical address on every chain.
 
 ### Core (identical address on every chain)
 
 | Contract | Address |
 |---|---|
-| SailKernel | `<to be populated on CREATE2 redeploy>` |
-| SailGovernance | `<to be populated on CREATE2 redeploy>` |
-| Timelock | `<to be populated on CREATE2 redeploy>` |
-| MandateFactory | `<to be populated on CREATE2 redeploy>` |
-| StandardFeePolicy | `<to be populated on CREATE2 redeploy>` |
-| SafeModuleEnabler | `<to be populated on CREATE2 redeploy>` |
+| SailKernel | `0x02ABC18B65A328de2e749F56ba79ACF2718a6659` |
+| SailGovernance | `0x7A478118715791728BDE3bc7A4D7ECfdEB89C6EC` |
+| Timelock | `0xE48Ba8DB6d748adafD13155c3590f62e58a77f56` |
+| MandateFactory | `0x14EDd6c2a56EfC0d71E215ab13094B9AF90543d2` |
+| StandardFeePolicy | `0xe7B5901b839cFFDEd9D4108A22712C8BfdA1D80D` |
+| SafeModuleEnabler | `0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F` |
 
 ### Supported chains
 
@@ -411,12 +411,12 @@ Each chain runs the **same** core addresses listed above.
 
 | Chain | Chain ID | Status |
 |---|---|---|
-| Ethereum | 1 | pending CREATE2 redeploy |
-| Base | 8453 | pending CREATE2 redeploy |
-| Arbitrum | 42161 | pending CREATE2 redeploy |
-| Unichain | 130 | pending CREATE2 redeploy |
-| Base Sepolia | 84532 | pending CREATE2 redeploy |
-| Eth Sepolia | 11155111 | pending CREATE2 redeploy |
+| Ethereum | 1 | live (CREATE2, bootstrapped) |
+| Base | 8453 | live (CREATE2, bootstrapped) |
+| Arbitrum | 42161 | live (CREATE2, bootstrapped) |
+| Unichain | 130 | live (CREATE2, bootstrapped) |
+| Base Sepolia | 84532 | live (CREATE2, bootstrapped) |
+| Eth Sepolia | 11155111 | live (CREATE2, bootstrapped) |
 
 ### Permission templates
 
