@@ -23,7 +23,7 @@ flowchart TD
     Owner -- "03 appoints · instant revocation" --> Manager
     Manager -- "04 signs dispatch (EIP-712)" --> Kernel
     Mandate -- "05 defines bounds" --> Kernel
-    Kernel -- "06 ✓ executes · ✗ outside mandate: reverts" --> SMA
+    Kernel -- "06 ✓ executes on SMA · ✗ outside mandate: reverts" --> SMA
 ```
 
 ### Three Roles
