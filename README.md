@@ -12,25 +12,28 @@ Sail Protocol is a protocol for onchain separately managed accounts (SMAs), impl
 
 ```mermaid
 flowchart TD
-    Owner["Owner\nholds the Safe · signs the mandate"]
-
-    subgraph mid [" "]
-        direction LR
-        Manager["Manager\nagent · signs dispatches"]
-        SMA["SMA\nSafe · holds assets · executes"]
-        Mandate["Mandate\nset of permission contracts"]
-    end
-
-    Kernel["Sail Kernel\nevaluates permission · trusted core\ndispatches to Safe on success"]
+    Owner["`**Owner**
+holds the Safe · signs the mandate`"]
+    Manager["`**Manager**
+agent · signs dispatches`"]
+    Mandate["`**Mandate**
+set of permission contracts`"]
+    Kernel["`**Sail Kernel**
+evaluates permission · trusted core
+dispatches to Safe on success`"]
+    SMA["`**SMA**
+Safe · holds assets · executes`"]
 
     Owner -- "03 appoints · instant revocation" --> Manager
-    Owner -- "01 deploys & owns" --> SMA
-    Owner -- "02 signs mandate (EIP-712)" --> Mandate
-    Manager -- "04 signs dispatch (EIP-712)" --> Kernel
+    Owner -- "02 signs mandate · EIP-712" --> Mandate
+    Owner -. "01 deploys & owns" .-> SMA
+    Manager -- "04 signs dispatch · EIP-712" --> Kernel
     Mandate -- "05 defines bounds" --> Kernel
     Kernel -- "06 ✓ executes on SMA · ✗ outside mandate: reverts" --> SMA
 
-    style mid fill:none,stroke:none
+    classDef default fill:#f6f6f6,stroke:#999,color:#111
+    classDef kernelNode fill:#e8e8e8,stroke:#555,stroke-width:2px,color:#111
+    class Kernel kernelNode
 ```
 
 ### Three Roles
