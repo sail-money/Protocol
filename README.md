@@ -31,8 +31,8 @@ Safe · holds assets · executes`"]
     Mandate -- "05 defines bounds" --> Kernel
     Kernel -- "06 ✓ executes on SMA · ✗ outside mandate: reverts" --> SMA
 
-    classDef default fill:#f6f6f6,stroke:#999,color:#111
-    classDef kernelNode fill:#e8e8e8,stroke:#555,stroke-width:2px,color:#111
+    classDef default fill:none,stroke:#999
+    classDef kernelNode fill:none,stroke:#555,stroke-width:2px
     class Kernel kernelNode
 ```
 
