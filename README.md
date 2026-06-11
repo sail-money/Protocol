@@ -1,518 +1,208 @@
 # Sail Protocol
 
-> A protocol for onchain Separately Managed Accounts run by agents.
+**Onchain Separately Managed Accounts Run by Agents**
 
-Sail is a protocol for onchain Separately Managed Accounts (SMAs). An SMA is an account where capital sits under the LP's custody and a designated manager — typically an autonomous agent, but optionally a human, multisig, or MPC wallet — executes transactions within bounds approved by the account's permission signer. Sail provides the kernel that mediates this relationship: it instantiates the account, registers permissions, gates manager dispatch through those permissions, accounts for fees, and tracks principal. Because each SMA is a separate account with its own permission set, an agent can run an individually calibrated strategy for each owner — sensitive to their balance, risk profile, and preferences — rather than applying a single algorithm across all accounts.
-
-The protocol is positioned for developers and crypto-native builders deploying autonomous agents on top of Safe accounts. Sail provides the custody layer agents need to act on-chain without being given private keys, and the permission infrastructure that LPs need to bound what an agent can do.
-
-The trusted kernel is 804 source lines of Solidity. All permission logic, valuation math, fee schedules, and venue-specific gating lives in user-deployed contracts the kernel reads via `staticcall` under a gas cap. Adding a new permission pattern means deploying a new contract — not extending a grammar, not upgrading the kernel.
-
-The trusted core is deployed on Base, Base Sepolia, Arbitrum, and Unichain as staging deployments for testing and integration ahead of a formal launch. These deployments run the selective dispatch model, are under an ongoing external audit by [Octane Security](https://octane.security), and are not final. They should not be used with funds you are not prepared to lose. Permission templates are not yet deployed against the Base, Arbitrum, and Base Sepolia kernels (Unichain ships the full template suite); mainnet launch will follow audit completion.
+[Whitepaper](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf) · [sail.money](https://sail.money)
 
 ---
 
-## Documentation
+Sail Protocol is a protocol for onchain separately managed accounts (SMAs), implemented for the Ethereum Virtual Machine. Capital is held in a self-custodial Safe owned by the LP; a designated manager—typically an autonomous agent—executes transactions within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed Solidity permission contracts registered against the account. The manager's signature names one registered permission as the authorizer for each dispatch; the kernel evaluates that permission via `staticcall` under a gas cap and forwards the call to the Safe only if it returns true. Because permissions are arbitrary Solidity, any DeFi primitive can be expressed as a permission. The trusted core is deployed at the same address on every supported chain, and an SMA derives the same address on every chain.
 
-- **[Whitepaper (PDF)](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf)** — full design rationale, roles, permission model, fee mechanics, governance, security properties
-- **[Specification](./docs/spec.md)** — single source of truth for protocol design decisions
-- **[Architecture](./docs/ARCHITECTURE.md)** — component diagram, data flow, trust boundaries
-- **[Kernel](./docs/KERNEL.md)** — SailKernel internals, dispatch flow, storage layout
-- **[Permission templates](./docs/TEMPLATES.md)** — template authoring guide, shared vs per-instance patterns
-- **[Fee policies](./docs/FEE_POLICIES.md)** — IFeePolicy interface, StandardFeePolicy, NAV trust model
-- **[Governance](./docs/GOVERNANCE.md)** — parameter governance, timelock, constitutional caps
-- **[Security](./docs/SECURITY.md)** — threat model, invariants, known limitations
-- **[Integration guide](./docs/INTEGRATION.md)** — Safe setup, permission registration, manager signing flow
-- **[Agent identity](./docs/agent-identity.md)** — IAgentIdentityResolver, off-chain discovery patterns
-- **[Off-chain attribution](./docs/off-chain-attribution.md)** — deriving metrics from kernel events
+## Protocol Model
 
----
+```mermaid
+flowchart TD
+    Owner["**Owner**<br/>holds the Safe · signs the mandate"]
+    Manager["**Manager**<br/>agent · signs dispatches"]
+    SMA["**SMA**<br/>Safe · holds assets · executes"]
+    Mandate["**Mandate**<br/>set of permission contracts"]
+    Kernel["**Sail Kernel**<br/>evaluates permission · trusted core<br/>dispatches to Safe on success"]
 
-## Summary
+    Owner -- "01 deploys & owns" --> SMA
+    Owner -- "02 signs mandate (EIP-712)" --> Mandate
+    Owner -- "03 appoints · instant revocation" --> Manager
+    Manager -- "04 signs dispatch (EIP-712)" --> Kernel
+    Mandate -- "05 defines bounds" --> Kernel
+    Kernel -- "06 ✓ executes · ✗ outside mandate: reverts" --> SMA
+```
 
-The core does five things:
-
-1. **Instantiates SMAs** from any signer setup that Safe supports (EOA, multisig, MPC).
-2. **Registers permission modules** deployed by users, on a per-account list.
-3. **Gates a delegated manager's transactions** through those permissions, evaluated via `staticcall` with a gas cap.
-4. **Tracks principal** — cumulative deposits, cumulative withdrawals, and (when relevant) high-water mark.
-5. **Routes manager-collected fees** through a protocol-enforced split with a constitutional 25% cap.
-
-Three roles are separated explicitly:
+### Three Roles
 
 | Role | Authority | Held by |
 |---|---|---|
-| **Owner** | Holds the Safe. Custody anchor. Self-custodial. | The LP (Safe owner) |
-| **Permission Signer** | Authorizes the mandate — decides which permissions apply to the account. Signs registration, revocation, and configuration via EIP-712. | Same as Owner, or a separate signing key/multisig |
-| **Manager** | Executes within bounds. Cannot exceed what the registered permissions allow. | EOA, multisig, MPC wallet, or autonomous agent |
+| **Owner** | Holds the Safe. Custodies the SMA's capital. Always self-custodial. | The LP, who owns the Safe. |
+| **Permission Signer** | Authorizes the mandate. Signs registration, configuration, and revocation of permissions via EIP-712. | The Owner, or a separate signing key or multisig. |
+| **Manager** | Executes transactions within bounds. Cannot exceed what the registered permissions allow. | EOA, multisig, MPC wallet, or autonomous agent. |
 
-The structure these roles operate on:
+The transaction submitter—the address that pays gas and submits the manager's signed dispatch—is not an authority role. Any address may submit; authority derives from the Manager's signature, the registered permissions, and the kernel's evaluation. This makes the protocol natively compatible with relayers, paymasters, and ERC-4337 bundlers.
 
-- **SMA** — the account. A Safe holds the custody.
-- **Mandate** — the set of Permissions registered for an SMA. Defines what the Manager is authorized to do.
-- **Permission** — an individual rule. A deployed Solidity contract implementing `IPermission`.
-- **Template** — an example or reusable pattern for building a Permission. Sail ships a starter set; anyone may deploy more.
+### The Mandate
 
-Governance is a contract initially held by the team multisig, transferable to a DAO, token, or other mechanism over time. Constitutional caps (the 25% protocol cut, the registration fee ceiling) are immutable in source code and cannot be raised by any governance procedure.
+In Sail, the mandate is not a document. It is the set of permissions registered for an SMA—contracts implementing `IPermission` that define what the Manager is authorized to do. The Safe is the account the mandate applies to; it is not itself part of the mandate.
 
----
+When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls `evaluate()` on that permission alone and dispatches the call to the Safe only if it returns true. If the manager attempts to swap on an unallowed router, transfer to an unallowed recipient, borrow above the configured LTV, or call any function outside the registered permission set, the transaction reverts before any state change occurs.
 
-## Architecture
+## Permission System
 
-```
-   ┌────────────────────┐                          ┌────────────────────┐
-   │  Permission Signer │                          │       Manager      │
-   │                    │                          │ agent/human/msig   │
-   └─────────┬──────────┘                          └─────────┬──────────┘
-             │                                               │
-             │ EIP-712 mandate                               │ dispatch
-             ▼                                               ▼
-   ┌─────────────────────────────────────────────────────────────────────┐
-   │                            SailKernel                               │
-   │                          (trusted core)                             │
-   │                                                                     │
-   │      · account registration        · manager dispatch               │
-   │      · permission registry         · fee collection                 │
-   └─────────┬───────────────────────┬───────────────────────┬───────────┘
-             │                       │                       │
-             │ staticcall            │ execModule            │ collectFees
-             ▼                       ▼                       ▼
-   ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
-   │     Permissions    │  │         Safe       │  │     Fee Policy     │
-   │   (user-deployed)  │  │      (custody)     │  │   (user-deployed)  │
-   └────────────────────┘  └────────────────────┘  └────────────────────┘
-```
-
-### Components
-
-**Trusted core** — every account on the protocol depends on this surface.
-
-| Component | Role | SLOC |
-|---|---|---|
-| `SailKernel` | Account registration, permission registry, EIP-712 signature verification, selective and batch manager dispatch via Safe modules, fee collection, principal tracking. | 804 |
-| `SailGovernance` | Protocol parameter governance with 48h timelock (injected at construction), two-step transfer, emergency pause with 72h auto-expiry, trusted Safe factory/singleton allowlists. | 215 |
-| Interfaces | `IPermission`, `IConfigurablePermission`, `IFeePolicy`, `IOracle`, `IBatchPermission`, `IPermissionIntrospection`, `IAgentIdentityResolver`, `SailCapabilities` | 113 |
-| **Total** | | **1,132** |
-
-**Template layer** — independently deployable and auditable; a bug affects only registered accounts.
-
-| Component | Role | SLOC |
-|---|---|---|
-| `BaseSharedPermission` | Abstract base for shared multi-tenant templates. EIP-712 domain, per-account nonces, ECDSA + ERC-1271 signature verification. | 123 |
-| `StandardFeePolicy` | Reference fee policy. Management fee on AUM, performance fee above high-water mark. Manager-attested NAV model. | 156 |
-| `SharedBoundedSwapPermission` | AMM swaps. Router allowlist, token allowlist, amount cap, optional oracle slippage. | 165 |
-| `SharedBoundedBorrowPermission` | Aave V3, Morpho, Compound borrows. Protocol allowlist, asset allowlist, LTV check. | 140 |
-| `SharedTransferTargetPermission` | ERC-20 transfers. Recipient allowlist, token allowlist. | 77 |
-| `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in one registered permission. Selector-routed evaluation. | 284 |
-| `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. | 262 |
-| `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. | 197 |
-| `SharedApproveAndCallBatchPermission` | Batch dispatch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. | 142 |
-| `MandateFactory` | UX orchestrator. Bundles configuration and registration into single transactions. Holds no protocol-level privileges. | 185 |
-| **Total** | | **1,731** |
-
----
-
-## Permission system
-
-A permission is a contract implementing `IPermission`:
+A permission is a contract implementing a single interface:
 
 ```solidity
 interface IPermission {
-    function evaluate(bytes calldata txData, Context calldata ctx) 
+    function evaluate(bytes calldata txData, Context calldata ctx)
         external view returns (bool);
     function discriminator() external view returns (bytes32);
 }
 
 struct Context {
-    address account;        // the Safe
-    address manager;        // the delegated signer
-    address submitter;      // msg.sender of dispatch (may be a relayer)
-    address target;         // call target
-    bytes4  selector;       // call selector
-    uint256 value;          // msg.value
+    address account;         // the Safe
+    address manager;         // the delegated signer
+    address submitter;       // msg.sender of the dispatch (may be a relayer)
+    address target;          // call target
+    bytes4  selector;        // call selector
+    uint256 value;           // msg.value
     uint256 blockTimestamp;
     uint256 blockNumber;
 }
 ```
 
-Permissions are called via `staticcall` with a per-permission gas cap. Reentrancy is structurally impossible — `staticcall` prohibits state changes. A permission that exceeds its gas cap or reverts is treated as a `false` result. Each dispatch names one registered permission as the authorizer; the kernel evaluates that permission alone. Dispatch succeeds only if that permission returns `true`.
+### Evaluation Semantics
 
-A second dispatch path, `dispatchBatch()`, accepts an ordered array of calls and a single batch permission (implementing `IBatchPermission`) that validates the entire sequence before execution. Any subcall failure reverts the whole batch atomically. This covers strategies requiring temporary ERC20 approvals — the batch permission enforces the approve/execute/reset shape as a unit — and any other multi-step workflow requiring atomicity.
+The kernel's evaluation enforces four properties on every dispatch:
 
-Templates may optionally implement `IPermissionIntrospection` to expose a stable `permissionId`, version, metadata URI, and capability identifiers from the `SailCapabilities` library. This allows indexers, UIs, and the Sail Marketplace to discover template types and capabilities without maintaining a separate registry of known addresses.
+- **Static evaluation.** Permissions are called via `staticcall`, which prohibits state mutation. A permission cannot modify any contract's storage during evaluation. Reentrancy through the permission surface is structurally impossible.
+- **Gas isolation.** Each permission is called with a fixed gas cap of 150,000. A permission that exceeds its cap reverts and is treated as returning false. A pathological permission cannot deny service to the kernel or consume the manager's gas budget beyond the cap.
+- **Selective authorization.** The manager's signature names one registered permission as the authorizer for the dispatch. The kernel evaluates that permission alone—no other registered permissions are consulted. This enables unrelated templates to coexist on one account: a swap permission, a borrow permission, and a transfer permission can all be registered, and each call selects the appropriate authorizer without the others falsely denying it.
+- **Fail-closed.** Any permission that reverts, runs out of gas, returns malformed data, or returns false causes the entire dispatch to revert. The default behavior of a buggy permission is to deny, not to allow.
 
-Templates operating under a known agent identity may optionally implement `IAgentIdentityResolver` to associate the manager with an external identity registry, chain, agent ID, and signing wallet. This is metadata only — the kernel does not read or verify agent identity.
+### Full Expressiveness
 
-### Shared multi-tenant templates (recommended)
+Because permissions are arbitrary Solidity contracts, the protocol does not bound what a permission can express. The kernel knows nothing about DeFi venues—it calls `evaluate()` on a permission contract and respects the answer. The structural guarantees—`staticcall`, gas cap, fail-closed, selective authorization—protect the kernel from the permission; everything the permission expresses inside that envelope is the author's responsibility. Adding a new DeFi integration to Sail is a contract deployment, not a protocol upgrade.
 
-One deployed contract serves all accounts. Per-account configuration is stored in mappings keyed by account address. Configuration happens through `IConfigurablePermission`:
-
-```solidity
-interface IConfigurablePermission is IPermission {
-    function configure(
-        address account, 
-        bytes calldata params, 
-        uint256 deadline, 
-        bytes calldata sig
-    ) external;
-    function configureDirect(address account, bytes calldata params) external;
-    function configNonces(address account) external view returns (uint256);
-    function isConfigured(address account) external view returns (bool);
-}
-```
-
-The `params` field is opaque template-specific calldata, decoded inside the template's `_applyConfig` hook. New template shapes need zero changes to the factory.
+### Example Templates
 
 | Template | Gates |
 |---|---|
-| `SharedBoundedSwapPermission` | Uniswap V2/V3 swaps. Router allowlist, token allowlist, amount cap, optional oracle slippage. |
-| `SharedBoundedBorrowPermission` | Aave V3, Morpho, Compound borrows. Protocol allowlist, asset allowlist, LTV check. |
-| `SharedTransferTargetPermission` | ERC-20 transfers. Recipient allowlist, token allowlist. |
-| `SharedDeFiBundlePermission` | Composite — swap + borrow + transfer in a single registered permission. Selector-routed evaluation. |
-| `SharedPendlePermission` | Pendle V2 router: liquidity, PT swaps, YT swaps, mint/redeem, claim rewards. |
-| `SharedAMMLiquidityPermission` | Uniswap V3 NPM and Aerodrome (legacy router + Slipstream NPM) liquidity operations. |
-| `SharedApproveAndCallBatchPermission` | Batch dispatch via `IBatchPermission`. Atomic approve / protocol call / reset. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. |
+| SharedBoundedSwapPermission | AMM swaps. Router allowlist, token allowlist, per-transaction amount cap, optional oracle-based slippage check. |
+| SharedBoundedBorrowPermission | Lending borrows. Protocol allowlist, asset allowlist, LTV check against a collateral value oracle. |
+| SharedTransferTargetPermission | ERC-20 transfers. Recipient allowlist, token allowlist. |
+| SharedDeFiBundlePermission | Composite: swap, borrow, and transfer in one registered permission. Selector-routed evaluation. |
+| SharedPendlePermission | Yield-protocol router: liquidity, principal-token and yield-token swaps, mint/redeem, claim rewards. |
+| SharedAMMLiquidityPermission | Concentrated liquidity operations on AMM position managers. |
+| SharedApproveAndCallBatchPermission | Batch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. |
 
-### Atomic per-instance templates (legacy)
+Templates are demonstrations of the permission pattern, not the protocol itself. Anyone may deploy additional permission contracts for any DeFi venue; the kernel will register and dispatch through any contract that implements `IPermission`.
 
-One contract instance per account, configured via constructor. Available in the repository but **not recommended for new deployments**. Slated for deprecation in a future release.
+## Deterministic Deployment and Chain-Portable Accounts
 
-Available: `BoundedSwapPermission`, `BoundedBorrowPermission`, `BoundedDepositPermission`, `BoundedWithdrawPermission`, `TransferTargetPermission`, `GMXPerpPermission`, `GainsNetworkPerpPermission`, `SynthetixPerpPermission`, `AzuroPredictionPermission`, `LimitlessPredictionPermission`.
+The trusted core is deployed through a CREATE2 factory with chain-independent salts and identical constructor arguments on every supported chain. Every core contract—kernel, governance, timelock, factory, fee policy, module enabler—lives at the same address on every supported chain.
 
-### Lifecycle
-
-**Registration.** The Permission Signer signs an EIP-712 registration. The kernel adds the permission contract address to the account's permission list and charges Fee 1.
-
-**Configuration.** For shared templates: the Permission Signer signs a `configure` instruction with the template-specific params blob. Any caller may submit the signed call — the factory is the canonical orchestrator but not the only valid sender.
-
-**Reconfiguration.** A new `configure` call with a fresh nonce. The template clears previous per-account state and applies the new params atomically.
-
-**Revocation.** The Permission Signer signs `revokePermission`. The address is removed from the account's list. Two levels: revoke a single permission to narrow the manager's authority, or revoke the entire session to cut off the manager completely.
-
----
-
-## Fee model
-
-Two independent fee mechanisms, each capped by immutable constants, each tunable within those caps by governance.
-
-### Fee 1 — Permission registration fee
-
-A flat ETH amount paid to the protocol treasury when a permission is registered with the kernel. The fee is identical regardless of contract size or deployment pattern.
+Account addresses inherit the property. The kernel derives each account's CREATE2 salt by binding the caller's salt nonce with the account's principals:
 
 ```
-total_fee = permissionRegistrationFee × number_of_permissions
+boundSalt = keccak256(saltNonce, caller, permissionSigner, manager, feePolicy)
 ```
 
-- Storage variable: `SailGovernance.permissionRegistrationFee`
-- Constitutional cap: `MAX_PERMISSION_FEE_WEI = 0.001 ETH` (immutable)
-- Governance-tunable via `setPermissionRegistrationFee` (48h timelock)
-- Excess `msg.value` is refunded to the caller
+The same owner, permission signer, manager, fee policy, and salt nonce produce the same SMA address on every supported chain. Binding the principals into the salt also means a counterfactual address cannot be front-run with different principals: a deployment supplying a different manager or signer lands at a different address.
 
-Denominated in native ETH; no oracle dependency. Governance is expected to retune the rate periodically as ETH price moves.
+An SMA has one address across every supported chain. Assets sent to that address on any supported chain reach the same account, whether or not the Safe has been deployed there yet.
 
-### Fee 2 — Protocol cut on manager-collected fees
+## Fee Model
 
-A percentage of the management and performance fees collected by the manager when `collectFees` is called. The kernel asks the registered `IFeePolicy` for the legitimate fee amount, then splits it:
+The protocol enforces two independent fee mechanisms. Each is capped by an immutable constitutional limit and tunable within that limit by governance.
 
-```
-protocol_cut    = manager_gross_fee × currentProtocolCutBps / 10_000
-distributor_cut = (optional, set in the fee policy)
-manager_take    = manager_gross_fee - protocol_cut - distributor_cut
-```
-
-- Storage variable: `SailGovernance.currentProtocolCutBps`
-- Constitutional cap: `MAX_PROTOCOL_CUT_BPS = 2_500` (25%, immutable)
-- Governance-tunable via `setProtocolCutBps` (48h timelock)
-- **Default at deployment: 0**
-
-The kernel does not compute the gross fee — that is the responsibility of the user-deployed `IFeePolicy` contract, which contains the actual schedule (management fee on AUM, performance fee on profits above HWM, hybrid models, custom math).
-
-The Fee 2 mechanism is built into the kernel but disabled by default at protocol launch. It is intended to be activated by governance when the Sail Marketplace launches, providing revenue for the curation and infrastructure layer described in the trust model section below.
-
----
-
-## Trust model
-
-> **Read this section before depositing funds into an SMA you do not personally control.**
-
-Sail Protocol is open-source, permissionless infrastructure. Anyone can deploy SMAs, configure fee policies, and build products on top of the protocol. The protocol does not curate, endorse, or vet third parties who deploy products on it.
-
-### Manager-attested NAV in `StandardFeePolicy`
-
-The default fee policy — `StandardFeePolicy` — uses a **manager-attested NAV model**. The manager submits the portfolio value (`currentNav`) at fee collection time. The protocol does not independently verify this value.
-
-In the open protocol, a manager operating an SMA where a third party has deposited funds can inflate the reported NAV when collecting fees. The maximum extractable amount is bounded by the Safe's liquid balance and the configured fee parameters but can reach a significant portion of the SMA's value in a single fee collection.
-
-This risk exists in any product built on Sail that uses `StandardFeePolicy` and accepts third-party LP deposits, regardless of whether that product is associated with Sail Protocol.
-
-### Intended use at launch
-
-Sail Protocol is designed for **self-managed SMAs** — developers, AI agent builders, and crypto-native users operating Safes with their own capital. In this configuration the manager-attested NAV trust model is irrelevant because the manager and the LP are the same party.
-
-The kernel enforces a governance-managed allowlist of trusted Safe factory and singleton addresses, preventing a compromised manager from registering a backdoored Safe implementation.
-
-### Future — Sail Marketplace
-
-The Sail Marketplace, a forthcoming curation layer, will provide audited fee policy templates with specific LP protection guarantees suited to different strategy types: `YieldFeePolicy` (trustless NAV via on-chain position adapters), `TradingFeePolicy` (principal-bounded fees, performance crystallized on withdrawal), `AttestedNAVFeePolicy` (independent attester co-signature on NAV updates), and others. Marketplace-listed managers will pay Fee 2 in exchange for discovery, audit guarantees, and the Marketplace's curation.
-
-Until the Sail Marketplace launches, LP-allocated strategies on the open protocol carry the trust risk described above.
-
-### Recommended verification before LP deposit
-
-If you are considering depositing funds into an SMA operated by a third party on Sail Protocol, before depositing you should verify:
-
-- That the SMA is hosted on the official Sail Marketplace (once launched). Products using the open protocol outside the Marketplace are not vetted by Sail.
-- The specific fee policy contract address and its trust model.
-- The permission templates configured on the Safe and the manager's bounds.
-- The manager's identity, track record, and accountability.
-
-Sail Protocol and its contributors do not endorse, vet, or assume responsibility for third-party products built on the open protocol. Use of the open protocol is at the user's own risk.
-
----
-
-## Oracle conventions
-
-Permission templates that perform price-bounded checks use `IOracle`:
-
-```solidity
-function getPrice(address base, address quote) 
-    external view returns (uint256 price, uint8 decimals, uint256 updatedAt);
-```
-
-Two distinct calling conventions exist in the codebase. Integrators must understand the difference:
-
-1. **Token-pair price oracle.** Used by `SharedBoundedSwapPermission` and the borrow-asset side of LTV checks. `base` and `quote` are ERC-20 token addresses. Standard adapters (Chainlink, Uniswap TWAP, Pyth) satisfy this convention directly.
-
-2. **Account collateral value oracle.** Used by `SharedBoundedBorrowPermission` and `SharedDeFiBundlePermission` for the collateral side of LTV checks. `base` is the Safe account address; the oracle adapter returns the aggregate value of that account's collateral positions across the protocols it holds. **Standard token-price oracles do not satisfy this convention.** A custom adapter must be deployed.
-
-The third return value, `updatedAt`, is the Unix timestamp of the underlying price observation. Oracle adapters SHOULD enforce a maximum acceptable age on `updatedAt` and revert (or return a sentinel) when the source feed is stale, so that downstream permissions reject swaps and borrows priced from outdated data.
-
-Reference adapter implementations for common protocol combinations are planned. Until they ship, integrators using borrow-related permissions are responsible for implementing the account collateral value oracle for their specific position topology.
-
----
-
-## Use case coverage
-
-The architecture is intentionally permission-agnostic. Any on-chain primitive — AMM swap, lending deposit / borrow / withdraw, LP position, perp trade, restaking deposit, prediction market bet, RWA flow — becomes a permission template.
-
-For venues with off-chain components (Hyperliquid's order book; perp DEXes with off-chain matching; Polymarket's CLOB), permissions can constrain the on-chain boundary — bridge deposit amounts, withdrawal recipients, allowed sub-accounts — but cannot constrain off-chain order signing. **This is a property of the venue, not the protocol.** Integrators must be explicit about which venue categories are fully on-chain enforceable and which inherit venue-specific trust assumptions.
-
----
-
-## Out of scope
-
-What Sail explicitly does *not* include, with the reasoning:
-
-- **Policy authoring workflow** (drafts, versions, curation, subject lists). Off-chain authoring — Git, IDEs, SDKs, frontends — handles this. The protocol stores deployed permission addresses, not authoring metadata.
-- **A constraint grammar.** Solidity inside permission contracts replaces interpreted constraint structs.
-- **Workflow execution as a kernel concept.** A workflow is just a kind of permission — "transaction must conform to this multi-step shape."
-- **ERC-4337 and EIP-7702 adapters in the kernel.** Peripheral adapter contracts wrap the kernel for users who want those entry points.
-- **NAV computation.** Lives in user-deployed valuation modules and oracle adapters; oracle choice is an ecosystem concern.
-- **A registry of curators or template authors.** Marketplace function, handled off-chain via the forthcoming Sail Marketplace.
-- **Identity primitives (ERC-8004, on-chain KYC).** Permission modules may consult external identity registries; the kernel stays agnostic.
-
-Each exclusion reduces what the protocol owns. The kernel owns less, by design, so that what it does own is provable, auditable, and stable.
-
----
-
-## Repository structure
+**Fee 1 — Permission Registration Fee.** When a permission is registered with the kernel, the registering account pays a flat ETH amount to the protocol treasury:
 
 ```
-contracts/
-├── core/
-│   └── SailKernel.sol                         # trusted core — 590 SLOC
-├── governance/
-│   └── SailGovernance.sol                     # trusted core — 146 SLOC
-├── factory/
-│   └── MandateFactory.sol                  # UX orchestrator — 137 SLOC
-├── interfaces/                                # trusted core — 113 SLOC total
-│   ├── IPermission.sol
-│   ├── IConfigurablePermission.sol
-│   ├── IBatchPermission.sol
-│   ├── IFeePolicy.sol
-│   ├── IOracle.sol
-│   ├── IPermissionIntrospection.sol
-│   ├── IAgentIdentityResolver.sol
-│   └── SailCapabilities.sol
-├── policies/
-│   └── StandardFeePolicy.sol                  # reference fee policy — 147 SLOC
-├── safe/
-│   └── SafeModuleEnabler.sol                  # deployment helper — out of audit scope (9 SLOC, stateless)
-└── templates/
-    ├── shared/                                # recommended — 7 templates, 1,230 SLOC
-    │   ├── BaseSharedPermission.sol           # abstract base — 86 SLOC
-    │   ├── SharedBoundedSwapPermission.sol
-    │   ├── SharedBoundedBorrowPermission.sol
-    │   ├── SharedTransferTargetPermission.sol
-    │   ├── SharedDeFiBundlePermission.sol
-    │   ├── SharedPendlePermission.sol
-    │   ├── SharedAMMLiquidityPermission.sol
-    │   └── SharedApproveAndCallBatchPermission.sol
-    └── [atomic per-instance templates — legacy, not recommended]
-
-docs/
-├── whitepaper/                                # PDF + LaTeX source
-├── spec.md                                    # protocol specification
-├── ARCHITECTURE.md
-├── KERNEL.md
-├── TEMPLATES.md
-├── FEE_POLICIES.md
-├── GOVERNANCE.md
-├── SECURITY.md
-├── INTEGRATION.md
-├── agent-identity.md
-└── off-chain-attribution.md
-
-test/
-├── SailKernel.t.sol
-├── SailGovernance.t.sol
-├── Integration.t.sol
-├── SelectiveDispatch.t.sol
-├── BatchDispatch.t.sol
-├── BatchDispatchBench.t.sol
-├── BatchPermissions.t.sol
-├── PermissionIntrospection.t.sol
-├── AgentIdentity.t.sol
-├── MandateFactory.t.sol
-├── StandardFeePolicy.t.sol
-├── [shared template test files]
-├── [legacy template test files]
-├── mocks/
-├── support/
-└── redteam/                                   # adversarial test suite
-    ├── RedTeam.t.sol
-    └── RedTeam2.t.sol
+total fee = permissionRegistrationFee × n_permissions
 ```
 
----
+Bounded above by the immutable cap of 0.001 ETH (`MAX_PERMISSION_FEE_WEI`). The active rate is governance-tunable within this cap. Excess `msg.value` is refunded.
+
+**Fee 2 — Protocol Cut on Manager-Collected Fees.** When the Manager calls `collectFees`, the kernel splits the manager's gross fee:
+
+```
+protocol cut = managerGrossFee × currentProtocolCutBps / 10,000
+manager take = managerGrossFee − protocol cut − distributor cut
+```
+
+The active cut is governance-tunable, bounded above by the immutable cap of 25% (`MAX_PROTOCOL_CUT_BPS = 2,500`). The protocol cut is set to zero at launch.
+
+The fee computation lives in the registered `IFeePolicy` contract. The reference implementation, StandardFeePolicy, provides a management fee on AUM and a performance fee above a per-account high-water mark.
+
+## Governance
+
+Protocol parameters are mutable within the constitutional caps: the active protocol cut (zero at launch); the active registration fee; the trusted Safe factory, singleton, proxy-codehash, and fee-policy allowlists; and the emergency admin. Parameter mutations require a 48-hour timelock delay. Governance transfer is two-step (propose and accept). Emergency pause has auto-expiry and a cooldown between invocations.
+
+The timelock is a standalone contract injected at construction. SailGovernance validates it at construction—the delay must equal 48 hours exactly, governance must hold both the proposer and executor roles, and the timelock must administer its own roles with no external account holding administrative power. A deployment that fails any of these checks reverts.
+
+## Security Properties
+
+The protocol provides six guarantees as properties of the deployed bytecode:
+
+1. **Custody isolation.** The kernel cannot transfer Safe assets except through a manager dispatch that satisfies the named permission's evaluation. The kernel has no direct write access to the Safe outside the module dispatch path.
+2. **Selective authorization.** A dispatch succeeds only if the permission named in the manager's signature is registered for the account and returns true on evaluation.
+3. **Reentrancy safety.** Permission evaluation occurs via `staticcall`, which prohibits state mutation. No re-entry path exists through the permission surface.
+4. **Gas isolation.** Each permission is called under a fixed gas cap; exceeding it is treated as returning false. The kernel cannot be denied service by a malicious permission.
+5. **Constitutional fee caps.** Protocol cut and registration fee cannot exceed their immutable bounds under any governance procedure.
+6. **Signer separation.** The Permission Signer cannot move Safe assets. The Manager cannot register or revoke permissions. The Safe Owner can always revoke the Manager.
+
+## Components
+
+| Component | Role |
+|---|---|
+| **SailKernel** | Account registration, permission registry, EIP-712 signature verification, manager dispatch via Safe modules, fee collection, principal tracking. |
+| **SailGovernance** | Protocol parameter governance behind a 48-hour timelock; emergency pause with auto-expiry and cooldown; two-step governance transfer; trusted Safe factory, singleton, proxy-codehash, and fee-policy allowlists. |
+| **TimelockController** | Standalone timelock, deployed separately and injected into SailGovernance, which validates it at construction. |
+| **SafeModuleEnabler** | Stateless helper that enables the kernel as a Safe module during account creation. |
+| **MandateFactory** | UX orchestrator. Bundles permission configuration, registration, replacement, and detachment into single transactions. Holds no protocol-level privileges. |
+| **StandardFeePolicy** | Reference fee policy: management fee on AUM, performance fee above a per-account high-water mark. |
+| **Shared\*Permission** | Starter set of shared permission templates covering common DeFi primitives (see table above). |
 
 ## Deployments
 
-The trusted core deploys via **deterministic CREATE2 with a global, chain-independent salt per contract** (through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C`). Because each contract's creation bytecode and constructor arguments are identical across chains, **every core contract has the same address on every chain** — and so does the resulting Safe initializer, giving users the **same Separately-Managed-Account (SMA) address on every supported chain**. (See [`SailGovernance`'s injected timelock](./docs/GOVERNANCE.md) — extracting the timelock from the constructor is what makes the constructor arguments chain-independent.)
+All core contracts are deployed at identical addresses on every supported chain via CREATE2 (commit `1199b33`, deployed 2026-06-09).
 
-The same-address guarantee holds only when the deployment uses **identical configuration on every chain** (governance wallet, treasury, emergency admin, fee manager, distributor, and all fee parameters). The CREATE2 factory and the Safe v1.4.1 proxy factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical addresses on all six supported chains.
-
-The core is deployed and bootstrapped (onboarding allowlists seeded at genesis) on all six chains listed below; each contract has the identical address on every chain.
-
-### Core (identical address on every chain)
+### Core addresses
 
 | Contract | Address |
 |---|---|
 | SailKernel | `0x02ABC18B65A328de2e749F56ba79ACF2718a6659` |
 | SailGovernance | `0x7A478118715791728BDE3bc7A4D7ECfdEB89C6EC` |
-| Timelock | `0xE48Ba8DB6d748adafD13155c3590f62e58a77f56` |
+| TimelockController | `0xE48Ba8DB6d748adafD13155c3590f62e58a77f56` |
 | MandateFactory | `0x14EDd6c2a56EfC0d71E215ab13094B9AF90543d2` |
 | StandardFeePolicy | `0xe7B5901b839cFFDEd9D4108A22712C8BfdA1D80D` |
 | SafeModuleEnabler | `0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F` |
 
 ### Supported chains
 
-Each chain runs the **same** core addresses listed above.
-
 | Chain | Chain ID | Status |
 |---|---|---|
-| Ethereum | 1 | live (CREATE2, bootstrapped) |
-| Base | 8453 | live (CREATE2, bootstrapped) |
-| Arbitrum | 42161 | live (CREATE2, bootstrapped) |
-| Unichain | 130 | live (CREATE2, bootstrapped) |
-| Base Sepolia | 84532 | live (CREATE2, bootstrapped) |
-| Eth Sepolia | 11155111 | live (CREATE2, bootstrapped) |
+| Ethereum | 1 | live |
+| Base | 8453 | live |
+| Arbitrum | 42161 | live |
+| Unichain | 130 | live |
+| Base Sepolia | 84532 | live |
+| Eth Sepolia | 11155111 | live |
 
-### Permission templates
-
-The permission templates (7 shared multi-tenant singletons + 12 standalone EIP-1167 clone implementations) are deployed separately and bind to the kernel address. They will be **republished after the core CREATE2 redeploy completes**; their addresses are not listed here to avoid pointing at the superseded (pre-CREATE2) deployment.
-
-The canonical address registry is the Sailor SDK (`@sail/sdk`, `packages/sdk/src/deployments.ts`); per-chain manifests are written to `deployments/<chainId>/` by the deploy scripts.
-
----
+See [deployments/addresses.md](./deployments/addresses.md) for full deployment details.
 
 ## Build and test
 
-Requirements:
-- Foundry (forge v1.7.1 or later)
-- Solidity 0.8.26 (cancun target)
-- OpenZeppelin Contracts v5.6.1
-
 ```bash
-forge install
-forge build
-forge test
+forge install   # install dependencies
+forge build     # compile all contracts
+forge test      # run test suite
+forge test -vvv # verbose output with traces
 ```
-
-Current test count: 1,207 (including the red-team adversarial suite under `test/redteam/`).
-
----
 
 ## Security
 
-The trusted core is under an ongoing external audit by [Octane Security](https://octane.security). An audit of the template layer will follow core audit completion.
+The Sail Protocol contracts have been submitted for audit by Octane Security. The audit is ongoing; findings are being addressed as received. See [docs/SECURITY.md](./docs/SECURITY.md) for scope and known issues.
 
-### Audit scope
-
-**Primary audit scope — Trusted core (1,132 SLOC)**
-
-This is the mandatory audit surface. A bug anywhere in the trusted core puts every account on the protocol at risk.
-
-| Component | SLOC |
-|---|---|
-| `SailKernel` | 804 |
-| `SailGovernance` | 215 |
-| Interfaces (8 files) | 113 |
-| **Total** | **1,132** |
-
-**Secondary audit scope — Template layer (1,731 SLOC)**
-
-Each template is independently auditable. A bug in one template affects only accounts that have registered that template. New templates can be deployed and audited post-launch without re-auditing the trusted core.
-
-| Component | SLOC |
-|---|---|
-| `BaseSharedPermission` | 123 |
-| `StandardFeePolicy` | 156 |
-| `SharedBoundedSwapPermission` | 165 |
-| `SharedBoundedBorrowPermission` | 140 |
-| `SharedTransferTargetPermission` | 77 |
-| `SharedDeFiBundlePermission` | 284 |
-| `SharedPendlePermission` | 262 |
-| `SharedAMMLiquidityPermission` | 197 |
-| `SharedApproveAndCallBatchPermission` | 142 |
-| `MandateFactory` | 185 |
-| **Total** | **1,731** |
-
-`MandateFactory` holds no protocol-level privileges and can be bypassed; it is in the secondary scope because it is the canonical path for permission registration and its correctness matters for integrators.
-
-`contracts/safe/SafeModuleEnabler.sol` is a stateless one-shot bootstrap helper (9 SLOC) invoked once during Safe creation via `delegatecall` from `Safe.setup()`. It holds no state, no privileges, and has no runtime role after account creation. Direct calls revert by construction. It is explicitly out of v1 audit scope.
-
-The atomic per-instance templates are out of v1 audit scope and will receive per-template audits as they migrate or are deprecated.
-
-Red-team adversarial test suite covering the specific attack vectors identified in the pre-audit security review: `test/redteam/RedTeam.t.sol` and `test/redteam/RedTeam2.t.sol`.
-
-### Reporting vulnerabilities
-
-A bug bounty program will be announced prior to mainnet launch. For pre-audit vulnerability disclosure: [security contact placeholder].
-
----
-
-## Headline figures
-
-| Dimension | Sail Protocol |
-|---|---|
-| Trusted core (kernel + governance + interfaces) | ~849 SLOC |
-| Template layer (templates + base + fee policy + factory) | ~1,600 SLOC |
-| Constitutional caps (immutable) | 25% max protocol cut; `MAX_PERMISSION_FEE_WEI = 0.001 ETH` |
-| Dispatch model | Selective — manager names one registered permission per dispatch |
-| Permission evaluation | `staticcall` with per-permission gas cap; fail-closed |
-| Custody model | Self-custodial via Gnosis Safe |
-| Default protocol cut at launch | 0% |
-| Test count | 1,114 |
-
----
+To report a vulnerability: security@sail.money
 
 ## License
 
-GPL-2.0-or-later — see [LICENSE](./LICENSE)
+GPL-2.0-or-later. See [LICENSE](./LICENSE).
 
----
-
-## Acknowledgments
-
-Built on [Gnosis Safe](https://safe.global/). EIP-712 typed data hashing and ERC-1271 verification courtesy of [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts).
+Built on [Gnosis Safe v1.4.1](https://github.com/safe-global/safe-smart-account) and [OpenZeppelin Contracts v5](https://github.com/OpenZeppelin/openzeppelin-contracts).
