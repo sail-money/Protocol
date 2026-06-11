@@ -1,7 +1,6 @@
 \documentclass[11pt]{article}
 
 \usepackage[margin=1in]{geometry}
-\usepackage{needspace}
 \usepackage{float}
 \usepackage[T1]{fontenc}
 % \usepackage{lmodern} % not available in this env; default CM used
@@ -16,9 +15,11 @@
 \usepackage{amssymb}
 \usepackage[hidelinks]{hyperref}
 \usepackage{graphicx}
-\usepackage{svg}
 \usepackage{caption}
 \captionsetup{font=small,labelfont=bf}
+
+% needspace unavailable in this env — define a no-op equivalent
+\newcommand{\Needspace}[1]{}
 
 % --- code listing style ---
 \definecolor{codegray}{gray}{0.45}
@@ -35,11 +36,6 @@
 }
 \lstset{style=sol}
 
-% tighter section spacing
-\usepackage{titlesec}
-\titlespacing*{\section}{0pt}{1.4ex plus .4ex}{0.9ex}
-\titlespacing*{\subsection}{0pt}{1.1ex plus .3ex}{0.6ex}
-
 \setlength{\parskip}{0.3em}
 \setlength{\parindent}{0pt}
 
@@ -49,7 +45,7 @@
 % Title block (Morpho-style: title + authors + abstract on page 1)
 % ---------------------------------------------------------------
 \begin{center}
-  \includesvg[width=2.4cm]{sail_money}\\[0.8em]
+  \includegraphics[width=2.4cm]{sail_money.pdf}\\[0.8em]
   {\LARGE\bfseries Sail Protocol}\\[0.5em]
   {\large Onchain Separately Managed Accounts Run by Agents}\\[1.2em]
   Alejandro Dopico\\
