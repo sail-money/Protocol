@@ -85,6 +85,26 @@ The kernel's evaluation enforces four properties on every dispatch:
 - **Selective authorization.** The manager's signature names one registered permission as the authorizer for the dispatch. The kernel evaluates that permission alone—no other registered permissions are consulted. This enables unrelated templates to coexist on one account: a swap permission, a borrow permission, and a transfer permission can all be registered, and each call selects the appropriate authorizer without the others falsely denying it.
 - **Fail-closed.** Any permission that reverts, runs out of gas, returns malformed data, or returns false causes the entire dispatch to revert. The default behavior of a buggy permission is to deny, not to allow.
 
+### Batch Dispatch
+
+The kernel exposes a second entry point, `dispatchBatch`, that executes a sequence of Safe module calls as a single atomic transaction. A batch is gated by exactly one batch-aware permission—a contract implementing `IBatchPermission`—named in the manager's signature. The named permission owns validation of every subcall and any cross-call invariants (matching amounts, mandatory cleanup, ordering):
+
+```solidity
+interface IBatchPermission {
+    function evaluateBatch(Call[] calldata calls, BatchContext calldata ctx)
+        external view returns (bool);
+    function isBatchPermission() external pure returns (bool);
+}
+
+struct Call {
+    address target;   // subcall target; must not be the kernel
+    uint256 value;     // native ETH forwarded (wei)
+    bytes   data;      // subcall calldata
+}
+```
+
+`evaluateBatch` is called via `staticcall` under a separate gas cap (`BATCH_EVAL_GAS_CAP`, 1,000,000) and is fail-closed identically to single dispatch. The kernel detects batch support through `isBatchPermission()`, which implementations must return `true`. Batch permissions exist for invariants that per-call evaluation cannot express—for example the "approve / call / reset-to-zero" sequence, where each call is individually unsafe but the bounded triple is safe.
+
 ### Full Expressiveness
 
 Because permissions are arbitrary Solidity contracts, the protocol does not bound what a permission can express. The kernel knows nothing about DeFi venues—it calls `evaluate()` on a permission contract and respects the answer. The structural guarantees—`staticcall`, gas cap, fail-closed, selective authorization—protect the kernel from the permission; everything the permission expresses inside that envelope is the author's responsibility. Adding a new DeFi integration to Sail is a contract deployment, not a protocol upgrade.
