@@ -135,6 +135,7 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
 
     error ZeroAddress();
     error CapSumMismatch();
+    error RewardsSourceNotDistinct();
     error NotTimelock();
     error TransfersLocked();
     error TransfersAlreadyEnabled();
@@ -218,6 +219,18 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
             address(_timelock) == address(0)
         ) revert ZeroAddress();
 
+        // The rewards source is the ONLY non-mint source the freeze permits to move tokens before
+        // the flip. If it collided with a custody address, that bucket's entire allocation would be
+        // freely transferable pre-flip — silently defeating the freeze. Require it distinct from
+        // every custody recipient (a deploy-time integrity check, not reachable post-construction).
+        if (
+            rewardsSource == investorsCustody  ||
+            rewardsSource == teamCustody       ||
+            rewardsSource == treasuryCustody   ||
+            rewardsSource == foundationCustody ||
+            rewardsSource == liquidityCustody
+        ) revert RewardsSourceNotDistinct();
+
         // Defense-in-depth: the per-bucket caps must sum to exactly the global hard cap, so that
         // respecting per-bucket limits structurally implies respecting the global cap.
         if (
@@ -280,6 +293,19 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
         if (genesisMinted) revert GenesisAlreadyMinted();
         if (amount == 0) revert ZeroAmount();
         if (amount > GENESIS_MAX) revert ExceedsGenesisMax(amount, GENESIS_MAX);
+
+        // Reserve the active season's UNPULLED budget against the community cap. `_mintBucket`
+        // enforces the cap only on already-minted tokens; an open season's future tranches are
+        // committed-yet-unminted. Without reserving them here, a genesis drawn while a season is
+        // open could leave committed+minted > CAP_COMMUNITY and strand the season's tail tranches
+        // (they would revert on pull). Reserving makes the over-commit fail here instead. (No active
+        // season => committed == mintedOf, so this is a no-op for the normal genesis-at-TGE flow.)
+        uint256 committed = mintedOf[Bucket.COMMUNITY];
+        if (season.active) {
+            committed += uint256(season.weeklyRate) * uint256(season.numWeeks - season.weeksPulled);
+        }
+        if (committed + amount > CAP_COMMUNITY) revert ExceedsCommunityBucket(committed + amount, CAP_COMMUNITY);
+
         genesisMinted = true; // effect before mint
         _mintBucket(Bucket.COMMUNITY, REWARDS_SOURCE, amount);
         emit GenesisMinted(REWARDS_SOURCE, amount);
@@ -299,6 +325,10 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
     /// @param  weeklyRate Tokens minted per tranche (> 0).
     function openSeason(uint64 start, uint32 numWeeks, uint128 weeklyRate) external onlyTimelock {
         if (season.active) revert SeasonActive();
+        // Defensive invariant: `active` is cleared only when `weeksPulled == numWeeks`, and the
+        // initial (never-opened) season is all-zero, so `active == false` already implies the
+        // equality below. This guard is therefore unreachable today; it is kept as a belt-and-
+        // suspenders backstop in case the season lifecycle ever changes.
         if (season.weeksPulled != season.numWeeks) revert PreviousSeasonUnfinished();
         if (numWeeks == 0 || numWeeks > MAX_WEEKS) revert InvalidWeeks(numWeeks);
         if (weeklyRate == 0) revert ZeroRate();

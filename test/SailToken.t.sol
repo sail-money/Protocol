@@ -111,6 +111,16 @@ contract SailTokenTest is Test {
         new SailToken(INVESTORS, TEAM, TREASURY, FOUNDATION, LIQUIDITY, address(0), TEAM_GOV, timelock);
     }
 
+    function test_ConstructorRejectsRewardsSourceCollidingWithCustody() public {
+        // If the rewards source equals a custody address, that bucket would be transferable pre-flip
+        // (from == REWARDS_SOURCE bypasses the freeze) — must be rejected at construction.
+        vm.expectRevert(SailToken.RewardsSourceNotDistinct.selector);
+        new SailToken(INVESTORS, TEAM, TREASURY, FOUNDATION, LIQUIDITY, /*rewardsSource=*/TEAM, TEAM_GOV, timelock);
+
+        vm.expectRevert(SailToken.RewardsSourceNotDistinct.selector);
+        new SailToken(INVESTORS, TEAM, TREASURY, FOUNDATION, LIQUIDITY, /*rewardsSource=*/LIQUIDITY, TEAM_GOV, timelock);
+    }
+
     // ── timelock validation (mirrors SailGovernance invariants) ───────────────
 
     function test_ConstructorRejectsWrongTimelockDelay() public {
@@ -167,6 +177,33 @@ contract SailTokenTest is Test {
         vm.prank(TEAM_GOV);
         vm.expectRevert(SailToken.NotTimelock.selector);
         token.mintGenesis(g);
+    }
+
+    function test_GenesisRejectsZeroAmount() public {
+        vm.prank(address(timelock));
+        vm.expectRevert(SailToken.ZeroAmount.selector);
+        token.mintGenesis(0);
+    }
+
+    function test_P0_GenesisCannotOvercommitActiveSeason() public {
+        // Open a season committing the ENTIRE community bucket (100 wk * 4M = 400M).
+        uint64 start = uint64(block.timestamp + 48 hours + 1 days);
+        _tlExec(abi.encodeCall(SailToken.openSeason, (start, uint32(100), uint128(4_000_000e18))));
+        // 400M is committed-but-unminted; even 1 wei of genesis would push community past its cap,
+        // so it must revert HERE (rather than silently stranding the season's tail tranches later).
+        uint256 cap = token.CAP_COMMUNITY();
+        vm.prank(address(timelock));
+        vm.expectRevert(abi.encodeWithSelector(SailToken.ExceedsCommunityBucket.selector, cap + 1, cap));
+        token.mintGenesis(1);
+    }
+
+    function test_GenesisAllowedWhenSeasonLeavesRoom() public {
+        // Season commits 396M (99 wk * 4M), leaving 4M of headroom — genesis up to GENESIS_MAX fits.
+        uint64 start = uint64(block.timestamp + 48 hours + 1 days);
+        _tlExec(abi.encodeCall(SailToken.openSeason, (start, uint32(99), uint128(4_000_000e18))));
+        _mintGenesis(token.GENESIS_MAX()); // 396M + 2M = 398M <= 400M
+        assertEq(token.balanceOf(REWARDS), token.GENESIS_MAX());
+        assertEq(token.mintedOf(SailToken.Bucket.COMMUNITY), token.GENESIS_MAX());
     }
 
     function GENESIS() internal view returns (uint256) { return token.GENESIS_MAX(); }
