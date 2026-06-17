@@ -125,6 +125,12 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
     /// @notice Emitted when governance opens a new season.
     event SeasonOpened(uint256 indexed seasonId, uint64 start, uint32 numWeeks, uint128 weeklyRate, uint256 budget);
     /// @notice Emitted on each successful weekly emission pull.
+    /// @dev    `weekIndex` is 1-BASED: it equals `weeksPulled` AFTER this pull, so the first tranche
+    ///         of a season emits `weekIndex == 1` and the last emits `weekIndex == numWeeks`. (The
+    ///         internal time-gate uses a 0-based cursor — tranche `n` unlocks at
+    ///         `season.start + n * 1 week` for `n` in `[0, numWeeks)` — so on-chain the n-th
+    ///         tranche, 0-based, surfaces here as `weekIndex == n + 1`. Indexers should treat this
+    ///         event field as 1-based.)
     event EmissionPulled(uint256 indexed seasonId, uint32 weekIndex, address indexed to, uint256 amount);
     /// @notice Emitted exactly once, when public transfers are irreversibly enabled.
     event TransfersEnabled(uint256 timestamp);
@@ -344,6 +350,9 @@ contract SailToken is ERC20, ERC20Capped, ERC20Permit, ERC20Votes {
             numWeeks:    numWeeks,
             weeksPulled: 0,
             weeklyRate:  weeklyRate,
+            // Provably safe: budget = weeklyRate * numWeeks <= CAP_COMMUNITY (4e26) << type(uint128).max
+            // (~3.4e38); the `remaining + budget > CAP_COMMUNITY` check above guarantees no truncation.
+            // forge-lint: disable-next-line(unsafe-typecast)
             budget:      uint128(budget),
             active:      true
         });

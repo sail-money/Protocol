@@ -81,3 +81,90 @@ contract SailTokenInvariantTest is Test {
         assertLe(token.mintedOf(SailToken.Bucket.COMMUNITY), uint256(WEEKLY) * WEEKS);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-season lifecycle (Alvaro review item 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// @notice Drives the FULL season lifecycle — open -> pull across weeks -> exhaust -> reopen — under
+///         fuzzed week counts, rates, and time jumps. Closes the gap where the prior handler only
+///         ever opened ONE season: this proves the cumulative community bound holds across an
+///         arbitrary number of open/exhaust/reopen cycles, not just within a single season.
+contract SeasonLifecycleHandler {
+    Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    SailToken public immutable token;
+    address  public immutable timelockAddr;
+    uint256  public opens;
+    uint256  public pulls;
+
+    constructor(SailToken _token, address _timelock) {
+        token = _token;
+        timelockAddr = _timelock;
+    }
+
+    /// @dev Jump time then attempt a pull (permissionless). Denied pulls (too early / no active
+    ///      season) are swallowed — they must never corrupt accounting.
+    function pull(uint256 warpBy) external {
+        vm.warp(block.timestamp + (warpBy % (10 days)) + 1);
+        try token.pullWeeklyEmission() { pulls++; } catch {}
+    }
+
+    /// @dev Attempt to open a new season with a budget chosen to ALWAYS fit the remaining community
+    ///      bucket (so opens are meaningful, not guaranteed reverts). `start == now` makes tranche 0
+    ///      immediately pullable. Opens prank the timelock (the lifecycle is what we fuzz, not the
+    ///      48h delay). Reverts (e.g. a season already active) are swallowed.
+    function openNextSeason(uint256 weeksSeed, uint256 rateSeed) external {
+        uint256 minted = token.mintedOf(SailToken.Bucket.COMMUNITY);
+        uint256 cap    = token.CAP_COMMUNITY();
+        if (minted >= cap) return;                          // bucket exhausted; nothing left to emit
+        uint256 remaining = cap - minted;
+
+        uint256 weeks_ = (weeksSeed % uint256(token.MAX_WEEKS())) + 1; // 1..MAX_WEEKS
+        if (weeks_ > remaining) weeks_ = 1;                 // guarantee a >=1 wei rate is possible
+        uint256 maxRate = remaining / weeks_;               // budget = rate*weeks_ <= remaining
+        if (maxRate == 0) return;
+        uint256 rate = (rateSeed % maxRate) + 1;            // 1..maxRate
+
+        vm.prank(timelockAddr);
+        // start == now is valid (openSeason reverts only on start < now); rate/weeks_ casts bounded
+        // (rate <= maxRate <= remaining <= CAP_COMMUNITY < 2^128; weeks_ <= MAX_WEEKS < 2^32).
+        try token.openSeason(uint64(block.timestamp), uint32(weeks_), uint128(rate)) { opens++; } catch {}
+    }
+}
+
+/// @title  SailTokenMultiSeasonInvariantTest
+/// @notice P0 invariant under ARBITRARY open/exhaust/reopen sequences: cumulative community minting
+///         (every season + genesis) never exceeds the 40% bucket, and total supply never exceeds the
+///         hard cap. No season is pre-opened — the handler drives the entire lifecycle.
+contract SailTokenMultiSeasonInvariantTest is Test {
+    SailToken              token;
+    TimelockController     timelock;
+    SeasonLifecycleHandler handler;
+
+    address constant TEAM_GOV   = address(0x60D);
+    address constant INVESTORS  = address(0x1117);
+    address constant TEAM       = address(0x2227);
+    address constant TREASURY   = address(0x3337);
+    address constant FOUNDATION = address(0x4447);
+    address constant LIQUIDITY  = address(0x5557);
+    address constant REWARDS    = address(0x9999);
+
+    function setUp() public {
+        vm.warp(1_000_000);
+        timelock = TimelockDeployer.deploy(TEAM_GOV);
+        token = new SailToken(INVESTORS, TEAM, TREASURY, FOUNDATION, LIQUIDITY, REWARDS, TEAM_GOV, timelock);
+        handler = new SeasonLifecycleHandler(token, address(timelock));
+        targetContract(address(handler));
+    }
+
+    /// @notice Across arbitrary open/pull/exhaust/reopen sequences, cumulative community minting can
+    ///         never exceed the 40% community bucket (the multi-season cumulative bound).
+    function invariant_multiSeasonCommunityBucketWithinCap() public view {
+        assertLe(token.mintedOf(SailToken.Bucket.COMMUNITY), token.CAP_COMMUNITY());
+    }
+
+    /// @notice Total supply can never exceed the immutable 1B hard cap, regardless of season churn.
+    function invariant_multiSeasonTotalSupplyWithinHardCap() public view {
+        assertLe(token.totalSupply(), token.HARD_CAP());
+    }
+}
