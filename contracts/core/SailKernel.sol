@@ -554,6 +554,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newTreasury New treasury address. Must not be the zero address.
     function setTreasury(address newTreasury) external onlyTimelock {
         if (newTreasury == address(0)) revert ZeroAddress();
+        if (newTreasury == address(this)) revert ZeroAddress();
         address old = treasury;
         treasury = newTreasury;
         emit TreasuryUpdated(old, newTreasury);
@@ -1160,6 +1161,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // Prevent module-triggered self-calls: a call targeting the Safe itself satisfies
         // Safe's onlySelf guard, enabling enableModule/setGuard/owner changes without permission.
         if (target == account) revert AccountSelfTarget();
+        // Parity with dispatchBatch's per-subcall guard: a single dispatch may not target the
+        // kernel either. Re-entry is already blocked by nonReentrant; rejecting kernel-targeted
+        // calls closes the class at the dispatch boundary. Single dispatch has no subcall index.
+        if (target == address(this)) revert KernelSelfTarget(0);
 
         bytes4 sel = data.length >= 4 ? bytes4(data[:4]) : bytes4(0);
         Context memory ctx = Context({

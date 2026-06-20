@@ -600,6 +600,22 @@ contract SailKernelTest is Test {
         kernel.dispatch{gas: 5_000_000}(address(safe), address(hog), address(0xABCD), 0, "", sig, deadline);
     }
 
+    function test_Dispatch_RevertsOnKernelSelfTarget() public {
+        // F2 hardening: a single dispatch may not target the kernel itself, mirroring
+        // dispatchBatch's per-subcall KernelSelfTarget guard. The guard sits with the
+        // existing target==account check, after signature verification — so a fully valid
+        // manager signature still reverts. Single dispatch has no subcall index, so 0 is used.
+        _registerPermission(address(perm));
+        perm.setResult(true);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce    = kernel.managerNonces(address(safe));
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(kernel), 0, "", nonce, deadline);
+
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.KernelSelfTarget.selector, uint256(0)));
+        kernel.dispatch(address(safe), address(perm), address(kernel), 0, "", sig, deadline);
+    }
+
     function test_Dispatch_RevertsOnExpiredDeadline() public {
         uint256 deadline = block.timestamp - 1;
         uint256 nonce    = kernel.managerNonces(address(safe));
@@ -1043,6 +1059,29 @@ contract SailKernelTest is Test {
         vm.prank(TEAM);
         vm.expectRevert(SailKernel.NotTimelock.selector);
         kernel.setTreasury(address(0x5555));
+    }
+
+    function test_SetTreasury_RevertsOnKernelSelfTarget() public {
+        // F4 hardening: setTreasury rejects newTreasury == kernel, mirroring collectFees'
+        // treasury self-target guard and reusing its ZeroAddress error. Executed through the
+        // 48h timelock path the other setTreasury tests use. The steps are inlined (rather than
+        // via _kernelTimelockExec) so expectRevert sits immediately before the reverting execute,
+        // not the preceding schedule.
+        address before = kernel.treasury();
+
+        bytes memory data = abi.encodeCall(kernel.setTreasury, (address(kernel)));
+        bytes32 salt = bytes32(uint256(0xF4F4));
+        TimelockController tl = gov.timelock();
+
+        vm.prank(TEAM);
+        tl.schedule(address(kernel), 0, data, bytes32(0), salt, 48 hours);
+        vm.warp(block.timestamp + 48 hours + 1);
+
+        vm.prank(TEAM);
+        vm.expectRevert(SailKernel.ZeroAddress.selector);
+        tl.execute(address(kernel), 0, data, bytes32(0), salt);
+
+        assertEq(kernel.treasury(), before, "treasury must be unchanged after rejected self-target");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
