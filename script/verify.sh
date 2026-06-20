@@ -17,10 +17,11 @@
 #
 # <chain>: rpc alias from foundry.toml (base | base_sepolia | mainnet | ...)
 #
-# Targets (comma-separated; default: core,templates-shared,templates-standalone):
+# Targets (comma-separated; default: core,templates-shared):
 #   core                  — 5 core protocol contracts
-#   templates-shared      — 7 Shared* permission singletons
-#   templates-standalone  — 12 standalone permission logic contracts (no constructor args)
+#   templates-shared      — the six reference permission singletons + the ConfigurablePermission base
+#
+# (The experimental templates under contracts/experimental/ are opt-in and not verified here.)
 #
 # Flags:
 #   --check    Print what would be verified without actually submitting.
@@ -38,7 +39,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 CHAIN="$1"; shift
-TARGETS="core,templates-shared,templates-standalone"
+TARGETS="core,templates-shared"
 CHECK=0
 EXTRA=()
 
@@ -284,44 +285,6 @@ verify_shared_templates() {
 }
 
 # -------------------------------------------------------------------------
-# Target: templates-standalone
-# -------------------------------------------------------------------------
-
-verify_standalone_templates() {
-  local m="${CHAIN_DIR}/templates.standalone.json"
-  if [[ ! -f "$m" ]]; then
-    echo "error: $m not found — deploy templates-standalone first" >&2
-    return 1
-  fi
-
-  echo "=== verifying templates-standalone (chain $CHAIN_ID) ==="
-
-  # Standalone logic contracts have no constructor args — verification is trivial.
-  local pairs=(
-    "azuroPrediction|contracts/experimental/AzuroPredictionPermission.sol:AzuroPredictionPermission"
-    "boundedApprove|contracts/experimental/BoundedApprovePermission.sol:BoundedApprovePermission"
-    "boundedBorrow|contracts/experimental/BoundedBorrowPermission.sol:BoundedBorrowPermission"
-    "boundedDeposit|contracts/templates/BoundedDepositPermission.sol:BoundedDepositPermission"
-    "boundedLiFi|contracts/experimental/BoundedLiFiPermission.sol:BoundedLiFiPermission"
-    "boundedSwap|contracts/experimental/BoundedSwapPermission.sol:BoundedSwapPermission"
-    "boundedWithdraw|contracts/templates/BoundedWithdrawPermission.sol:BoundedWithdrawPermission"
-    "gmxPerp|contracts/experimental/GMXPerpPermission.sol:GMXPerpPermission"
-    "gainsNetworkPerp|contracts/experimental/GainsNetworkPerpPermission.sol:GainsNetworkPerpPermission"
-    "limitlessPrediction|contracts/experimental/LimitlessPredictionPermission.sol:LimitlessPredictionPermission"
-    "synthetixPerp|contracts/experimental/SynthetixPerpPermission.sol:SynthetixPerpPermission"
-    "transferTarget|contracts/experimental/TransferTargetPermission.sol:TransferTargetPermission"
-  )
-
-  for pair in "${pairs[@]}"; do
-    local key="${pair%%|*}"
-    local contract="${pair#*|}"
-    local address
-    address=$(jq_read "$m" ".${key}")
-    verify_contract "$key" "$contract" "$address" ""
-  done
-}
-
-# -------------------------------------------------------------------------
 # Dispatch
 # -------------------------------------------------------------------------
 
@@ -330,9 +293,8 @@ for t in "${TARGET_LIST[@]}"; do
   case "$t" in
     core)                  verify_core ;;
     templates-shared)      verify_shared_templates ;;
-    templates-standalone)  verify_standalone_templates ;;
     *)
-      echo "error: unknown target '$t'. Known: core, templates-shared, templates-standalone" >&2
+      echo "error: unknown target '$t'. Known: core, templates-shared" >&2
       exit 1
       ;;
   esac

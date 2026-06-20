@@ -14,7 +14,7 @@ The **trusted core** consists of two contracts:
 | `SailGovernance` | ~200 | Protocol parameter store |
 | `IFeePolicy`, `IPermission` | ~50 combined | Interface definitions |
 
-Permission templates (`BoundedSwapPermission`, `BoundedDepositPermission`, `BoundedBorrowPermission`, `BoundedWithdrawPermission`, `TransferTargetPermission`) and fee policies (`StandardFeePolicy`) are **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
+The reference permission templates (`SwapPermission`, `BorrowPermission`, `TransferPermission`, `DepositPermission`, `WithdrawPermission`, `ApproveAndCallBatchPermission`), the experimental templates under `contracts/experimental/`, and fee policies (`StandardFeePolicy`) are all **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
 
 ---
 
@@ -155,9 +155,9 @@ The `currentNav` value in `collectFees` is provided by the manager. The kernel d
 
 ### Oracle Staleness
 
-`IOracle` does not expose an `updatedAt` timestamp. BoundedSwapPermission will accept a stale price without knowing it is stale.
+`IOracle.getPrice` returns an `updatedAt` timestamp. The reference `SwapPermission` and `BorrowPermission` reject any price older than the per-account `maxPriceAgeSec` (and require a non-zero `maxPriceAgeSec` whenever an oracle is configured). With no oracle configured, `SwapPermission` fails closed by requiring a non-zero caller-supplied `amountOutMin`.
 
-**Operator responsibility:** oracle adapters must handle staleness internally by checking `updatedAt` against a maximum age before returning a price. An oracle that silently returns a price from hours ago provides weakened slippage protection.
+**Operator responsibility:** supply an oracle adapter that sets `updatedAt` honestly and configure a sane `maxPriceAgeSec`. The template enforces the freshness bound, but cannot detect an adapter that reports a falsified `updatedAt`.
 
 ### `transferFeeManager` is Single-Step
 
@@ -165,20 +165,20 @@ Unlike the kernel's two-step governance transfer, `StandardFeePolicy.transferFee
 
 **Operator responsibility:** use a multisig as `feeManager`. Verify the new address's ability to sign before calling `transferFeeManager`.
 
-### `BoundedBorrowPermission` is Per-Tx, Not LTV-Capped
+### `BorrowPermission` LTV Is Per-Tx, Not Cumulative
 
-The borrow permission enforces a per-transaction cap only. Cumulative exposure across multiple borrow calls is not tracked on-chain.
+The reference `BorrowPermission` enforces an LTV ceiling at borrow time when both a collateral and a borrow oracle are configured (each oracle value normalised by its decimals); with no oracle it falls back to the per-transaction amount cap only. Either way, cumulative exposure across multiple borrow calls is not tracked on-chain — each call is checked in isolation. (The experimental `BoundedBorrowPermission` enforces only the per-tx cap.)
 
-**Operator responsibility:** for LTV control, either rely on the lending protocol's own health-factor enforcement or compose the borrow permission with a position-monitoring permission that reads the protocol's borrow state via `staticcall`.
+**Operator responsibility:** configure both oracles to enforce the LTV ceiling, and rely on the lending protocol's own health-factor enforcement (or a position-monitoring permission read via `staticcall`) for cumulative-exposure control.
 
-### `transferFrom` `from` Field Not Validated
+### `transferFrom` `from` Field
 
-Both `BoundedWithdrawPermission` and `TransferTargetPermission` do not validate the `from` field in `transferFrom` calldata. A manager can pull tokens from any address that has approved the Safe — not just the Safe's own balance.
+The reference `WithdrawPermission` and `TransferPermission` validate that `from == ctx.account` in `transferFrom` calldata, so a manager cannot pull tokens from arbitrary addresses that have approved the Safe. (The experimental `TransferTargetPermission` and `BoundedWithdrawPermission` do **not** validate `from`.)
 
-**Operator responsibility:** if only pulling from the Safe's own balance is intended, use the `transfer` path or deploy a custom permission that explicitly checks `from == ctx.account`.
+**Operator responsibility:** prefer the reference templates. If using an experimental template that omits the `from` check, restrict it to cases where pulling from third-party approvers is acceptable, or deploy a custom permission that checks `from == ctx.account`.
 
 ### V2 Intermediate Path Tokens
 
-`BoundedSwapPermission` validates only `path[0]` and `path[last]` for V2 swaps. Intermediate tokens in multi-hop paths are not checked.
+`SwapPermission` validates only `path[0]` and `path[last]` for V2 swaps. Intermediate tokens in multi-hop paths are not checked.
 
 **Operator responsibility:** ensure the full path is acceptable before enabling V2 multi-hop swaps. An intermediate token could be a honeypot or a token the operator would not otherwise permit.
