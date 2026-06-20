@@ -165,17 +165,17 @@ Unlike the kernel's two-step governance transfer, `StandardFeePolicy.transferFee
 
 **Operator responsibility:** use a multisig as `feeManager`. Verify the new address's ability to sign before calling `transferFeeManager`.
 
-### `BorrowPermission` LTV Is Per-Tx, Not Cumulative
+### `BorrowPermission` LTV Enforcement Is Per-Call
 
-The reference `BorrowPermission` enforces an LTV ceiling at borrow time when both a collateral and a borrow oracle are configured (each oracle value normalised by its decimals); with no oracle it falls back to the per-transaction amount cap only. Either way, cumulative exposure across multiple borrow calls is not tracked on-chain — each call is checked in isolation. (The experimental `BoundedBorrowPermission` enforces only the per-tx cap.)
+`BorrowPermission` evaluates an LTV ceiling at the time of each borrow when both a collateral and a borrow oracle are configured, normalising each oracle value by its reported decimals before forming the ratio. Without oracles configured, only the per-transaction amount cap applies. In both cases the evaluation is per-call: cumulative exposure across multiple borrows is not tracked on-chain.
 
-**Operator responsibility:** configure both oracles to enforce the LTV ceiling, and rely on the lending protocol's own health-factor enforcement (or a position-monitoring permission read via `staticcall`) for cumulative-exposure control.
+**Operator responsibility:** configure both oracles to enforce the LTV ceiling, and rely on the lending protocol's own health-factor enforcement — or a position-monitoring permission read via `staticcall` — for cumulative-exposure control.
 
-### `transferFrom` `from` Field
+### `transferFrom` Source Restriction
 
-The reference `WithdrawPermission` and `TransferPermission` validate that `from == ctx.account` in `transferFrom` calldata, so a manager cannot pull tokens from arbitrary addresses that have approved the Safe. (The experimental `TransferTargetPermission` and `BoundedWithdrawPermission` do **not** validate `from`.)
+`WithdrawPermission` and `TransferPermission` require `from == ctx.account` on the `transferFrom` path, so tokens move only from the account itself and never from third parties that have granted the account an allowance.
 
-**Operator responsibility:** prefer the reference templates. If using an experimental template that omits the `from` check, restrict it to cases where pulling from third-party approvers is acceptable, or deploy a custom permission that checks `from == ctx.account`.
+**Operator responsibility:** confirm the template in use enforces this restriction before relying on it. Unaudited templates under `contracts/experimental/` fall outside the launch set and may omit it; a custom permission must check `from == ctx.account` explicitly.
 
 ### V2 Intermediate Path Tokens
 
