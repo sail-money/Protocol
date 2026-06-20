@@ -1478,20 +1478,20 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
 }
 
 // =============================================================================
-// SECTION 21 — MAX_PERMISSION_FEE_WEI = 0.001 ether guard
+// SECTION 21 — MAX_PERMISSION_FEE_WEI ceiling guard
 // =============================================================================
 contract FeeCapTests is RedTeamBase2 {
 
-    // ── 21a. Deploy governance with maxPermissionFeeWei > 0.001 ether must revert ──
+    // ── 21a. Deploy governance with maxPermissionFeeWei > 0.01 ether must revert ──
 
-    function test_Attack_FeeCap_MaxPermissionFeeExceeds1Ether() public {
+    function test_Attack_FeeCap_MaxPermissionFeeExceedsCeiling() public {
         // Deploy the injected timelock first; the fee-cap check fires before any timelock check,
         // so expectRevert wraps only the SailGovernance construction.
         TimelockController tl = TimelockDeployer.deploy(address(this));
         vm.expectRevert(
-            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 0.001 ether + 1, 0.001 ether)
+            abi.encodeWithSelector(SailGovernance.FeeExceedsCap.selector, 0.01 ether + 1, 0.01 ether)
         );
-        new SailGovernance(address(this), 0.001 ether + 1, address(this), 0, tl);
+        new SailGovernance(address(this), 0.01 ether + 1, address(this), 0, tl);
     }
 
     // ── 21b. Governance cannot set permissionRegistrationFee above MAX_PERMISSION_FEE_WEI ──
@@ -1510,6 +1510,14 @@ contract FeeCapTests is RedTeamBase2 {
         vm.prank(address(gov.timelock()));
         gov.setPermissionRegistrationFee(0.001 ether);
         assertEq(gov.permissionRegistrationFee(), 0.001 ether);
+    }
+
+    // ── 21d. Deploy governance with maxPermissionFeeWei exactly at the 0.01 ether ceiling is allowed ──
+
+    function test_Attack_FeeCap_MaxPermissionFeeExactlyAtCeiling() public {
+        TimelockController tl = TimelockDeployer.deploy(address(this));
+        SailGovernance g = new SailGovernance(address(this), 0.01 ether, address(this), 0, tl);
+        assertEq(g.MAX_PERMISSION_FEE_WEI(), 0.01 ether);
     }
 }
 
