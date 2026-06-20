@@ -147,7 +147,7 @@ The protocol enforces two independent fee mechanisms. Each is capped by an immut
 total fee = permissionRegistrationFee × n_permissions
 ```
 
-Bounded above by the immutable cap of 0.001 ETH (`MAX_PERMISSION_FEE_WEI`). The active rate is governance-tunable within this cap. Excess `msg.value` is refunded.
+Bounded above by the immutable cap of 0.01 ETH (`MAX_PERMISSION_FEE_WEI`). The active rate is governance-tunable within this cap. Excess `msg.value` is refunded.
 
 **Fee 2 — Protocol Cut on Manager-Collected Fees.** When the Manager calls `collectFees`, the kernel splits the manager's gross fee:
 
