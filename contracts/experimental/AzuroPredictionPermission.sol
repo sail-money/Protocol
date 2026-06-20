@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {CloneInitializable}   from "./base/CloneInitializable.sol";
+import {CloneInitializable}   from "../templates/base/CloneInitializable.sol";
 
 /// @notice Gates Azuro V3 Core `betFor` calls so the manager can only place
 ///         prediction-market bets on behalf of the Safe account, within an

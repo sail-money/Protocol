@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
+import {ConfigurablePermission} from "../templates/shared/ConfigurablePermission.sol";
 
 /// @notice Multi-account permission template that gates Pendle V2 Router V4 operations.
 ///         One deployment serves any number of accounts; each account stores its own
@@ -31,7 +31,7 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///                 bool      allowMintRedeem,
 ///                 bool      allowClaimYield
 ///             )
-contract SharedPendlePermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedPendlePermission is ConfigurablePermission, IPermissionIntrospection {
     // ── Pendle Router V4 selectors ────────────────────────────────────────────
     // Encoding key (structs expanded to tuple types):
     //   ApproxParams  = (uint256,uint256,uint256,uint256,uint256)
@@ -102,7 +102,7 @@ contract SharedPendlePermission is BaseSharedPermission, IPermissionIntrospectio
     // ── constructor ───────────────────────────────────────────────────────────
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedPendlePermission", "1")
+        ConfigurablePermission(_kernel, "SharedPendlePermission", "1")
     {}
 
     // ── view helpers ──────────────────────────────────────────────────────────

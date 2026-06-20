@@ -5,7 +5,7 @@ import {Script, console2}        from "forge-std/Script.sol";
 import {ManifestIO}              from "../lib/ManifestIO.sol";
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
 import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
-import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
+import {TransferTargetPermission} from "../../contracts/experimental/TransferTargetPermission.sol";
 
 interface IERC20 {
     function balanceOf(address) external view returns (uint256);

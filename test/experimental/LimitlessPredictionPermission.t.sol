@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {LimitlessPredictionPermission} from "../contracts/templates/LimitlessPredictionPermission.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {LimitlessPredictionPermission} from "../../contracts/experimental/LimitlessPredictionPermission.sol";
+import {Context} from "../../contracts/interfaces/IPermission.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract LimitlessPredictionPermissionTest is Test {

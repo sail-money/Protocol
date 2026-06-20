@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {Context} from "../../interfaces/IPermission.sol";
 import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
 /// @notice Multi-account variant of TransferTargetPermission. One deployment serves any
 ///         number of accounts; each account stores its own recipient and token allowlists.
@@ -15,7 +15,7 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///                 address[] allowedTokens,
 ///                 uint256   maxAmountPerTx
 ///             )
-contract SharedTransferTargetPermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedTransferTargetPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
     bytes4 private constant TRANSFERFROM_SELECTOR = 0x23b872dd;
 
@@ -33,7 +33,7 @@ contract SharedTransferTargetPermission is BaseSharedPermission, IPermissionIntr
     mapping(address account => mapping(address => bool)) public isAllowedToken;
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedTransferTargetPermission", "1")
+        ConfigurablePermission(_kernel, "SharedTransferTargetPermission", "1")
     {}
 
     function getConfig(address account)

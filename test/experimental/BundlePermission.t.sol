@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import "../contracts/interfaces/IOracle.sol";
+import "../support/FactoryTestBase.sol";
+import "../../contracts/experimental/SharedDeFiBundlePermission.sol";
+import "../../contracts/interfaces/IOracle.sol";
 
 /// @notice Demonstrates the composite template pattern: ONE permission registered on
 ///         a Safe, capable of authorising swaps + borrows + transfers, all routed by

@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
-import "../contracts/templates/BoundedSwapPermission.sol";
+import "../contracts/experimental/BoundedSwapPermission.sol";
 import "../contracts/templates/BoundedWithdrawPermission.sol";
 import "../contracts/templates/base/CloneInitializable.sol";
 

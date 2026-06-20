@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IOracle} from "../../interfaces/IOracle.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
+import {ConfigurablePermission} from "../templates/shared/ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Composite multi-account template combining swap + borrow + transfer logic
@@ -20,7 +20,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///
 ///         This is the recommended pattern for production Safes: build curated bundles
 ///         (e.g. "Conservative Yield", "Active Trading") and attach one bundle per Safe.
-contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedDeFiBundlePermission is ConfigurablePermission, IPermissionIntrospection {
     // -------------------------------------------------------------------------
     // Selectors
     // -------------------------------------------------------------------------
@@ -96,7 +96,7 @@ contract SharedDeFiBundlePermission is BaseSharedPermission, IPermissionIntrospe
     error AllowlistTooLong();
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedDeFiBundlePermission", "1")
+        ConfigurablePermission(_kernel, "SharedDeFiBundlePermission", "1")
     {}
 
     // -------------------------------------------------------------------------

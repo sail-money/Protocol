@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {IPermission, Context} from "../interfaces/IPermission.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {CloneInitializable} from "./base/CloneInitializable.sol";
+import {CloneInitializable} from "../templates/base/CloneInitializable.sol";
 
 /// @title  BoundedSwapPermission
 /// @notice Gates DEX swaps so the manager can only trade through approved routers,

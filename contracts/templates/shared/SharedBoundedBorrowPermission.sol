@@ -5,7 +5,7 @@ import {Context} from "../../interfaces/IPermission.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
 import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Multi-account variant of BoundedBorrowPermission. One deployment serves any
@@ -21,7 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   borrowOracle,
 ///                 uint256   maxPriceAgeSec
 ///             )
-contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedBoundedBorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
@@ -47,7 +47,7 @@ contract SharedBoundedBorrowPermission is BaseSharedPermission, IPermissionIntro
     error LtvBpsTooLarge(uint256 bps);
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedBoundedBorrowPermission", "1")
+        ConfigurablePermission(_kernel, "SharedBoundedBorrowPermission", "1")
     {}
 
     function getConfig(address account)

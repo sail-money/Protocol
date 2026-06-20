@@ -261,12 +261,12 @@ verify_shared_templates() {
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 
   local pairs=(
-    "sharedAmmLiquidity|contracts/templates/shared/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
+    "sharedAmmLiquidity|contracts/experimental/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
     "sharedApproveAndCallBatch|contracts/templates/shared/SharedApproveAndCallBatchPermission.sol:SharedApproveAndCallBatchPermission"
     "sharedBoundedBorrow|contracts/templates/shared/SharedBoundedBorrowPermission.sol:SharedBoundedBorrowPermission"
     "sharedBoundedSwap|contracts/templates/shared/SharedBoundedSwapPermission.sol:SharedBoundedSwapPermission"
-    "sharedDeFiBundle|contracts/templates/shared/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
-    "sharedPendle|contracts/templates/shared/SharedPendlePermission.sol:SharedPendlePermission"
+    "sharedDeFiBundle|contracts/experimental/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
+    "sharedPendle|contracts/experimental/SharedPendlePermission.sol:SharedPendlePermission"
     "sharedTransferTarget|contracts/templates/shared/SharedTransferTargetPermission.sol:SharedTransferTargetPermission"
   )
 
@@ -294,18 +294,18 @@ verify_standalone_templates() {
 
   # Standalone logic contracts have no constructor args — verification is trivial.
   local pairs=(
-    "azuroPrediction|contracts/templates/AzuroPredictionPermission.sol:AzuroPredictionPermission"
-    "boundedApprove|contracts/templates/BoundedApprovePermission.sol:BoundedApprovePermission"
-    "boundedBorrow|contracts/templates/BoundedBorrowPermission.sol:BoundedBorrowPermission"
+    "azuroPrediction|contracts/experimental/AzuroPredictionPermission.sol:AzuroPredictionPermission"
+    "boundedApprove|contracts/experimental/BoundedApprovePermission.sol:BoundedApprovePermission"
+    "boundedBorrow|contracts/experimental/BoundedBorrowPermission.sol:BoundedBorrowPermission"
     "boundedDeposit|contracts/templates/BoundedDepositPermission.sol:BoundedDepositPermission"
-    "boundedLiFi|contracts/templates/BoundedLiFiPermission.sol:BoundedLiFiPermission"
-    "boundedSwap|contracts/templates/BoundedSwapPermission.sol:BoundedSwapPermission"
+    "boundedLiFi|contracts/experimental/BoundedLiFiPermission.sol:BoundedLiFiPermission"
+    "boundedSwap|contracts/experimental/BoundedSwapPermission.sol:BoundedSwapPermission"
     "boundedWithdraw|contracts/templates/BoundedWithdrawPermission.sol:BoundedWithdrawPermission"
-    "gmxPerp|contracts/templates/GMXPerpPermission.sol:GMXPerpPermission"
-    "gainsNetworkPerp|contracts/templates/GainsNetworkPerpPermission.sol:GainsNetworkPerpPermission"
-    "limitlessPrediction|contracts/templates/LimitlessPredictionPermission.sol:LimitlessPredictionPermission"
-    "synthetixPerp|contracts/templates/SynthetixPerpPermission.sol:SynthetixPerpPermission"
-    "transferTarget|contracts/templates/TransferTargetPermission.sol:TransferTargetPermission"
+    "gmxPerp|contracts/experimental/GMXPerpPermission.sol:GMXPerpPermission"
+    "gainsNetworkPerp|contracts/experimental/GainsNetworkPerpPermission.sol:GainsNetworkPerpPermission"
+    "limitlessPrediction|contracts/experimental/LimitlessPredictionPermission.sol:LimitlessPredictionPermission"
+    "synthetixPerp|contracts/experimental/SynthetixPerpPermission.sol:SynthetixPerpPermission"
+    "transferTarget|contracts/experimental/TransferTargetPermission.sol:TransferTargetPermission"
   )
 
   for pair in "${pairs[@]}"; do

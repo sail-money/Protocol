@@ -10,9 +10,9 @@ import {Context}                     from "../contracts/interfaces/IPermission.s
 import {SharedBoundedSwapPermission}          from "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
 import {SharedBoundedBorrowPermission}        from "../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
 import {SharedTransferTargetPermission}       from "../contracts/templates/shared/SharedTransferTargetPermission.sol";
-import {SharedDeFiBundlePermission}           from "../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import {SharedPendlePermission}               from "../contracts/templates/shared/SharedPendlePermission.sol";
-import {SharedAMMLiquidityPermission}         from "../contracts/templates/shared/SharedAMMLiquidityPermission.sol";
+import {SharedDeFiBundlePermission}           from "../contracts/experimental/SharedDeFiBundlePermission.sol";
+import {SharedPendlePermission}               from "../contracts/experimental/SharedPendlePermission.sol";
+import {SharedAMMLiquidityPermission}         from "../contracts/experimental/SharedAMMLiquidityPermission.sol";
 import {SharedApproveAndCallBatchPermission}  from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
 
 /// @notice Tests for IPermissionIntrospection implementations across all shared templates.

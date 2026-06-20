@@ -5,7 +5,7 @@ import {IPermission, Context}                 from "../../interfaces/IPermission
 import {IBatchPermission, Call, BatchContext} from "../../interfaces/IBatchPermission.sol";
 import {IPermissionIntrospection}             from "../../interfaces/IPermissionIntrospection.sol";
 import {SailCapabilities}                     from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission}                 from "./BaseSharedPermission.sol";
+import {ConfigurablePermission}                 from "./ConfigurablePermission.sol";
 
 /// @notice Shared multi-tenant batch permission for the canonical
 ///         "approve / consuming-call / reset-to-zero" pattern.
@@ -21,12 +21,12 @@ import {BaseSharedPermission}                 from "./BaseSharedPermission.sol";
 ///         window in which the allowance can be exploited by a third party.
 ///
 ///         The template inherits the standard EIP-712 `configure(...)` flow
-///         from BaseSharedPermission. Per-account configuration is stored
+///         from ConfigurablePermission. Per-account configuration is stored
 ///         in mappings keyed by account address.
 ///
 /// @dev    Decoding philosophy: every decode is bounds-checked. Malformed
 ///         calldata reverts. The kernel treats a revert as denial (fail-closed).
-contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPermission, IPermissionIntrospection {
+contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermission, IPermissionIntrospection {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -89,7 +89,7 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
     error AllowlistTooLong();
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedApproveAndCallBatchPermission", "1")
+        ConfigurablePermission(_kernel, "SharedApproveAndCallBatchPermission", "1")
     {}
 
     // -------------------------------------------------------------------------
@@ -101,7 +101,7 @@ contract SharedApproveAndCallBatchPermission is BaseSharedPermission, IBatchPerm
     }
 
     // -------------------------------------------------------------------------
-    // BaseSharedPermission hook
+    // ConfigurablePermission hook
     // -------------------------------------------------------------------------
 
     function _applyConfig(address account, bytes calldata params) internal override {

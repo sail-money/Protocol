@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {CloneInitializable}   from "./base/CloneInitializable.sol";
+import {CloneInitializable}   from "../templates/base/CloneInitializable.sol";
 
 /// @notice Gates Synthetix V3 perps interactions so the manager can only trade
 ///         on approved markets, within a size cap, and in permitted directions;

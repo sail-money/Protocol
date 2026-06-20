@@ -99,7 +99,7 @@ interface IAgentWalletVerifier {
 /// @notice Per-account agent identity — for shared templates where different accounts
 ///         may be managed by different agents.
 /// @dev    Implement this on shared multi-account templates (those that inherit
-///         BaseSharedPermission) where each Safe account may have its own agent identity
+///         ConfigurablePermission) where each Safe account may have its own agent identity
 ///         configured independently of other accounts on the same template deployment.
 ///         Consumers pass the Safe address; the implementation returns the identity
 ///         stored for that account, or a zero-filled AgentIdentityRef if not configured.

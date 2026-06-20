@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test}                    from "forge-std/Test.sol";
-import {TransferTargetPermission} from "../contracts/templates/TransferTargetPermission.sol";
-import {Context}                 from "../contracts/interfaces/IPermission.sol";
+import {TransferTargetPermission} from "../../contracts/experimental/TransferTargetPermission.sol";
+import {Context}                 from "../../contracts/interfaces/IPermission.sol";
 import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract TransferTargetPermissionTest is Test {

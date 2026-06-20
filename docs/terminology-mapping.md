@@ -177,7 +177,7 @@ Solidity uses of "template":
 
 Solidity uses of "agent":
 
-All occur in `IAgentIdentityResolver.sol` and `BaseSharedPermission.sol` — correctly at
+All occur in `IAgentIdentityResolver.sol` and `ConfigurablePermission.sol` — correctly at
 the template/metadata layer only. The kernel (`SailKernel.sol`) does not use "agent".
 
 ---
@@ -191,7 +191,7 @@ permission contracts serving the template (multi-account) pattern. Key occurrenc
 
 | File | Lines | Pattern | Assessment |
 |------|-------|---------|------------|
-| `test/SelectiveDispatch.t.sol` | 135, 156, 214–233, 287, 533–635 | "deployed templates", `_signConfigure(template,…)`, section headings | Correct — helpers use `template` as local variable name for a `BaseSharedPermission` instance |
+| `test/SelectiveDispatch.t.sol` | 135, 156, 214–233, 287, 533–635 | "deployed templates", `_signConfigure(template,…)`, section headings | Correct — helpers use `template` as local variable name for a `ConfigurablePermission` instance |
 | `test/FactoryDeFi.t.sol` | 11, 36, 291, 306, 404–469 | "Shared template across two Safes", `_attach(account, template, params)` | Correct |
 | `test/PermissionIntrospection.t.sol` | 21, 66, 73, 89, 222, 263 | "Template instances", "every template returns…" | Correct |
 | `test/MandateFactory.t.sol` | 103, 150, 153, 161–198, 203, 229 | `address[] memory templates`, test names | Correct |
@@ -370,7 +370,7 @@ All places where the SMA/Mandate/Permission/Template relationship is described
 | `SailKernel` | `SailKernel` | ✅ Yes | No change | N/A | |
 | `SailGovernance` | `SailGovernance` | ✅ Yes | No change | N/A | |
 | `MandateFactory` | `MandateFactory` | ✅ Yes | No change | N/A | Factory that orchestrates Permission registration |
-| `BaseSharedPermission` | `BaseSharedPermission` | ✅ Yes | No change | N/A | Abstract base for shared multi-tenant Permission templates |
+| `ConfigurablePermission` | `ConfigurablePermission` | ✅ Yes | Renamed from `BaseSharedPermission` | N/A | Abstract base for shared multi-tenant Permission templates |
 | `IPermission` | `IPermission` | ✅ Yes | No change | N/A | **Must not rename — core interface** |
 | `IConfigurablePermission` | `IConfigurablePermission` | ✅ Yes | No change | N/A | |
 | `IBatchPermission` | `IBatchPermission` | ✅ Yes | No change | N/A | |

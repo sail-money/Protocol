@@ -29,10 +29,10 @@ import {SailGovernance}              from "../../contracts/governance/SailGovern
 import {TimelockDeployer}            from "../support/TimelockDeployer.sol";
 import {MandateFactory}           from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}           from "../../contracts/policies/StandardFeePolicy.sol";
-import {TransferTargetPermission}    from "../../contracts/templates/TransferTargetPermission.sol";
-import {BoundedBorrowPermission}     from "../../contracts/templates/BoundedBorrowPermission.sol";
-import {SharedDeFiBundlePermission}  from "../../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import {BaseSharedPermission}        from "../../contracts/templates/shared/BaseSharedPermission.sol";
+import {TransferTargetPermission}    from "../../contracts/experimental/TransferTargetPermission.sol";
+import {BoundedBorrowPermission}     from "../../contracts/experimental/BoundedBorrowPermission.sol";
+import {SharedDeFiBundlePermission}  from "../../contracts/experimental/SharedDeFiBundlePermission.sol";
+import {ConfigurablePermission}        from "../../contracts/templates/shared/ConfigurablePermission.sol";
 import {IPermission, Context}        from "../../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}                  from "../../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                     from "../../contracts/interfaces/IOracle.sol";

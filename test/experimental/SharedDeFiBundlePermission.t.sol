@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import {BaseSharedPermission} from "../contracts/templates/shared/BaseSharedPermission.sol";
-import "../contracts/interfaces/IOracle.sol";
+import "../support/FactoryTestBase.sol";
+import "../../contracts/experimental/SharedDeFiBundlePermission.sol";
+import {ConfigurablePermission} from "../../contracts/templates/shared/ConfigurablePermission.sol";
+import "../../contracts/interfaces/IOracle.sol";
 
 /// @dev Minimal price oracle for bundle LTV tests.
 contract BundleTestOracle is IOracle {
@@ -237,7 +237,7 @@ contract SharedDeFiBundlePermissionTest is FactoryTestBase {
         bcfg.maxPriceAgeSec = 0; // both oracles set but no freshness bound
         bytes memory params = abi.encode(_defaultSwapCfg(), bcfg, _defaultTransferCfg());
         vm.prank(permSigner);
-        vm.expectRevert(BaseSharedPermission.MissingPriceAge.selector);
+        vm.expectRevert(ConfigurablePermission.MissingPriceAge.selector);
         bundle.configureDirect(address(safe), params);
     }
 
