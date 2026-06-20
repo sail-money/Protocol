@@ -5,7 +5,7 @@ import {Script, console2}        from "forge-std/Script.sol";
 import {ManifestIO}              from "../lib/ManifestIO.sol";
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
 import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
-import {BoundedSwapPermission}   from "../../contracts/templates/BoundedSwapPermission.sol";
+import {BoundedSwapPermission}   from "../../contracts/experimental/BoundedSwapPermission.sol";
 
 interface ISafe {
     function execTransaction(

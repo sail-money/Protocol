@@ -4,12 +4,9 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {ManifestIO}       from "../lib/ManifestIO.sol";
 
-import {SharedAMMLiquidityPermission}         from "../../contracts/templates/shared/SharedAMMLiquidityPermission.sol";
 import {SharedApproveAndCallBatchPermission}  from "../../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
 import {SharedBoundedBorrowPermission}        from "../../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
 import {SharedBoundedSwapPermission}          from "../../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import {SharedDeFiBundlePermission}           from "../../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import {SharedPendlePermission}               from "../../contracts/templates/shared/SharedPendlePermission.sol";
 import {SharedTransferTargetPermission}       from "../../contracts/templates/shared/SharedTransferTargetPermission.sol";
 
 /// @notice Shared permission template deployment.
@@ -29,12 +26,9 @@ contract DeploySharedTemplates is Script {
 
     struct Deployment {
         address kernel;
-        SharedAMMLiquidityPermission        ammLiquidity;
         SharedApproveAndCallBatchPermission approveAndCallBatch;
         SharedBoundedBorrowPermission       boundedBorrow;
         SharedBoundedSwapPermission         boundedSwap;
-        SharedDeFiBundlePermission          defiBundle;
-        SharedPendlePermission              pendle;
         SharedTransferTargetPermission      transferTarget;
     }
 
@@ -51,22 +45,16 @@ contract DeploySharedTemplates is Script {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(pk);
 
-        d.ammLiquidity        = new SharedAMMLiquidityPermission(d.kernel);
         d.approveAndCallBatch = new SharedApproveAndCallBatchPermission(d.kernel);
         d.boundedBorrow       = new SharedBoundedBorrowPermission(d.kernel);
         d.boundedSwap         = new SharedBoundedSwapPermission(d.kernel);
-        d.defiBundle          = new SharedDeFiBundlePermission(d.kernel);
-        d.pendle              = new SharedPendlePermission(d.kernel);
         d.transferTarget      = new SharedTransferTargetPermission(d.kernel);
 
         vm.stopBroadcast();
 
-        console2.log("SharedAMMLiquidityPermission        :", address(d.ammLiquidity));
         console2.log("SharedApproveAndCallBatchPermission :", address(d.approveAndCallBatch));
         console2.log("SharedBoundedBorrowPermission       :", address(d.boundedBorrow));
         console2.log("SharedBoundedSwapPermission         :", address(d.boundedSwap));
-        console2.log("SharedDeFiBundlePermission          :", address(d.defiBundle));
-        console2.log("SharedPendlePermission              :", address(d.pendle));
         console2.log("SharedTransferTargetPermission      :", address(d.transferTarget));
 
         _writeManifest(deployer, d);
@@ -76,12 +64,9 @@ contract DeploySharedTemplates is Script {
         string memory k = "sail-shared-templates";
         ManifestIO.serializeHeader(k, SCHEMA, deployer);
         vm.serializeAddress(k, "kernel", d.kernel);
-        vm.serializeAddress(k, "sharedAmmLiquidity",        address(d.ammLiquidity));
         vm.serializeAddress(k, "sharedApproveAndCallBatch", address(d.approveAndCallBatch));
         vm.serializeAddress(k, "sharedBoundedBorrow",       address(d.boundedBorrow));
         vm.serializeAddress(k, "sharedBoundedSwap",         address(d.boundedSwap));
-        vm.serializeAddress(k, "sharedDeFiBundle",          address(d.defiBundle));
-        vm.serializeAddress(k, "sharedPendle",              address(d.pendle));
         string memory json =
             vm.serializeAddress(k, "sharedTransferTarget",  address(d.transferTarget));
 

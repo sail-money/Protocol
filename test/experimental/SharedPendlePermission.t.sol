@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SharedPendlePermission.sol";
+import "../support/FactoryTestBase.sol";
+import "../../contracts/experimental/SharedPendlePermission.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Pendle Router — stubs with correct signatures (no real logic needed)

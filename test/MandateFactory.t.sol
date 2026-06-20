@@ -72,7 +72,7 @@ contract MandateFactoryTest is FactoryTestBase {
         bytes memory kSig     = _signRegisterPermission(address(safe), address(swap), 0);
 
         uint256 fee = _calcFee(address(swap));
-        vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
+        vm.expectRevert(ConfigurablePermission.InvalidSignature.selector);
         factory.attach{value: fee}(
             address(safe), address(swap), params, deadline, badCfgSig, kDeadline, kSig
         );
@@ -88,7 +88,7 @@ contract MandateFactoryTest is FactoryTestBase {
         vm.warp(deadline + 1);
         uint256 fee = _calcFee(address(swap));
         vm.expectRevert(
-            abi.encodeWithSelector(BaseSharedPermission.DeadlineExpired.selector, deadline, block.timestamp)
+            abi.encodeWithSelector(ConfigurablePermission.DeadlineExpired.selector, deadline, block.timestamp)
         );
         factory.attach{value: fee}(
             address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig
@@ -107,7 +107,7 @@ contract MandateFactoryTest is FactoryTestBase {
 
         // Replay with same configure sig — template's nonce has advanced, so sig is stale
         bytes memory kSig2 = _signRegisterPermission(address(safe), address(swap), 1);
-        vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
+        vm.expectRevert(ConfigurablePermission.InvalidSignature.selector);
         factory.attach{value: fee}(address(safe), address(swap), params, deadline, cfgSig, kDeadline, kSig2);
     }
 

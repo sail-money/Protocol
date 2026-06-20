@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {GMXPerpPermission} from "../contracts/templates/GMXPerpPermission.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {GMXPerpPermission} from "../../contracts/experimental/GMXPerpPermission.sol";
+import {Context} from "../../contracts/interfaces/IPermission.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────

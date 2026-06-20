@@ -2,9 +2,9 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {BoundedBorrowPermission} from "../contracts/templates/BoundedBorrowPermission.sol";
-import {IOracle} from "../contracts/interfaces/IOracle.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {BoundedBorrowPermission} from "../../contracts/experimental/BoundedBorrowPermission.sol";
+import {IOracle} from "../../contracts/interfaces/IOracle.sol";
+import {Context} from "../../contracts/interfaces/IPermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 

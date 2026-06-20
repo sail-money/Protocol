@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {CloneInitializable}   from "./base/CloneInitializable.sol";
+import {CloneInitializable}   from "../templates/base/CloneInitializable.sol";
 
 /// @notice Gates Gains Network (gTrade) perpetual trades so the manager can only
 ///         open/close positions through the canonical gTradeRouter, on approved

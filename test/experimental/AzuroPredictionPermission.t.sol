@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {AzuroPredictionPermission} from "../contracts/templates/AzuroPredictionPermission.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {AzuroPredictionPermission} from "../../contracts/experimental/AzuroPredictionPermission.sol";
+import {Context} from "../../contracts/interfaces/IPermission.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract AzuroPredictionPermissionTest is Test {

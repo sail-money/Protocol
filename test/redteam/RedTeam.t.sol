@@ -23,10 +23,10 @@ import {SailGovernance}          from "../../contracts/governance/SailGovernance
 import {TimelockDeployer}        from "../support/TimelockDeployer.sol";
 import {MandateFactory}       from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}       from "../../contracts/policies/StandardFeePolicy.sol";
-import {TransferTargetPermission} from "../../contracts/templates/TransferTargetPermission.sol";
-import {BoundedBorrowPermission} from "../../contracts/templates/BoundedBorrowPermission.sol";
-import {SharedDeFiBundlePermission} from "../../contracts/templates/shared/SharedDeFiBundlePermission.sol";
-import {BaseSharedPermission}    from "../../contracts/templates/shared/BaseSharedPermission.sol";
+import {TransferTargetPermission} from "../../contracts/experimental/TransferTargetPermission.sol";
+import {BoundedBorrowPermission} from "../../contracts/experimental/BoundedBorrowPermission.sol";
+import {SharedDeFiBundlePermission} from "../../contracts/experimental/SharedDeFiBundlePermission.sol";
+import {ConfigurablePermission}    from "../../contracts/templates/shared/ConfigurablePermission.sol";
 import {IPermission, Context}    from "../../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}              from "../../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                 from "../../contracts/interfaces/IOracle.sol";
@@ -1355,7 +1355,7 @@ contract ConfigRaceConditionTests is RedTeamBase {
         assertTrue(bundle.isConfigured(address(safe)));
 
         // Original tx tries to configure again — signature no longer valid (nonce 1 now)
-        vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
+        vm.expectRevert(ConfigurablePermission.InvalidSignature.selector);
         bundle.configure(address(safe), params, deadline, configureSig);
 
         // NOTE: The front-runner configured with the SAME params, so the outcome is
@@ -1396,7 +1396,7 @@ contract ConfigRaceConditionTests is RedTeamBase {
 
         // Try to use sigForA for account B (safe2)
         // The sig commits to account = safe, so this should fail for safe2
-        vm.expectRevert(BaseSharedPermission.InvalidSignature.selector);
+        vm.expectRevert(ConfigurablePermission.InvalidSignature.selector);
         bundle.configure(address(safe2), params, deadline, sigForA);
     }
 
@@ -1416,7 +1416,7 @@ contract ConfigRaceConditionTests is RedTeamBase {
 
         vm.prank(attacker);
         vm.expectRevert(
-            abi.encodeWithSelector(BaseSharedPermission.NotPermissionSigner.selector, attacker, permSigner)
+            abi.encodeWithSelector(ConfigurablePermission.NotPermissionSigner.selector, attacker, permSigner)
         );
         bundle.configureDirect(address(safe), params);
     }

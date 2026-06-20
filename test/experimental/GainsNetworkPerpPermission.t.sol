@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {GainsNetworkPerpPermission} from "../contracts/templates/GainsNetworkPerpPermission.sol";
-import {Context} from "../contracts/interfaces/IPermission.sol";
+import {GainsNetworkPerpPermission} from "../../contracts/experimental/GainsNetworkPerpPermission.sol";
+import {Context} from "../../contracts/interfaces/IPermission.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────

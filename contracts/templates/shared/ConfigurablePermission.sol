@@ -25,7 +25,7 @@ interface ISailKernelView {
 ///         Auth: configure() requires an EIP-712 sig from the account's permissionSigner
 ///         (read from the kernel). configureDirect() requires msg.sender to equal the
 ///         permissionSigner. Both support ECDSA and ERC-1271 signers.
-abstract contract BaseSharedPermission is IConfigurablePermission, IAccountAgentIdentityResolver, EIP712, ReentrancyGuard {
+abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAgentIdentityResolver, EIP712, ReentrancyGuard {
     bytes4 private constant ERC1271_MAGIC = 0x1626ba7e;
 
     bytes32 public constant CONFIGURE_TYPEHASH =

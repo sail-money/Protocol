@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {IPermission, Context} from "../interfaces/IPermission.sol";
 import {IOracle}              from "../interfaces/IOracle.sol";
 import {Math}                 from "@openzeppelin/contracts/utils/math/Math.sol";
-import {CloneInitializable}   from "./base/CloneInitializable.sol";
+import {CloneInitializable}   from "../templates/base/CloneInitializable.sol";
 
 /// @title  BoundedBorrowPermission
 /// @notice Gates ERC-20 borrows from lending protocols.

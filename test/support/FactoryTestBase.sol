@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/MandateFactory.sol";
-import "../../contracts/templates/shared/BaseSharedPermission.sol";
+import "../../contracts/templates/shared/ConfigurablePermission.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {TimelockDeployer} from "./TimelockDeployer.sol";
 
@@ -106,7 +106,7 @@ abstract contract FactoryTestBase is Test {
     }
 
     function _signConfigure(
-        BaseSharedPermission template,
+        ConfigurablePermission template,
         address account,
         bytes memory params,
         uint256 deadline,

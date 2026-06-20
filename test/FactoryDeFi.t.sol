@@ -460,7 +460,7 @@ contract FactoryDeFiTest is FactoryTestBase {
     // helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _attach(address account, BaseSharedPermission template, bytes memory params) internal {
+    function _attach(address account, ConfigurablePermission template, bytes memory params) internal {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(template, account, params, deadline, PERM_SIGNER_KEY);
         uint256 sigNonce = kernel.signerNonces(account);

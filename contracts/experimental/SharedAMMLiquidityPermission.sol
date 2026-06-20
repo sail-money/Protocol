@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
+import {ConfigurablePermission} from "../templates/shared/ConfigurablePermission.sol";
 
 /// @notice Multi-account permission template that gates AMM liquidity operations across
 ///         Uniswap V3, Aerodrome Slipstream (concentrated), and Aerodrome Router (legacy v2).
@@ -34,7 +34,7 @@ import {BaseSharedPermission} from "./BaseSharedPermission.sol";
 ///                 bool      allowCollect,
 ///                 bool      allowBurn
 ///             )
-contract SharedAMMLiquidityPermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedAMMLiquidityPermission is ConfigurablePermission, IPermissionIntrospection {
     // ── Selector constants ────────────────────────────────────────────────────
     // UniV3 NonfungiblePositionManager (0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1 on Base)
     // These selectors are also used for standard Uniswap V3 NPM deployments.
@@ -98,7 +98,7 @@ contract SharedAMMLiquidityPermission is BaseSharedPermission, IPermissionIntros
     // ── constructor ───────────────────────────────────────────────────────────
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedAMMLiquidityPermission", "1")
+        ConfigurablePermission(_kernel, "SharedAMMLiquidityPermission", "1")
     {}
 
     // ── view helpers ──────────────────────────────────────────────────────────

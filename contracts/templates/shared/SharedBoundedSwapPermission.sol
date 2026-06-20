@@ -5,7 +5,7 @@ import {Context} from "../../interfaces/IPermission.sol";
 import {IOracle} from "../../interfaces/IOracle.sol";
 import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
-import {BaseSharedPermission} from "./BaseSharedPermission.sol";
+import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @notice Multi-account variant of BoundedSwapPermission. One deployment serves any
@@ -22,7 +22,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   priceOracle,
 ///                 uint256   maxPriceAgeSec
 ///             )
-contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrospection {
+contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntrospection {
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) — V3 SwapRouter (with deadline)
     bytes4 private constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) — V3 SwapRouter02 (no deadline)
@@ -52,7 +52,7 @@ contract SharedBoundedSwapPermission is BaseSharedPermission, IPermissionIntrosp
     error SlippageBpsTooLarge(uint256 bps);
 
     constructor(address _kernel)
-        BaseSharedPermission(_kernel, "SharedBoundedSwapPermission", "1")
+        ConfigurablePermission(_kernel, "SharedBoundedSwapPermission", "1")
     {}
 
     // ── view helpers ──────────────────────────────────────────────────────────

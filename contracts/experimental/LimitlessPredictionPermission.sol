@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {CloneInitializable}   from "./base/CloneInitializable.sol";
+import {CloneInitializable}   from "../templates/base/CloneInitializable.sol";
 
 /// @notice Gates Limitless CTF Exchange `fillOrder` calls so the manager can
 ///         only fill prediction-market orders where the Safe is the maker,

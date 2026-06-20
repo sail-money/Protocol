@@ -6,7 +6,7 @@ import "../contracts/core/SailKernel.sol";
 import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
-import "../contracts/templates/BoundedSwapPermission.sol";
+import "../contracts/experimental/BoundedSwapPermission.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
