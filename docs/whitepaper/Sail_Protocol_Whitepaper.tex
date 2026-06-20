@@ -366,7 +366,7 @@ When a permission is registered with the kernel, the registering account pays a 
 \begin{equation*}
 \text{total fee} = \texttt{permissionRegistrationFee} \times n_{\text{permissions}}
 \end{equation*}
-The active rate is held in SailGovernance, bounded above by the immutable cap of 0.001~ETH (\texttt{MAX\_PERMISSION\_FEE\_WEI}), and tunable through the timelock. Excess \texttt{msg.value} is refunded. The fee is denominated in native ETH with no oracle dependency; governance retunes the rate as ETH price moves.
+The active rate is held in SailGovernance, bounded above by the immutable cap of 0.01~ETH (\texttt{MAX\_PERMISSION\_FEE\_WEI}), and tunable through the timelock. Excess \texttt{msg.value} is refunded. The fee is denominated in native ETH with no oracle dependency; governance retunes the rate as ETH price moves.
 
 \subsection{Fee 2: Protocol Cut on Manager-Collected Fees}
 
@@ -395,7 +395,7 @@ Two constants are immutable in source code. No governance procedure can raise th
 \begin{itemize}
   \itemsep0.1em
   \item The maximum protocol cut on manager-collected fees: $\texttt{MAX\_PROTOCOL\_CUT\_BPS} = 2{,}500$ (25\%).
-  \item The maximum permission registration fee: $\texttt{MAX\_PERMISSION\_FEE\_WEI} = 0.001$~ETH.
+  \item The maximum permission registration fee: $\texttt{MAX\_PERMISSION\_FEE\_WEI} = 0.01$~ETH.
 \end{itemize}
 These bounds are properties of the deployed bytecode. A future governance under any control structure---multisig, token, DAO---cannot raise them. Lowering the active parameter inside these bounds remains possible.
 

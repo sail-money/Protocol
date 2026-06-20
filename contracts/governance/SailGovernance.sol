@@ -26,7 +26,8 @@ contract SailGovernance {
     uint256 public constant MAX_PROTOCOL_CUT_BPS = 2_500;
 
     /// @notice Hard ceiling on the per-permission registration fee in wei.
-    ///         Set at deployment; cannot be raised afterwards.
+    ///         Set at deployment via the constructor and bounded by an immutable
+    ///         bytecode ceiling of 0.01 ether; cannot be raised afterwards.
     uint256 public immutable MAX_PERMISSION_FEE_WEI;
 
     /// @notice Hard ceiling on the number of permissions an account may register.
@@ -469,7 +470,7 @@ contract SailGovernance {
     ) {
         if (initialGovernance == address(0) || _emergencyAdmin == address(0)) revert ZeroAddress();
         if (address(_timelock) == address(0)) revert ZeroAddress();
-        if (maxPermissionFeeWei              > 0.001 ether)             revert FeeExceedsCap(maxPermissionFeeWei,             0.001 ether);
+        if (maxPermissionFeeWei              > 0.01 ether)              revert FeeExceedsCap(maxPermissionFeeWei,             0.01 ether);
         if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
 
         // Preserve the audited timelock behaviour exactly. The TimelockController used to be
