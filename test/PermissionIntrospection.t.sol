@@ -7,13 +7,13 @@ import {IPermissionIntrospection}    from "../contracts/interfaces/IPermissionIn
 import {SailCapabilities}            from "../contracts/interfaces/SailCapabilities.sol";
 import {Context}                     from "../contracts/interfaces/IPermission.sol";
 
-import {SharedBoundedSwapPermission}          from "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import {SharedBoundedBorrowPermission}        from "../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
-import {SharedTransferTargetPermission}       from "../contracts/templates/shared/SharedTransferTargetPermission.sol";
+import {SwapPermission}          from "../contracts/templates/shared/SwapPermission.sol";
+import {BorrowPermission}        from "../contracts/templates/shared/BorrowPermission.sol";
+import {TransferPermission}       from "../contracts/templates/shared/TransferPermission.sol";
 import {SharedDeFiBundlePermission}           from "../contracts/experimental/SharedDeFiBundlePermission.sol";
 import {SharedPendlePermission}               from "../contracts/experimental/SharedPendlePermission.sol";
 import {SharedAMMLiquidityPermission}         from "../contracts/experimental/SharedAMMLiquidityPermission.sol";
-import {SharedApproveAndCallBatchPermission}  from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
+import {ApproveAndCallBatchPermission}  from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 
 /// @notice Tests for IPermissionIntrospection implementations across all shared templates.
 ///         All introspection functions are pure — no kernel, governance, or Safe setup required.
@@ -22,24 +22,24 @@ contract PermissionIntrospectionTest is Test {
     // address(1) is a valid non-zero kernel stub — constructors only check address(0).
     address internal constant STUB_KERNEL = address(1);
 
-    SharedBoundedSwapPermission         internal swap;
-    SharedBoundedBorrowPermission       internal borrow;
-    SharedTransferTargetPermission      internal transfer;
+    SwapPermission         internal swap;
+    BorrowPermission       internal borrow;
+    TransferPermission      internal transfer;
     SharedDeFiBundlePermission          internal bundle;
     SharedPendlePermission              internal pendle;
     SharedAMMLiquidityPermission        internal amm;
-    SharedApproveAndCallBatchPermission internal batch;
+    ApproveAndCallBatchPermission internal batch;
 
     IPermissionIntrospection[7] internal templates;
 
     function setUp() public {
-        swap     = new SharedBoundedSwapPermission(STUB_KERNEL);
-        borrow   = new SharedBoundedBorrowPermission(STUB_KERNEL);
-        transfer = new SharedTransferTargetPermission(STUB_KERNEL);
+        swap     = new SwapPermission(STUB_KERNEL, address(0xA11CE));
+        borrow   = new BorrowPermission(STUB_KERNEL, address(0xA11CE));
+        transfer = new TransferPermission(STUB_KERNEL, address(0xA11CE));
         bundle   = new SharedDeFiBundlePermission(STUB_KERNEL);
         pendle   = new SharedPendlePermission(STUB_KERNEL);
         amm      = new SharedAMMLiquidityPermission(STUB_KERNEL);
-        batch    = new SharedApproveAndCallBatchPermission(STUB_KERNEL);
+        batch    = new ApproveAndCallBatchPermission(STUB_KERNEL, address(0xA11CE));
 
         templates[0] = IPermissionIntrospection(address(swap));
         templates[1] = IPermissionIntrospection(address(borrow));
@@ -115,7 +115,7 @@ contract PermissionIntrospectionTest is Test {
     // CAPABILITY CORRECTNESS (tests 6–12)
     // ═════════════════════════════════════════════════════════════════════════
 
-    /// @notice Test 6: SharedBoundedSwapPermission declares BOUNDED_SWAP.
+    /// @notice Test 6: SwapPermission declares BOUNDED_SWAP.
     function test_Introspect_Swap_DeclaresCapability() public view {
         bytes32[] memory ids = IPermissionIntrospection(address(swap)).capabilityIds();
         assertTrue(
@@ -124,7 +124,7 @@ contract PermissionIntrospectionTest is Test {
         );
     }
 
-    /// @notice Test 7: SharedBoundedBorrowPermission declares BOUNDED_BORROW.
+    /// @notice Test 7: BorrowPermission declares BOUNDED_BORROW.
     function test_Introspect_Borrow_DeclaresCapability() public view {
         bytes32[] memory ids = IPermissionIntrospection(address(borrow)).capabilityIds();
         assertTrue(
@@ -133,7 +133,7 @@ contract PermissionIntrospectionTest is Test {
         );
     }
 
-    /// @notice Test 8: SharedTransferTargetPermission declares TRANSFER_TARGET.
+    /// @notice Test 8: TransferPermission declares TRANSFER_TARGET.
     function test_Introspect_Transfer_DeclaresCapability() public view {
         bytes32[] memory ids = IPermissionIntrospection(address(transfer)).capabilityIds();
         assertTrue(
@@ -171,7 +171,7 @@ contract PermissionIntrospectionTest is Test {
         );
     }
 
-    /// @notice Test 12: SharedApproveAndCallBatchPermission declares BATCH_DISPATCH.
+    /// @notice Test 12: ApproveAndCallBatchPermission declares BATCH_DISPATCH.
     function test_Introspect_Batch_DeclaresCapability() public view {
         bytes32[] memory ids = IPermissionIntrospection(address(batch)).capabilityIds();
         assertTrue(
@@ -234,15 +234,15 @@ contract PermissionIntrospectionTest is Test {
             blockNumber:    block.number
         });
 
-        // SharedBoundedSwapPermission — returns false (router not in allowlist)
+        // SwapPermission — returns false (router not in allowlist)
         bool r0 = swap.evaluate("", ctx);
         assertFalse(r0, "swap.evaluate: expected false for unconfigured state");
 
-        // SharedBoundedBorrowPermission — returns false (protocol not in allowlist)
+        // BorrowPermission — returns false (protocol not in allowlist)
         bool r1 = borrow.evaluate("", ctx);
         assertFalse(r1, "borrow.evaluate: expected false for unconfigured state");
 
-        // SharedTransferTargetPermission — returns false (token not in allowlist)
+        // TransferPermission — returns false (token not in allowlist)
         bool r2 = transfer.evaluate("", ctx);
         assertFalse(r2, "transfer.evaluate: expected false for unconfigured state");
 
@@ -258,7 +258,7 @@ contract PermissionIntrospectionTest is Test {
         bool r5 = amm.evaluate("", ctx);
         assertFalse(r5, "amm.evaluate: expected false for unconfigured state");
 
-        // SharedApproveAndCallBatchPermission — always returns false (batch-only)
+        // ApproveAndCallBatchPermission — always returns false (batch-only)
         bool r6 = batch.evaluate("", ctx);
         assertFalse(r6, "batch.evaluate: expected false (batch-only template)");
     }
@@ -271,17 +271,17 @@ contract PermissionIntrospectionTest is Test {
     function test_Introspect_PermissionId_ExactValues() public view {
         assertEq(
             swap.permissionId(),
-            keccak256("sail.permission.SharedBoundedSwapPermission.v1"),
+            keccak256("sail.permission.SwapPermission.v1"),
             "swap permissionId mismatch"
         );
         assertEq(
             borrow.permissionId(),
-            keccak256("sail.permission.SharedBoundedBorrowPermission.v1"),
+            keccak256("sail.permission.BorrowPermission.v1"),
             "borrow permissionId mismatch"
         );
         assertEq(
             transfer.permissionId(),
-            keccak256("sail.permission.SharedTransferTargetPermission.v1"),
+            keccak256("sail.permission.TransferPermission.v1"),
             "transfer permissionId mismatch"
         );
         assertEq(
@@ -301,7 +301,7 @@ contract PermissionIntrospectionTest is Test {
         );
         assertEq(
             batch.permissionId(),
-            keccak256("sail.permission.SharedApproveAndCallBatchPermission.v1"),
+            keccak256("sail.permission.ApproveAndCallBatchPermission.v1"),
             "batch permissionId mismatch"
         );
     }

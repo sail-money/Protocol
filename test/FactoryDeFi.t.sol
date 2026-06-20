@@ -2,9 +2,9 @@
 pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import "../contracts/templates/shared/SharedTransferTargetPermission.sol";
-import "../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
+import "../contracts/templates/shared/SwapPermission.sol";
+import "../contracts/templates/shared/TransferPermission.sol";
+import "../contracts/templates/shared/BorrowPermission.sol";
 import "../contracts/interfaces/IOracle.sol";
 
 /// @notice DeFi end-to-end scenarios exercising:
@@ -29,18 +29,18 @@ contract FactoryDeFiTest is FactoryTestBase {
     address constant BENEFICIARY = address(0xBEE0);
 
     // ── stack components ─────────────────────────────────────────────────────
-    SharedBoundedSwapPermission     internal swapTemplate;
-    SharedTransferTargetPermission  internal transferTemplate;
-    SharedBoundedBorrowPermission   internal borrowTemplate;
+    SwapPermission     internal swapTemplate;
+    TransferPermission  internal transferTemplate;
+    BorrowPermission   internal borrowTemplate;
 
     // Second Safe — shares same template deployments
     MockSafe internal safeB;
 
     function setUp() public override {
         super.setUp();
-        swapTemplate     = new SharedBoundedSwapPermission(address(kernel));
-        transferTemplate = new SharedTransferTargetPermission(address(kernel));
-        borrowTemplate   = new SharedBoundedBorrowPermission(address(kernel));
+        swapTemplate     = new SwapPermission(address(kernel), address(0xA11CE));
+        transferTemplate = new TransferPermission(address(kernel), address(0xA11CE));
+        borrowTemplate   = new BorrowPermission(address(kernel), address(0xA11CE));
 
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
@@ -320,11 +320,11 @@ contract FactoryDeFiTest is FactoryTestBase {
         assertTrue(swapTemplate.isAllowedTokenOut(address(safeB), DAI));
 
         // A's agent can swap WETH→USDC
-        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 4 ether, 0);
+        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 4 ether, 1);
         _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B's agent can swap WETH→DAI
-        bytes memory dataB = _v3Swap(WETH, DAI, address(safeB), 15 ether, 0);
+        bytes memory dataB = _v3Swap(WETH, DAI, address(safeB), 15 ether, 1);
         _dispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB);
 
         assertEq(safe.callCount(),  1);
@@ -387,11 +387,11 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         // Verify dispatch behaviour matches the new caps
         // A: 50 ETH passes
-        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 50 ether, 0);
+        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 50 ether, 1);
         _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B: 50 ETH fails (over its 5 ETH cap)
-        bytes memory dataB = _v3Swap(WETH, USDC, address(safeB), 50 ether, 0);
+        bytes memory dataB = _v3Swap(WETH, USDC, address(safeB), 50 ether, 1);
         uint256 nonce    = kernel.managerNonces(address(safeB));
         bytes memory sig = _signDispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB, nonce, deadline);
         vm.expectRevert(

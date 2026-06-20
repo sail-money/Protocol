@@ -2,12 +2,12 @@
 pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import "../contracts/templates/shared/SharedTransferTargetPermission.sol";
+import "../contracts/templates/shared/SwapPermission.sol";
+import "../contracts/templates/shared/TransferPermission.sol";
 
 contract MandateFactoryTest is FactoryTestBase {
-    SharedBoundedSwapPermission         internal swap;
-    SharedTransferTargetPermission       internal transfer;
+    SwapPermission         internal swap;
+    TransferPermission       internal transfer;
 
     address constant ROUTER = address(0xCC01);
     address constant WETH   = address(0xCC02);
@@ -16,8 +16,8 @@ contract MandateFactoryTest is FactoryTestBase {
 
     function setUp() public override {
         super.setUp();
-        swap     = new SharedBoundedSwapPermission(address(kernel));
-        transfer = new SharedTransferTargetPermission(address(kernel));
+        swap     = new SwapPermission(address(kernel), address(0xA11CE));
+        transfer = new TransferPermission(address(kernel), address(0xA11CE));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ contract MandateFactoryTest is FactoryTestBase {
         assertTrue(kernel.isPermissionRegistered(address(safe), address(swap)));
 
         // Deploy a second swap permission (different bytecode address) and replace
-        SharedBoundedSwapPermission swap2 = new SharedBoundedSwapPermission(address(kernel));
+        SwapPermission swap2 = new SwapPermission(address(kernel), address(0xA11CE));
         bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 10 ether, 0, address(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swap2, address(safe), params, deadline, PERM_SIGNER_KEY);

@@ -7,8 +7,8 @@ import {SailGovernance}    from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}  from "./support/TimelockDeployer.sol";
 import {Context}           from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {SharedApproveAndCallBatchPermission}   from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
-import {SharedTransferTargetPermission}        from "../contracts/templates/shared/SharedTransferTargetPermission.sol";
+import {ApproveAndCallBatchPermission}   from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {TransferPermission}        from "../contracts/templates/shared/TransferPermission.sol";
 
 // =============================================================================
 // Forwarding mock Safe — actually executes inner calls so allowances/balances move.
@@ -174,7 +174,7 @@ contract BatchDispatchTest is Test {
     SailKernel     internal kernel;
     ForwardingMockSafe internal safe;
 
-    SharedApproveAndCallBatchPermission internal batchPerm;
+    ApproveAndCallBatchPermission internal batchPerm;
     MockERC20  internal tokenA;
     MockERC20  internal tokenB;
     MockRouter internal router;
@@ -214,7 +214,7 @@ contract BatchDispatchTest is Test {
         tokenB.mint(address(safe), 10_000 ether);
 
         router    = new MockRouter();
-        batchPerm = new SharedApproveAndCallBatchPermission(address(kernel));
+        batchPerm = new ApproveAndCallBatchPermission(address(kernel), address(0xA11CE));
 
         // Register the batch template on the account.
         _registerPermission(address(safe), address(batchPerm));
@@ -276,14 +276,14 @@ contract BatchDispatchTest is Test {
     }
 
     function _configureDefault() internal {
-        SharedApproveAndCallBatchPermission.Config memory cfg = _defaultConfig();
+        ApproveAndCallBatchPermission.Config memory cfg = _defaultConfig();
         bytes memory params = abi.encode(cfg);
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signConfigure(address(safe), params, deadline);
         batchPerm.configure(address(safe), params, deadline, sig);
     }
 
-    function _defaultConfig() internal view returns (SharedApproveAndCallBatchPermission.Config memory cfg) {
+    function _defaultConfig() internal view returns (ApproveAndCallBatchPermission.Config memory cfg) {
         cfg.tokens = new address[](1);
         cfg.tokens[0] = address(tokenA);
         cfg.spenders = new address[](1);
@@ -511,7 +511,7 @@ contract BatchDispatchTest is Test {
     }
 
     function test_Kernel_RejectPermissionNotRegistered() public {
-        SharedApproveAndCallBatchPermission unreg = new SharedApproveAndCallBatchPermission(address(kernel));
+        ApproveAndCallBatchPermission unreg = new ApproveAndCallBatchPermission(address(kernel), address(0xA11CE));
         Call[] memory calls = _buildHappyBatch(10 ether);
         uint256 nonce = kernel.batchNonces(address(safe));
         uint256 deadline = block.timestamp + 1 hours;
@@ -522,7 +522,7 @@ contract BatchDispatchTest is Test {
 
     function test_Kernel_RejectNonBatchPermission() public {
         // Register an existing IPermission template that does NOT implement IBatchPermission.
-        SharedTransferTargetPermission nonBatch = new SharedTransferTargetPermission(address(kernel));
+        TransferPermission nonBatch = new TransferPermission(address(kernel), address(0xA11CE));
         _registerPermission(address(safe), address(nonBatch));
 
         Call[] memory calls = _buildHappyBatch(10 ether);
@@ -754,7 +754,7 @@ contract BatchDispatchTest is Test {
             _bytecodeContainsBytes4(code, multiSendSel),
             "kernel bytecode must not contain MultiSend selector"
         );
-        // Also check the SharedApproveAndCallBatchPermission template
+        // Also check the ApproveAndCallBatchPermission template
         bytes memory tplCode = address(batchPerm).code;
         assertFalse(
             _bytecodeContainsBytes4(tplCode, multiSendSel),
@@ -771,7 +771,7 @@ contract BatchDispatchTest is Test {
         // then exercise the existing dispatch() path. (Setup already has batchPerm
         // registered; we register a transfer-target permission to make it the
         // active gate for the single dispatch path.)
-        SharedTransferTargetPermission tt = new SharedTransferTargetPermission(address(kernel));
+        TransferPermission tt = new TransferPermission(address(kernel), address(0xA11CE));
         _registerPermission(address(safe), address(tt));
 
         // We can't successfully dispatch through `tt` here because batchPerm is also

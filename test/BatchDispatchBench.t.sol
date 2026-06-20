@@ -7,7 +7,7 @@ import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import {Context}        from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {SharedApproveAndCallBatchPermission}   from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
+import {ApproveAndCallBatchPermission}   from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 
 // Re-uses the forwarding Safe / mock router / mock ERC20 from BatchDispatch.t.sol
 // by re-declaring minimal versions here. Keep this file standalone so snapshot
@@ -77,7 +77,7 @@ contract BatchDispatchBenchmark is Test {
     BenchSafe      internal safe;
     BenchERC20     internal token;
     BenchRouter    internal router;
-    SharedApproveAndCallBatchPermission internal batchPerm;
+    ApproveAndCallBatchPermission internal batchPerm;
     BenchAllowBatch internal allowPerm;
 
     address internal permSigner;
@@ -105,7 +105,7 @@ contract BatchDispatchBenchmark is Test {
         token.mint(address(safe), 10_000 ether);
         router = new BenchRouter();
 
-        batchPerm = new SharedApproveAndCallBatchPermission(address(kernel));
+        batchPerm = new ApproveAndCallBatchPermission(address(kernel), address(0xA11CE));
         allowPerm = new BenchAllowBatch();
 
         _register(address(batchPerm));
@@ -122,7 +122,7 @@ contract BatchDispatchBenchmark is Test {
     }
 
     function _configure() internal {
-        SharedApproveAndCallBatchPermission.Config memory cfg;
+        ApproveAndCallBatchPermission.Config memory cfg;
         cfg.tokens = new address[](1);             cfg.tokens[0] = address(token);
         cfg.spenders = new address[](1);           cfg.spenders[0] = address(router);
         cfg.consumingTargets = new address[](1);   cfg.consumingTargets[0] = address(router);
@@ -188,7 +188,7 @@ contract BatchDispatchBenchmark is Test {
     }
 
     /// @notice Equivalent 3 separate single dispatch() calls for comparison.
-    ///         Note: the SharedApproveAndCallBatchPermission template's `evaluate`
+    ///         Note: the ApproveAndCallBatchPermission template's `evaluate`
     ///         returns false (batch-only), so single dispatch with it would deny.
     ///         For a fair "what if you did the same calls one at a time" comparison
     ///         we need a permission that allows each of the three calls individually.

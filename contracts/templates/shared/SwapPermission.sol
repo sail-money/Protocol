@@ -8,7 +8,7 @@ import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Multi-account variant of BoundedSwapPermission. One deployment serves any
+/// @notice Reference swap permission (Uniswap V3 / V3-02 / V2). One deployment serves any
 ///         number of accounts; each account stores its own routers, token allowlists,
 ///         amount cap, slippage tolerance, and oracle.
 ///
@@ -22,7 +22,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   priceOracle,
 ///                 uint256   maxPriceAgeSec
 ///             )
-contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntrospection {
+contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) — V3 SwapRouter (with deadline)
     bytes4 private constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
     // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160)) — V3 SwapRouter02 (no deadline)
@@ -49,11 +49,16 @@ contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntro
     mapping(address account => mapping(address => bool)) public isAllowedTokenIn;
     mapping(address account => mapping(address => bool)) public isAllowedTokenOut;
 
+    /// @notice Tooling-layer attribution for the template author. The kernel never reads this.
+    address public immutable author;
+
     error SlippageBpsTooLarge(uint256 bps);
 
-    constructor(address _kernel)
-        ConfigurablePermission(_kernel, "SharedBoundedSwapPermission", "1")
-    {}
+    constructor(address _kernel, address _author)
+        ConfigurablePermission(_kernel, "SwapPermission", "1")
+    {
+        author = _author;
+    }
 
     // ── view helpers ──────────────────────────────────────────────────────────
 
@@ -179,7 +184,7 @@ contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntro
     }
 
     function discriminator() external pure returns (bytes32) {
-        return keccak256("SharedBoundedSwapPermission");
+        return keccak256("SwapPermission");
     }
 
     // ── internal ──────────────────────────────────────────────────────────────
@@ -191,11 +196,21 @@ contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntro
         uint256 amountIn,
         uint256 amountOutMin
     ) internal view returns (bool) {
-        if (s.priceOracle == address(0) || s.maxSlippageBps == 0) return true;
+        // No oracle configured: the template cannot derive a price floor on-chain. Rather than
+        // fail open (which would let a manager pass amountOutMin = 0 and be sandwiched), require
+        // a non-zero caller-supplied minimum-out. The manager remains responsible for choosing a
+        // sane value; the template guarantees only that it is not zero.
+        if (s.priceOracle == address(0)) {
+            return amountOutMin > 0;
+        }
+
+        // Oracle configured: ALWAYS enforce the band. maxSlippageBps == 0 is treated as zero
+        // tolerance (exact-out-or-better) — the strictest valid setting, never a bypass.
         // On L2s, check sequencer-uptime first.
         (uint256 price, uint8 dec, uint256 updatedAt) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (s.maxPriceAgeSec > 0 && (updatedAt == 0 || block.timestamp - updatedAt > s.maxPriceAgeSec)) return false;
         if (price == 0) return false;
+        if (dec > 77) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
         return amountOutMin >= oracleMinOut;
@@ -204,7 +219,7 @@ contract SharedBoundedSwapPermission is ConfigurablePermission, IPermissionIntro
     // ── IPermissionIntrospection ──────────────────────────────────────────────
 
     function permissionId() external pure override returns (bytes32) {
-        return keccak256("sail.permission.SharedBoundedSwapPermission.v1");
+        return keccak256("sail.permission.SwapPermission.v1");
     }
 
     function permissionVersion() external pure override returns (bytes32) {

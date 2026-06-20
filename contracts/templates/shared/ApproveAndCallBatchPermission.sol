@@ -26,7 +26,18 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///
 /// @dev    Decoding philosophy: every decode is bounds-checked. Malformed
 ///         calldata reverts. The kernel treats a revert as denial (fail-closed).
-contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermission, IPermissionIntrospection {
+///
+/// @dev    KNOWN BOUNDARY (output recipient is NOT constrained): the approve →
+///         consume → reset bracket bounds the allowance — how much the spender may
+///         pull (≤ the per-token cap) — and guarantees the allowance is reset to
+///         zero in the same atomic batch. It does NOT constrain where the consuming
+///         call (calls[1]) delivers its output: that field is venue/selector-specific
+///         and is intentionally not decoded (a fixed-offset decode would be fragile
+///         and unsafe across venues). Operators MUST only allowlist
+///         (consumingTarget, consumingSelector) pairs whose semantics they trust to
+///         deliver output to the account, or pair this template with a separate
+///         permission that constrains the destination.
+contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermission, IPermissionIntrospection {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
@@ -88,9 +99,14 @@ contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPe
     error EmptyAllowlist();
     error AllowlistTooLong();
 
-    constructor(address _kernel)
-        ConfigurablePermission(_kernel, "SharedApproveAndCallBatchPermission", "1")
-    {}
+    /// @notice Tooling-layer attribution for the template author. The kernel never reads this.
+    address public immutable author;
+
+    constructor(address _kernel, address _author)
+        ConfigurablePermission(_kernel, "ApproveAndCallBatchPermission", "1")
+    {
+        author = _author;
+    }
 
     // -------------------------------------------------------------------------
     // View accessors
@@ -167,7 +183,7 @@ contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPe
 
     /// @inheritdoc IPermission
     function discriminator() external pure returns (bytes32) {
-        return keccak256("SharedApproveAndCallBatchPermission");
+        return keccak256("ApproveAndCallBatchPermission");
     }
 
     // -------------------------------------------------------------------------
@@ -189,6 +205,9 @@ contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPe
     ///      Any deviation — wrong length, wrong token/spender/target/selector, amount above cap,
     ///      amount mismatch (when configured), non-zero reset, malformed calldata — causes the
     ///      function to return false or revert (kernel treats either as denial).
+    ///
+    ///      NOTE: the output recipient of calls[1] is NOT validated here — see the contract-level
+    ///      "KNOWN BOUNDARY" note. This bracket bounds the allowance, not the output destination.
     function evaluateBatch(Call[] calldata calls, BatchContext calldata ctx)
         external
         view
@@ -262,7 +281,7 @@ contract SharedApproveAndCallBatchPermission is ConfigurablePermission, IBatchPe
     // ── IPermissionIntrospection ──────────────────────────────────────────────
 
     function permissionId() external pure override returns (bytes32) {
-        return keccak256("sail.permission.SharedApproveAndCallBatchPermission.v1");
+        return keccak256("sail.permission.ApproveAndCallBatchPermission.v1");
     }
 
     function permissionVersion() external pure override returns (bytes32) {

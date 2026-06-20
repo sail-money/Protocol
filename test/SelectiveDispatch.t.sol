@@ -8,13 +8,13 @@ import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
 import {ConfigurablePermission} from "../contracts/templates/shared/ConfigurablePermission.sol";
-import {SharedBoundedSwapPermission}     from "../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import {SharedBoundedBorrowPermission}   from "../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
-import {SharedTransferTargetPermission}  from "../contracts/templates/shared/SharedTransferTargetPermission.sol";
+import {SwapPermission}     from "../contracts/templates/shared/SwapPermission.sol";
+import {BorrowPermission}   from "../contracts/templates/shared/BorrowPermission.sol";
+import {TransferPermission}  from "../contracts/templates/shared/TransferPermission.sol";
 import {SharedDeFiBundlePermission}      from "../contracts/experimental/SharedDeFiBundlePermission.sol";
 import {SharedAMMLiquidityPermission}    from "../contracts/experimental/SharedAMMLiquidityPermission.sol";
 import {SharedPendlePermission}          from "../contracts/experimental/SharedPendlePermission.sol";
-import {SharedApproveAndCallBatchPermission} from "../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
+import {ApproveAndCallBatchPermission} from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 import {IOracle}              from "../contracts/interfaces/IOracle.sol";
 
 // =============================================================================
@@ -134,9 +134,9 @@ contract SelectiveDispatchTest is Test {
     bytes4 internal constant TRANSFER_SELECTOR = 0xa9059cbb;
 
     // ── deployed templates ────────────────────────────────────────────────────
-    SharedBoundedSwapPermission    internal swapPerm;
-    SharedBoundedBorrowPermission  internal borrowPerm;
-    SharedTransferTargetPermission internal transferPerm;
+    SwapPermission    internal swapPerm;
+    BorrowPermission  internal borrowPerm;
+    TransferPermission internal transferPerm;
 
     // ── setup ─────────────────────────────────────────────────────────────────
 
@@ -158,9 +158,9 @@ contract SelectiveDispatchTest is Test {
         kernel.registerAccount(permSigner, manager, address(0), address(0));
 
         // Deploy templates (shared, multi-account)
-        swapPerm     = new SharedBoundedSwapPermission(address(kernel));
-        borrowPerm   = new SharedBoundedBorrowPermission(address(kernel));
-        transferPerm = new SharedTransferTargetPermission(address(kernel));
+        swapPerm     = new SwapPermission(address(kernel), address(0xA11CE));
+        borrowPerm   = new BorrowPermission(address(kernel), address(0xA11CE));
+        transferPerm = new TransferPermission(address(kernel), address(0xA11CE));
     }
 
     // =========================================================================
@@ -318,7 +318,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(borrowPerm));
         _registerPermission(address(transferPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         _dispatch(address(swapPerm), UNI_ROUTER, 0, swapData);
         assertEq(safe.callCount(), 1, "swap call not executed");
     }
@@ -360,7 +360,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(borrowPerm));
         _registerPermission(address(transferPerm));
 
-        _dispatch(address(swapPerm),    UNI_ROUTER,   0, _buildSwapData(100e18, 0));
+        _dispatch(address(swapPerm),    UNI_ROUTER,   0, _buildSwapData(100e18, 1));
         _dispatch(address(borrowPerm),  AAVE_POOL,    0, _buildBorrowData(500e18));
         _dispatch(address(transferPerm), TRANSFER_TKN, 0, _buildTransferData(100e18));
 
@@ -381,7 +381,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(swapPerm));
         _registerPermission(address(borrowPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(borrowPerm), UNI_ROUTER, 0, swapData, nonce, deadline);
@@ -395,7 +395,7 @@ contract SelectiveDispatchTest is Test {
     /// @dev Test 7: Dispatch with an unregistered permission address → PermissionNotRegistered.
     function test_7_UnregisteredPermission_Reverts() public {
         address unregistered = address(new MockPermission());
-        bytes memory data    = _buildSwapData(100e18, 0);
+        bytes memory data    = _buildSwapData(100e18, 1);
         uint256 deadline     = block.timestamp + 1 hours;
         uint256 nonce        = kernel.managerNonces(address(safe));
         bytes memory sig     = _signDispatch(address(safe), unregistered, UNI_ROUTER, 0, data, nonce, deadline);
@@ -408,7 +408,7 @@ contract SelectiveDispatchTest is Test {
 
     /// @dev Test 8: Dispatch with permission = address(0) → PermissionNotRegistered(address(0)).
     function test_8_ZeroPermission_Reverts() public {
-        bytes memory data = _buildSwapData(100e18, 0);
+        bytes memory data = _buildSwapData(100e18, 1);
         uint256 deadline  = block.timestamp + 1 hours;
         uint256 nonce     = kernel.managerNonces(address(safe));
         bytes memory sig  = _signDispatch(address(safe), address(0), UNI_ROUTER, 0, data, nonce, deadline);
@@ -431,7 +431,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(swapPerm));
         _registerPermission(address(borrowPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -449,7 +449,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -480,7 +480,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -540,18 +540,18 @@ contract SelectiveDispatchTest is Test {
     // SECTION 6: EXISTING TEMPLATES STILL WORK
     // =========================================================================
 
-    /// @dev Test 13a: SharedBoundedSwapPermission — dispatch valid V3 swap.
-    function test_13a_Template_SharedBoundedSwap_Dispatches() public {
+    /// @dev Test 13a: SwapPermission — dispatch valid V3 swap.
+    function test_13a_Template_Swap_Dispatches() public {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory data = _buildSwapData(100e18, 0);
+        bytes memory data = _buildSwapData(100e18, 1);
         _dispatch(address(swapPerm), UNI_ROUTER, 0, data);
         assertEq(safe.callCount(), 1, "swap dispatch failed");
     }
 
-    /// @dev Test 13b: SharedBoundedBorrowPermission — dispatch valid Aave borrow.
-    function test_13b_Template_SharedBoundedBorrow_Dispatches() public {
+    /// @dev Test 13b: BorrowPermission — dispatch valid Aave borrow.
+    function test_13b_Template_Borrow_Dispatches() public {
         _configureBorrow(address(safe));
         _registerPermission(address(borrowPerm));
 
@@ -560,8 +560,8 @@ contract SelectiveDispatchTest is Test {
         assertEq(safe.callCount(), 1, "borrow dispatch failed");
     }
 
-    /// @dev Test 13c: SharedTransferTargetPermission — dispatch valid ERC20 transfer.
-    function test_13c_Template_SharedTransferTarget_Dispatches() public {
+    /// @dev Test 13c: TransferPermission — dispatch valid ERC20 transfer.
+    function test_13c_Template_Transfer_Dispatches() public {
         _configureTransfer(address(safe));
         _registerPermission(address(transferPerm));
 
@@ -602,7 +602,7 @@ contract SelectiveDispatchTest is Test {
 
         _registerPermissionFor(address(bundle));
 
-        bytes memory data = _buildSwapData(100e18, 0);
+        bytes memory data = _buildSwapData(100e18, 1);
         _dispatch(address(bundle), UNI_ROUTER, 0, data);
         assertEq(safe.callCount(), 1, "bundle dispatch failed");
     }
@@ -706,7 +706,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 0);
+        bytes memory swapData = _buildSwapData(100e18, 1);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(swapPerm), UNI_ROUTER, 0, swapData, nonce, deadline);

@@ -6,8 +6,8 @@ import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospectio
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
-/// @notice Multi-account variant of TransferTargetPermission. One deployment serves any
-///         number of accounts; each account stores its own recipient and token allowlists.
+/// @notice Reference transfer permission. One deployment serves any number of accounts;
+///         each account stores its own recipient and token allowlists.
 ///
 ///         Config blob:
 ///             abi.encode(
@@ -15,12 +15,14 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///                 address[] allowedTokens,
 ///                 uint256   maxAmountPerTx
 ///             )
-contract SharedTransferTargetPermission is ConfigurablePermission, IPermissionIntrospection {
+contract TransferPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
     bytes4 private constant TRANSFERFROM_SELECTOR = 0x23b872dd;
 
     uint256 private constant LEN_TRANSFER     = 68;
     uint256 private constant LEN_TRANSFERFROM = 100;
+
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
 
     struct Slot {
         address[] recipients;
@@ -32,9 +34,17 @@ contract SharedTransferTargetPermission is ConfigurablePermission, IPermissionIn
     mapping(address account => mapping(address => bool)) public isAllowedRecipient;
     mapping(address account => mapping(address => bool)) public isAllowedToken;
 
-    constructor(address _kernel)
-        ConfigurablePermission(_kernel, "SharedTransferTargetPermission", "1")
-    {}
+    /// @notice Tooling-layer attribution for the template author. The kernel never reads this.
+    address public immutable author;
+
+    error AllowlistTooLong();
+    error EmptyAllowlist();
+
+    constructor(address _kernel, address _author)
+        ConfigurablePermission(_kernel, "TransferPermission", "1")
+    {
+        author = _author;
+    }
 
     function getConfig(address account)
         external
@@ -48,6 +58,13 @@ contract SharedTransferTargetPermission is ConfigurablePermission, IPermissionIn
     function _applyConfig(address account, bytes calldata params) internal override {
         (address[] memory recipients, address[] memory tokens, uint256 maxAmountPerTx) =
             abi.decode(params, (address[], address[], uint256));
+
+        // Config validation (reference-grade): bound array sizes, reject empty allowlists,
+        // and reject zero-address recipients/tokens. evaluate() logic is unchanged.
+        if (recipients.length > MAX_ALLOWLIST_LENGTH || tokens.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (recipients.length == 0 || tokens.length == 0) revert EmptyAllowlist();
+        for (uint256 i; i < recipients.length; i++) if (recipients[i] == address(0)) revert ZeroAddress();
+        for (uint256 i; i < tokens.length; i++)     if (tokens[i] == address(0))     revert ZeroAddress();
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.recipients.length; i++) isAllowedRecipient[account][s.recipients[i]] = false;
@@ -86,13 +103,13 @@ contract SharedTransferTargetPermission is ConfigurablePermission, IPermissionIn
     }
 
     function discriminator() external pure returns (bytes32) {
-        return keccak256("SharedTransferTargetPermission");
+        return keccak256("TransferPermission");
     }
 
     // ── IPermissionIntrospection ──────────────────────────────────────────────
 
     function permissionId() external pure override returns (bytes32) {
-        return keccak256("sail.permission.SharedTransferTargetPermission.v1");
+        return keccak256("sail.permission.TransferPermission.v1");
     }
 
     function permissionVersion() external pure override returns (bytes32) {
