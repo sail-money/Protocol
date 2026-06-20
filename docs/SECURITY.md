@@ -14,7 +14,7 @@ The **trusted core** consists of two contracts:
 | `SailGovernance` | ~200 | Protocol parameter store |
 | `IFeePolicy`, `IPermission` | ~50 combined | Interface definitions |
 
-Permission templates (`BoundedSwapPermission`, `BoundedDepositPermission`, `BoundedBorrowPermission`, `BoundedWithdrawPermission`, `TransferTargetPermission`) and fee policies (`StandardFeePolicy`) are **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
+The reference permission templates (`SwapPermission`, `BorrowPermission`, `TransferPermission`, `DepositPermission`, `WithdrawPermission`, `ApproveAndCallBatchPermission`), the experimental templates under `contracts/experimental/`, and fee policies (`StandardFeePolicy`) are all **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
 
 ---
 
@@ -155,9 +155,9 @@ The `currentNav` value in `collectFees` is provided by the manager. The kernel d
 
 ### Oracle Staleness
 
-`IOracle` does not expose an `updatedAt` timestamp. BoundedSwapPermission will accept a stale price without knowing it is stale.
+`IOracle.getPrice` returns an `updatedAt` timestamp. The reference `SwapPermission` and `BorrowPermission` reject any price older than the per-account `maxPriceAgeSec` (and require a non-zero `maxPriceAgeSec` whenever an oracle is configured). With no oracle configured, `SwapPermission` fails closed by requiring a non-zero caller-supplied `amountOutMin`.
 
-**Operator responsibility:** oracle adapters must handle staleness internally by checking `updatedAt` against a maximum age before returning a price. An oracle that silently returns a price from hours ago provides weakened slippage protection.
+**Operator responsibility:** supply an oracle adapter that sets `updatedAt` honestly and configure a sane `maxPriceAgeSec`. The template enforces the freshness bound, but cannot detect an adapter that reports a falsified `updatedAt`.
 
 ### `transferFeeManager` is Single-Step
 
@@ -165,20 +165,20 @@ Unlike the kernel's two-step governance transfer, `StandardFeePolicy.transferFee
 
 **Operator responsibility:** use a multisig as `feeManager`. Verify the new address's ability to sign before calling `transferFeeManager`.
 
-### `BoundedBorrowPermission` is Per-Tx, Not LTV-Capped
+### `BorrowPermission` LTV Enforcement Is Per-Call
 
-The borrow permission enforces a per-transaction cap only. Cumulative exposure across multiple borrow calls is not tracked on-chain.
+`BorrowPermission` evaluates an LTV ceiling at the time of each borrow when both a collateral and a borrow oracle are configured, normalising each oracle value by its reported decimals before forming the ratio. Without oracles configured, only the per-transaction amount cap applies. In both cases the evaluation is per-call: cumulative exposure across multiple borrows is not tracked on-chain.
 
-**Operator responsibility:** for LTV control, either rely on the lending protocol's own health-factor enforcement or compose the borrow permission with a position-monitoring permission that reads the protocol's borrow state via `staticcall`.
+**Operator responsibility:** configure both oracles to enforce the LTV ceiling, and rely on the lending protocol's own health-factor enforcement — or a position-monitoring permission read via `staticcall` — for cumulative-exposure control.
 
-### `transferFrom` `from` Field Not Validated
+### `transferFrom` Source Restriction
 
-Both `BoundedWithdrawPermission` and `TransferTargetPermission` do not validate the `from` field in `transferFrom` calldata. A manager can pull tokens from any address that has approved the Safe — not just the Safe's own balance.
+`WithdrawPermission` and `TransferPermission` require `from == ctx.account` on the `transferFrom` path, so tokens move only from the account itself and never from third parties that have granted the account an allowance.
 
-**Operator responsibility:** if only pulling from the Safe's own balance is intended, use the `transfer` path or deploy a custom permission that explicitly checks `from == ctx.account`.
+**Operator responsibility:** confirm the template in use enforces this restriction before relying on it. Unaudited templates under `contracts/experimental/` fall outside the launch set and may omit it; a custom permission must check `from == ctx.account` explicitly.
 
 ### V2 Intermediate Path Tokens
 
-`BoundedSwapPermission` validates only `path[0]` and `path[last]` for V2 swaps. Intermediate tokens in multi-hop paths are not checked.
+`SwapPermission` validates only `path[0]` and `path[last]` for V2 swaps. Intermediate tokens in multi-hop paths are not checked.
 
 **Operator responsibility:** ensure the full path is acceptable before enabling V2 multi-hop swaps. An intermediate token could be a honeypot or a token the operator would not otherwise permit.

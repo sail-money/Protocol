@@ -8,10 +8,9 @@
 #   mainnet | sepolia | base | base_sepolia | arbitrum | optimism
 #   plasma  | hyperliquid | unichain
 #
-# Targets (comma-separated; default: core,templates-shared,templates-standalone):
+# Targets (comma-separated; default: core,templates-shared):
 #   core                  — SailKernel, Governance, MandateFactory, StandardFeePolicy, SafeModuleEnabler
-#   templates-shared      — 7 Shared* permission singletons bound to the kernel
-#   templates-standalone  — 12 standalone permission logic contracts (EIP-1167 clone implementations)
+#   templates-shared      — 6 reference permission singletons bound to the kernel
 #
 # Flags:
 #   --fresh           Snapshot existing manifests under deployments/<chainId>/_archive/<date>/
@@ -33,7 +32,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 CHAIN="$1"; shift
-TARGETS="core,templates-shared,templates-standalone"
+TARGETS="core,templates-shared"
 NO_VERIFY=0
 DRY_RUN=0
 FRESH=0
@@ -110,7 +109,6 @@ script_for_target() {
   case "$1" in
     core)                 echo "script/core/DeployCore.s.sol:DeployCore" ;;
     templates-shared)     echo "script/templates/DeploySharedTemplates.s.sol:DeploySharedTemplates" ;;
-    templates-standalone) echo "script/templates/DeployStandaloneTemplates.s.sol:DeployStandaloneTemplates" ;;
     *)                    echo "" ;;
   esac
 }
@@ -120,12 +118,11 @@ manifest_for_target() {
   case "$1" in
     core)                 echo "${CHAIN_DIR}/core.json" ;;
     templates-shared)     echo "${CHAIN_DIR}/templates.shared.json" ;;
-    templates-standalone) echo "${CHAIN_DIR}/templates.standalone.json" ;;
     *)                    echo "" ;;
   esac
 }
 
-KNOWN_TARGETS="core templates-shared templates-standalone"
+KNOWN_TARGETS="core templates-shared"
 
 # Validate every requested target before doing anything.
 IFS=',' read -r -a TARGET_LIST <<< "$TARGETS"

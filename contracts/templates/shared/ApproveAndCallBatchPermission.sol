@@ -7,7 +7,17 @@ import {IPermissionIntrospection}             from "../../interfaces/IPermission
 import {SailCapabilities}                     from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission}                 from "./ConfigurablePermission.sol";
 
-/// @notice Shared multi-tenant batch permission for the canonical
+/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
+///         This permission is a reference example demonstrating how to express a bounded
+///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
+///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
+///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
+///         evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly
+///         enforces what its NatSpec claims. Anyone registering this permission is
+///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+///
+///         Shared multi-tenant batch permission for the canonical
 ///         "approve / consuming-call / reset-to-zero" pattern.
 ///
 /// @dev    The batch shape this template authorises is exactly:

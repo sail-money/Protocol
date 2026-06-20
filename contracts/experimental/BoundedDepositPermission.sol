@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../interfaces/IPermission.sol";
-import {CloneInitializable} from "./base/CloneInitializable.sol";
+import {CloneInitializable} from "../templates/base/CloneInitializable.sol";
 
 /// @title  BoundedDepositPermission
 /// @notice Gates ERC-20 deposits into lending and vault protocols.

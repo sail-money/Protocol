@@ -6,7 +6,17 @@ import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospectio
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
-/// @notice Reference deposit permission. One deployment serves any number of accounts;
+/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
+///         This permission is a reference example demonstrating how to express a bounded
+///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
+///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
+///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
+///         evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly
+///         enforces what its NatSpec claims. Anyone registering this permission is
+///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+///
+///         Reference deposit permission. One deployment serves any number of accounts;
 ///         each account stores its own target (protocol/vault) allowlist, token allowlist,
 ///         and per-tx amount cap.
 ///
@@ -14,6 +24,8 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         credits the account itself (receiver / onBehalfOf == ctx.account) — never an
 ///         arbitrary address — within the per-tx cap, into an allowlisted target with an
 ///         allowlisted token. Native ETH is rejected (no supported selector is payable).
+///         Deposits ERC-20 tokens only (including WETH); native ETH is not accepted — wrap
+///         to WETH first. Calls carrying msg.value are rejected.
 ///
 ///         Supported selectors and calldata layouts:
 ///           deposit(uint256 assets, address receiver)                  — ERC-4626 / simple vault

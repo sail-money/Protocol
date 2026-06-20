@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import {Test}                     from "forge-std/Test.sol";
-import {BoundedWithdrawPermission} from "../contracts/templates/BoundedWithdrawPermission.sol";
-import {Context}                  from "../contracts/interfaces/IPermission.sol";
+import {BoundedWithdrawPermission} from "../../contracts/experimental/BoundedWithdrawPermission.sol";
+import {Context}                  from "../../contracts/interfaces/IPermission.sol";
 import {Clones}                   from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract BoundedWithdrawPermissionTest is Test {

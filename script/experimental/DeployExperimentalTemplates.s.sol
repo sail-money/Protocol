@@ -8,11 +8,13 @@ import {ManifestIO}       from "../lib/ManifestIO.sol";
 import {AzuroPredictionPermission}       from "../../contracts/experimental/AzuroPredictionPermission.sol";
 import {BoundedApprovePermission}        from "../../contracts/experimental/BoundedApprovePermission.sol";
 import {BoundedBorrowPermission}         from "../../contracts/experimental/BoundedBorrowPermission.sol";
+import {BoundedDepositPermission}        from "../../contracts/experimental/BoundedDepositPermission.sol";
 import {BoundedLiFiPermission}           from "../../contracts/experimental/BoundedLiFiPermission.sol";
 import {BoundedSwapPermission}           from "../../contracts/experimental/BoundedSwapPermission.sol";
 import {GMXPerpPermission}               from "../../contracts/experimental/GMXPerpPermission.sol";
 import {GainsNetworkPerpPermission}      from "../../contracts/experimental/GainsNetworkPerpPermission.sol";
 import {LimitlessPredictionPermission}   from "../../contracts/experimental/LimitlessPredictionPermission.sol";
+import {BoundedWithdrawPermission}       from "../../contracts/experimental/BoundedWithdrawPermission.sol";
 import {SynthetixPerpPermission}         from "../../contracts/experimental/SynthetixPerpPermission.sol";
 import {TransferTargetPermission}        from "../../contracts/experimental/TransferTargetPermission.sol";
 
@@ -40,8 +42,10 @@ contract DeployExperimentalTemplates is Script {
         AzuroPredictionPermission       azuroPrediction;
         BoundedApprovePermission        boundedApprove;
         BoundedBorrowPermission         boundedBorrow;
+        BoundedDepositPermission        boundedDeposit;
         BoundedLiFiPermission           boundedLiFi;
         BoundedSwapPermission           boundedSwap;
+        BoundedWithdrawPermission       boundedWithdraw;
         GMXPerpPermission               gmxPerp;
         GainsNetworkPerpPermission      gainsNetworkPerp;
         LimitlessPredictionPermission   limitlessPrediction;
@@ -69,8 +73,10 @@ contract DeployExperimentalTemplates is Script {
         d.azuroPrediction     = new AzuroPredictionPermission();
         d.boundedApprove      = new BoundedApprovePermission();
         d.boundedBorrow       = new BoundedBorrowPermission();
+        d.boundedDeposit      = new BoundedDepositPermission();
         d.boundedLiFi         = new BoundedLiFiPermission();
         d.boundedSwap         = new BoundedSwapPermission();
+        d.boundedWithdraw     = new BoundedWithdrawPermission();
         d.gmxPerp             = new GMXPerpPermission();
         d.gainsNetworkPerp    = new GainsNetworkPerpPermission();
         d.limitlessPrediction = new LimitlessPredictionPermission();
@@ -86,8 +92,10 @@ contract DeployExperimentalTemplates is Script {
         console2.log("AzuroPredictionPermission     :", address(d.azuroPrediction));
         console2.log("BoundedApprovePermission      :", address(d.boundedApprove));
         console2.log("BoundedBorrowPermission       :", address(d.boundedBorrow));
+        console2.log("BoundedDepositPermission      :", address(d.boundedDeposit));
         console2.log("BoundedLiFiPermission         :", address(d.boundedLiFi));
         console2.log("BoundedSwapPermission         :", address(d.boundedSwap));
+        console2.log("BoundedWithdrawPermission     :", address(d.boundedWithdraw));
         console2.log("GMXPerpPermission             :", address(d.gmxPerp));
         console2.log("GainsNetworkPerpPermission    :", address(d.gainsNetworkPerp));
         console2.log("LimitlessPredictionPermission :", address(d.limitlessPrediction));
@@ -107,8 +115,10 @@ contract DeployExperimentalTemplates is Script {
         vm.serializeAddress(k, "azuroPrediction",     address(d.azuroPrediction));
         vm.serializeAddress(k, "boundedApprove",      address(d.boundedApprove));
         vm.serializeAddress(k, "boundedBorrow",       address(d.boundedBorrow));
+        vm.serializeAddress(k, "boundedDeposit",      address(d.boundedDeposit));
         vm.serializeAddress(k, "boundedLiFi",         address(d.boundedLiFi));
         vm.serializeAddress(k, "boundedSwap",         address(d.boundedSwap));
+        vm.serializeAddress(k, "boundedWithdraw",     address(d.boundedWithdraw));
         vm.serializeAddress(k, "gmxPerp",             address(d.gmxPerp));
         vm.serializeAddress(k, "gainsNetworkPerp",    address(d.gainsNetworkPerp));
         vm.serializeAddress(k, "limitlessPrediction", address(d.limitlessPrediction));
