@@ -6,8 +6,10 @@ import {ManifestIO}       from "../lib/ManifestIO.sol";
 
 import {ApproveAndCallBatchPermission} from "../../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 import {BorrowPermission}              from "../../contracts/templates/shared/BorrowPermission.sol";
+import {DepositPermission}             from "../../contracts/templates/shared/DepositPermission.sol";
 import {SwapPermission}                from "../../contracts/templates/shared/SwapPermission.sol";
 import {TransferPermission}            from "../../contracts/templates/shared/TransferPermission.sol";
+import {WithdrawPermission}            from "../../contracts/templates/shared/WithdrawPermission.sol";
 
 /// @notice Shared permission template deployment.
 ///
@@ -32,8 +34,10 @@ contract DeploySharedTemplates is Script {
         address kernel;
         ApproveAndCallBatchPermission approveAndCallBatch;
         BorrowPermission              borrow;
+        DepositPermission             deposit;
         SwapPermission                swap;
         TransferPermission            transfer;
+        WithdrawPermission            withdraw;
     }
 
     function run() external returns (Deployment memory d) {
@@ -53,15 +57,19 @@ contract DeploySharedTemplates is Script {
 
         d.approveAndCallBatch = new ApproveAndCallBatchPermission(d.kernel, author);
         d.borrow              = new BorrowPermission(d.kernel, author);
+        d.deposit             = new DepositPermission(d.kernel, author);
         d.swap                = new SwapPermission(d.kernel, author);
         d.transfer            = new TransferPermission(d.kernel, author);
+        d.withdraw            = new WithdrawPermission(d.kernel, author);
 
         vm.stopBroadcast();
 
         console2.log("ApproveAndCallBatchPermission :", address(d.approveAndCallBatch));
         console2.log("BorrowPermission              :", address(d.borrow));
+        console2.log("DepositPermission             :", address(d.deposit));
         console2.log("SwapPermission                :", address(d.swap));
         console2.log("TransferPermission            :", address(d.transfer));
+        console2.log("WithdrawPermission            :", address(d.withdraw));
 
         _writeManifest(deployer, d);
     }
@@ -72,9 +80,11 @@ contract DeploySharedTemplates is Script {
         vm.serializeAddress(k, "kernel", d.kernel);
         vm.serializeAddress(k, "approveAndCallBatch", address(d.approveAndCallBatch));
         vm.serializeAddress(k, "borrow",              address(d.borrow));
+        vm.serializeAddress(k, "deposit",             address(d.deposit));
         vm.serializeAddress(k, "swap",                address(d.swap));
+        vm.serializeAddress(k, "transfer",            address(d.transfer));
         string memory json =
-            vm.serializeAddress(k, "transfer",        address(d.transfer));
+            vm.serializeAddress(k, "withdraw",        address(d.withdraw));
 
         ManifestIO.write(block.chainid, TARGET, json);
         console2.log("wrote", ManifestIO.manifestPath(block.chainid, TARGET));

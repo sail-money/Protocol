@@ -53,6 +53,18 @@ library SailCapabilities {
     bytes32 internal constant BATCH_DISPATCH =
         keccak256("sail.capability.batch-dispatch.v1");
 
+    /// @notice Capability declared by DepositPermission.
+    ///         Gates ERC-4626 / Aave-style deposits, pinning the receiver to the account
+    ///         with target + token allowlists and a per-tx amount cap.
+    bytes32 internal constant DEPOSIT =
+        keccak256("sail.capability.deposit.v1");
+
+    /// @notice Capability declared by WithdrawPermission.
+    ///         Gates ERC-20 transfer / transferFrom so funds only reach the account's
+    ///         configured recipient, within a per-tx amount cap.
+    bytes32 internal constant WITHDRAW =
+        keccak256("sail.capability.withdraw.v1");
+
     /// @dev Declared by templates that implement IAgentIdentityResolver or
     ///      IAccountAgentIdentityResolver. Signals to consumers that this template
     ///      can surface agent identity metadata for off-chain discovery and indexing.
