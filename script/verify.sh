@@ -256,18 +256,22 @@ verify_shared_templates() {
   local kernel
   kernel=$(jq_read "$m" '.kernel')
 
-  # All shared templates take exactly (address kernel) — encode once.
+  # NOTE: the experimental shared templates (amm/defiBundle/pendle) take (address kernel).
+  # The reference templates (approveAndCallBatch/borrow/swap/transfer) now take
+  # (address kernel, address author) — their verification requires re-encoding the
+  # constructor args with the author used at deploy time. The single-arg encoding below
+  # is correct only for the experimental entries; pass per-entry args for the reference set.
   local kernel_args
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 
   local pairs=(
     "sharedAmmLiquidity|contracts/experimental/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
-    "sharedApproveAndCallBatch|contracts/templates/shared/SharedApproveAndCallBatchPermission.sol:SharedApproveAndCallBatchPermission"
-    "sharedBoundedBorrow|contracts/templates/shared/SharedBoundedBorrowPermission.sol:SharedBoundedBorrowPermission"
-    "sharedBoundedSwap|contracts/templates/shared/SharedBoundedSwapPermission.sol:SharedBoundedSwapPermission"
+    "approveAndCallBatch|contracts/templates/shared/ApproveAndCallBatchPermission.sol:ApproveAndCallBatchPermission"
+    "borrow|contracts/templates/shared/BorrowPermission.sol:BorrowPermission"
+    "swap|contracts/templates/shared/SwapPermission.sol:SwapPermission"
     "sharedDeFiBundle|contracts/experimental/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
     "sharedPendle|contracts/experimental/SharedPendlePermission.sol:SharedPendlePermission"
-    "sharedTransferTarget|contracts/templates/shared/SharedTransferTargetPermission.sol:SharedTransferTargetPermission"
+    "transfer|contracts/templates/shared/TransferPermission.sol:TransferPermission"
   )
 
   for pair in "${pairs[@]}"; do

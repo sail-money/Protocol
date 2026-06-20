@@ -8,8 +8,8 @@ import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @notice Multi-account variant of BoundedBorrowPermission. One deployment serves any
-///         number of accounts. Supports Aave V3, Morpho, and Compound V2 borrow selectors.
+/// @notice Reference borrow permission. One deployment serves any number of accounts.
+///         Supports Aave V3, Morpho, and Compound V2 borrow selectors.
 ///
 ///         Config blob:
 ///             abi.encode(
@@ -21,7 +21,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///                 address   borrowOracle,
 ///                 uint256   maxPriceAgeSec
 ///             )
-contract SharedBoundedBorrowPermission is ConfigurablePermission, IPermissionIntrospection {
+contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
@@ -44,11 +44,16 @@ contract SharedBoundedBorrowPermission is ConfigurablePermission, IPermissionInt
     mapping(address account => mapping(address => bool)) public isAllowedProtocol;
     mapping(address account => mapping(address => bool)) public isAllowedAsset;
 
+    /// @notice Tooling-layer attribution for the template author. The kernel never reads this.
+    address public immutable author;
+
     error LtvBpsTooLarge(uint256 bps);
 
-    constructor(address _kernel)
-        ConfigurablePermission(_kernel, "SharedBoundedBorrowPermission", "1")
-    {}
+    constructor(address _kernel, address _author)
+        ConfigurablePermission(_kernel, "BorrowPermission", "1")
+    {
+        author = _author;
+    }
 
     function getConfig(address account)
         external
@@ -138,7 +143,7 @@ contract SharedBoundedBorrowPermission is ConfigurablePermission, IPermissionInt
     }
 
     function discriminator() external pure returns (bytes32) {
-        return keccak256("SharedBoundedBorrowPermission");
+        return keccak256("BorrowPermission");
     }
 
     function _ltvCheck(Slot storage s, address asset, uint256 amount, address account)
@@ -160,15 +165,22 @@ contract SharedBoundedBorrowPermission is ConfigurablePermission, IPermissionInt
         if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
+        // Normalise both oracle values to unitless quantities before forming the ratio:
+        //   borrowScaled = amount * borPrice / 10^borDec
+        //   colNorm      = colValue / 10^colDec
+        // Dividing by raw colValue (ignoring colDec) would understate LTV by 10^colDec and
+        // silently defeat the ceiling whenever the collateral oracle reports non-zero decimals.
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colValue);
+        uint256 colNorm      = colValue / (10 ** uint256(colDec));
+        if (colNorm == 0) return false; // colValue too small vs precision — fail-closed
+        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
         return ltvBps <= s.maxLtvBps;
     }
 
     // ── IPermissionIntrospection ──────────────────────────────────────────────
 
     function permissionId() external pure override returns (bytes32) {
-        return keccak256("sail.permission.SharedBoundedBorrowPermission.v1");
+        return keccak256("sail.permission.BorrowPermission.v1");
     }
 
     function permissionVersion() external pure override returns (bytes32) {

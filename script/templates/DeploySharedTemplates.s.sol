@@ -4,10 +4,10 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {ManifestIO}       from "../lib/ManifestIO.sol";
 
-import {SharedApproveAndCallBatchPermission}  from "../../contracts/templates/shared/SharedApproveAndCallBatchPermission.sol";
-import {SharedBoundedBorrowPermission}        from "../../contracts/templates/shared/SharedBoundedBorrowPermission.sol";
-import {SharedBoundedSwapPermission}          from "../../contracts/templates/shared/SharedBoundedSwapPermission.sol";
-import {SharedTransferTargetPermission}       from "../../contracts/templates/shared/SharedTransferTargetPermission.sol";
+import {ApproveAndCallBatchPermission} from "../../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {BorrowPermission}              from "../../contracts/templates/shared/BorrowPermission.sol";
+import {SwapPermission}                from "../../contracts/templates/shared/SwapPermission.sol";
+import {TransferPermission}            from "../../contracts/templates/shared/TransferPermission.sol";
 
 /// @notice Shared permission template deployment.
 ///
@@ -19,6 +19,10 @@ import {SharedTransferTargetPermission}       from "../../contracts/templates/sh
 ///         Reads the kernel address from `deployments/<chainId>/core.json` so this
 ///         script can be re-run independently after a core redeploy.
 ///
+///         Each template records an `author` for tooling-layer attribution (the kernel
+///         never reads it). The author defaults to the deployer; override via the
+///         `TEMPLATE_AUTHOR` env var.
+///
 ///         Writes `deployments/<chainId>/templates.shared.json`.
 contract DeploySharedTemplates is Script {
     string internal constant SCHEMA = "sail.deploy.templates.shared";
@@ -26,36 +30,38 @@ contract DeploySharedTemplates is Script {
 
     struct Deployment {
         address kernel;
-        SharedApproveAndCallBatchPermission approveAndCallBatch;
-        SharedBoundedBorrowPermission       boundedBorrow;
-        SharedBoundedSwapPermission         boundedSwap;
-        SharedTransferTargetPermission      transferTarget;
+        ApproveAndCallBatchPermission approveAndCallBatch;
+        BorrowPermission              borrow;
+        SwapPermission                swap;
+        TransferPermission            transfer;
     }
 
     function run() external returns (Deployment memory d) {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
+        address author   = _authorOr(deployer);
         bool fresh       = _boolEnv("SAIL_DEPLOY_FRESH");
         ManifestIO.guardOverwrite(block.chainid, TARGET, fresh);
 
         d.kernel = ManifestIO.readAddress(block.chainid, "core", ".kernel");
         console2.log("=== Sail shared-templates deploy ===");
         console2.log("deployer :", deployer);
+        console2.log("author   :", author);
         console2.log("kernel   :", d.kernel);
 
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         vm.startBroadcast(pk);
 
-        d.approveAndCallBatch = new SharedApproveAndCallBatchPermission(d.kernel);
-        d.boundedBorrow       = new SharedBoundedBorrowPermission(d.kernel);
-        d.boundedSwap         = new SharedBoundedSwapPermission(d.kernel);
-        d.transferTarget      = new SharedTransferTargetPermission(d.kernel);
+        d.approveAndCallBatch = new ApproveAndCallBatchPermission(d.kernel, author);
+        d.borrow              = new BorrowPermission(d.kernel, author);
+        d.swap                = new SwapPermission(d.kernel, author);
+        d.transfer            = new TransferPermission(d.kernel, author);
 
         vm.stopBroadcast();
 
-        console2.log("SharedApproveAndCallBatchPermission :", address(d.approveAndCallBatch));
-        console2.log("SharedBoundedBorrowPermission       :", address(d.boundedBorrow));
-        console2.log("SharedBoundedSwapPermission         :", address(d.boundedSwap));
-        console2.log("SharedTransferTargetPermission      :", address(d.transferTarget));
+        console2.log("ApproveAndCallBatchPermission :", address(d.approveAndCallBatch));
+        console2.log("BorrowPermission              :", address(d.borrow));
+        console2.log("SwapPermission                :", address(d.swap));
+        console2.log("TransferPermission            :", address(d.transfer));
 
         _writeManifest(deployer, d);
     }
@@ -64,14 +70,20 @@ contract DeploySharedTemplates is Script {
         string memory k = "sail-shared-templates";
         ManifestIO.serializeHeader(k, SCHEMA, deployer);
         vm.serializeAddress(k, "kernel", d.kernel);
-        vm.serializeAddress(k, "sharedApproveAndCallBatch", address(d.approveAndCallBatch));
-        vm.serializeAddress(k, "sharedBoundedBorrow",       address(d.boundedBorrow));
-        vm.serializeAddress(k, "sharedBoundedSwap",         address(d.boundedSwap));
+        vm.serializeAddress(k, "approveAndCallBatch", address(d.approveAndCallBatch));
+        vm.serializeAddress(k, "borrow",              address(d.borrow));
+        vm.serializeAddress(k, "swap",                address(d.swap));
         string memory json =
-            vm.serializeAddress(k, "sharedTransferTarget",  address(d.transferTarget));
+            vm.serializeAddress(k, "transfer",        address(d.transfer));
 
         ManifestIO.write(block.chainid, TARGET, json);
         console2.log("wrote", ManifestIO.manifestPath(block.chainid, TARGET));
+    }
+
+    function _authorOr(address fallbackAuthor) internal view returns (address) {
+        try vm.envAddress("TEMPLATE_AUTHOR") returns (address a) {
+            return a == address(0) ? fallbackAuthor : a;
+        } catch { return fallbackAuthor; }
     }
 
     function _boolEnv(string memory key) internal view returns (bool) {
