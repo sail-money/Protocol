@@ -6,7 +6,17 @@ import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospectio
 import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
-/// @notice Reference transfer permission. One deployment serves any number of accounts;
+/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
+///         This permission is a reference example demonstrating how to express a bounded
+///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
+///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
+///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
+///         evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly
+///         enforces what its NatSpec claims. Anyone registering this permission is
+///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+///
+///         Reference transfer permission. One deployment serves any number of accounts;
 ///         each account stores its own recipient and token allowlists.
 ///
 ///         Config blob:

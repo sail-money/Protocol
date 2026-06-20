@@ -18,7 +18,16 @@ interface ISailKernelView {
         returns (address permissionSigner, address manager, address feePolicy, bool sessionActive);
 }
 
-/// @notice Abstract base for shared, multi-account permission templates.
+/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
+///         Base class for the unaudited reference example permissions (SwapPermission,
+///         BorrowPermission, TransferPermission, ApproveAndCallBatchPermission,
+///         DepositPermission, WithdrawPermission). It is NOT part of the trusted core
+///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler),
+///         is not covered by the protocol audit of that core, and carries no warranty.
+///         Anyone deploying a subclass is responsible for reviewing it. See docs/SECURITY.md
+///         for the audit-scope documentation.
+///
+///         Abstract base for shared, multi-account permission templates.
 ///         One deployed instance serves any number of accounts; per-account config
 ///         is stored under `mapping(address => ...)` in concrete subclasses.
 ///
