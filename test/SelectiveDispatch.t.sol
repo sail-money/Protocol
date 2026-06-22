@@ -11,9 +11,6 @@ import {ConfigurablePermission} from "../contracts/templates/shared/Configurable
 import {SwapPermission}     from "../contracts/templates/shared/SwapPermission.sol";
 import {BorrowPermission}   from "../contracts/templates/shared/BorrowPermission.sol";
 import {TransferPermission}  from "../contracts/templates/shared/TransferPermission.sol";
-import {SharedDeFiBundlePermission}      from "../contracts/experimental/SharedDeFiBundlePermission.sol";
-import {SharedAMMLiquidityPermission}    from "../contracts/experimental/SharedAMMLiquidityPermission.sol";
-import {SharedPendlePermission}          from "../contracts/experimental/SharedPendlePermission.sol";
 import {ApproveAndCallBatchPermission} from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 import {IOracle}              from "../contracts/interfaces/IOracle.sol";
 
@@ -570,107 +567,37 @@ contract SelectiveDispatchTest is Test {
         assertEq(safe.callCount(), 1, "transfer dispatch failed");
     }
 
-    /// @dev Test 13d: SharedDeFiBundlePermission — dispatch valid V3 swap via bundle.
-    function test_13d_Template_SharedDeFiBundle_Dispatches() public {
-        SharedDeFiBundlePermission bundle = new SharedDeFiBundlePermission(address(kernel));
+    /// @dev Test 13d: SwapPermission via configureDirect — dispatch valid V3 swap.
+    function test_13d_Template_SwapPermission_Dispatches() public {
+        SwapPermission swap = new SwapPermission(address(kernel), address(0xA11CE));
 
-        address[] memory routers    = new address[](1); routers[0]    = UNI_ROUTER;
+        address[] memory routers   = new address[](1); routers[0]   = UNI_ROUTER;
         address[] memory tokensIn   = new address[](1); tokensIn[0]   = TOKEN_IN;
         address[] memory tokensOut  = new address[](1); tokensOut[0]  = TOKEN_OUT;
-        address[] memory protocols  = new address[](1); protocols[0]  = AAVE_POOL;
-        address[] memory assets     = new address[](1); assets[0]     = BORROW_ASSET;
-        address[] memory recipients = new address[](1); recipients[0] = RECIPIENT;
-        address[] memory txTokens   = new address[](1); txTokens[0]   = TRANSFER_TKN;
+        uint256 maxAmountPerTx = 1_000e18;
+        uint256 maxSlippageBps = 0;
+        address priceOracle    = address(0);
+        uint256 maxPriceAgeSec = 0;
 
-        SharedDeFiBundlePermission.SwapConfig memory swapCfg = SharedDeFiBundlePermission.SwapConfig({
-            routers: routers, tokensIn: tokensIn, tokensOut: tokensOut,
-            maxAmountPerTx: 1_000e18, maxSlippageBps: 0, priceOracle: address(0), maxPriceAgeSec: 0
-        });
-        SharedDeFiBundlePermission.BorrowConfig memory borrowCfg = SharedDeFiBundlePermission.BorrowConfig({
-            protocols: protocols, assets: assets,
-            maxAmountPerTx: 1_000e18, maxLtvBps: 0,
-            collateralOracle: address(0), borrowOracle: address(0), maxPriceAgeSec: 0
-        });
-        SharedDeFiBundlePermission.TransferConfig memory transferCfg = SharedDeFiBundlePermission.TransferConfig({
-            recipients: recipients, tokens: txTokens, maxAmountPerTx: 1_000e18
-        });
-
-        bytes memory params = abi.encode(swapCfg, borrowCfg, transferCfg);
-        uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _signConfigure(bundle, address(safe), params, deadline);
-        bundle.configure(address(safe), params, deadline, sig);
-
-        _registerPermissionFor(address(bundle));
-
-        bytes memory data = _buildSwapData(100e18, 1);
-        _dispatch(address(bundle), UNI_ROUTER, 0, data);
-        assertEq(safe.callCount(), 1, "bundle dispatch failed");
-    }
-
-    /// @dev Test 13e: SharedAMMLiquidityPermission — dispatch valid UniV3 mint.
-    function test_13e_Template_SharedAMMLiquidity_Dispatches() public {
-        SharedAMMLiquidityPermission ammPerm = new SharedAMMLiquidityPermission(address(kernel));
-
-        address[] memory targets = new address[](1); targets[0] = UNI_ROUTER;
-        address[] memory tkns    = new address[](2); tkns[0] = TOKEN_IN; tkns[1] = TOKEN_OUT;
-        bytes memory params = abi.encode(targets, tkns, uint128(1_000e18), true, true, true, true, true);
-        uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _signConfigure(ammPerm, address(safe), params, deadline);
-        ammPerm.configure(address(safe), params, deadline, sig);
-
-        _registerPermissionFor(address(ammPerm));
-
-        // UniV3 mint — SEL_MINT = bytes4(keccak256("mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))"))
-        bytes4 SEL_MINT = bytes4(keccak256(
-            "mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))"
-        ));
-        bytes memory mintData = abi.encodeWithSelector(
-            SEL_MINT,
-            TOKEN_IN, TOKEN_OUT, uint24(3000),
-            int24(0), int24(0),
-            uint256(1e18), uint256(1e18),
-            uint256(0), uint256(0),
-            address(safe),
-            block.timestamp + 300
-        );
-
-        _dispatch(address(ammPerm), UNI_ROUTER, 0, mintData);
-        assertEq(safe.callCount(), 1, "AMM dispatch failed");
-    }
-
-    /// @dev Test 13f: SharedPendlePermission — dispatch valid Pendle addLiquidityDualSyAndPt.
-    function test_13f_Template_SharedPendle_Dispatches() public {
-        SharedPendlePermission pendlePerm = new SharedPendlePermission(address(kernel));
-
-        address pendleRouter = address(0xE008);
-        address pendleMarket = address(0xE009);
-
-        address[] memory markets = new address[](1); markets[0] = pendleMarket;
         bytes memory params = abi.encode(
-            pendleRouter, markets, uint128(1_000e18),
-            true,  // allowLiquidityOps
-            false, // allowPtSwaps
-            false, // allowYtSwaps
-            false, // allowMintRedeem
-            false  // allowClaimYield
-        );
-        uint256 deadline = block.timestamp + 1 hours;
-        bytes memory sig = _signConfigure(pendlePerm, address(safe), params, deadline);
-        pendlePerm.configure(address(safe), params, deadline, sig);
-
-        _registerPermissionFor(address(pendlePerm));
-
-        // addLiquidityDualSyAndPt(address receiver, address market, uint256 netSyIn, uint256 netPtIn, uint256 minLpOut)
-        bytes4 SEL_ADD_DUAL = bytes4(keccak256(
-            "addLiquidityDualSyAndPt(address,address,uint256,uint256,uint256)"
-        ));
-        bytes memory pendleData = abi.encodeWithSelector(
-            SEL_ADD_DUAL,
-            address(safe), pendleMarket, uint256(10e18), uint256(5e18), uint256(0)
+            routers, tokensIn, tokensOut, maxAmountPerTx, maxSlippageBps, priceOracle, maxPriceAgeSec
         );
 
-        _dispatch(address(pendlePerm), pendleRouter, 0, pendleData);
-        assertEq(safe.callCount(), 1, "Pendle dispatch failed");
+        // configureDirect reads the permissionSigner from the kernel; caller must be it.
+        vm.prank(permSigner);
+        swap.configureDirect(address(safe), params);
+
+        _registerPermissionFor(address(swap));
+
+        // Valid Uniswap V3 exactInputSingle; recipient MUST equal the account.
+        bytes memory data = abi.encodeWithSelector(
+            EXACT_INPUT_SINGLE_V1,
+            TOKEN_IN, TOKEN_OUT, uint24(3000), address(safe),
+            uint256(block.timestamp + 1 hours), uint256(100e18), uint256(1), uint160(0)
+        );
+
+        _dispatch(address(swap), UNI_ROUTER, 0, data);
+        assertEq(safe.callCount(), 1, "swap dispatch failed");
     }
 
     // =========================================================================

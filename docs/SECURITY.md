@@ -14,7 +14,7 @@ The **trusted core** consists of two contracts:
 | `SailGovernance` | ~200 | Protocol parameter store |
 | `IFeePolicy`, `IPermission` | ~50 combined | Interface definitions |
 
-The reference permission templates (`SwapPermission`, `BorrowPermission`, `TransferPermission`, `DepositPermission`, `WithdrawPermission`, `ApproveAndCallBatchPermission`), the experimental templates under `contracts/experimental/`, and fee policies (`StandardFeePolicy`) are all **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
+The reference permission templates (`SwapPermission`, `BorrowPermission`, `TransferPermission`, `DepositPermission`, `WithdrawPermission`, `ApproveAndCallBatchPermission`) and fee policies (`StandardFeePolicy`) are all **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
 
 ---
 
@@ -175,7 +175,7 @@ Unlike the kernel's two-step governance transfer, `StandardFeePolicy.transferFee
 
 `WithdrawPermission` and `TransferPermission` require `from == ctx.account` on the `transferFrom` path, so tokens move only from the account itself and never from third parties that have granted the account an allowance.
 
-**Operator responsibility:** confirm the template in use enforces this restriction before relying on it. Unaudited templates under `contracts/experimental/` fall outside the launch set and may omit it; a custom permission must check `from == ctx.account` explicitly.
+**Operator responsibility:** confirm the template in use enforces this restriction before relying on it. A custom permission must check `from == ctx.account` explicitly.
 
 ### V2 Intermediate Path Tokens
 

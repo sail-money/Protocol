@@ -9,8 +9,7 @@ import {TimelockController}      from "@openzeppelin/contracts/governance/Timelo
 import {IPermission, Context}    from "../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}              from "../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                 from "../contracts/interfaces/IOracle.sol";
-import {BoundedSwapPermission}   from "../contracts/experimental/BoundedSwapPermission.sol";
-import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
+import {SwapPermission}          from "../contracts/templates/shared/SwapPermission.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -711,10 +710,10 @@ contract SailKernelTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 3b. Integration: dispatch + BoundedSwapPermission
+    // 3b. Integration: dispatch + SwapPermission
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Integration_Dispatch_BoundedSwap_Passes() public {
+    function test_Integration_Dispatch_SwapPermission_Passes() public {
         // Deploy oracle + permission wired to the kernel's safe and manager.
         MockOracle oracle = new MockOracle();
         uint256 oraclePrice = 2e18;
@@ -730,8 +729,12 @@ contract SailKernelTest is Test {
         uint256 maxAmt    = 1_000e18;
         uint256 slipBps   = 200; // 2%
 
-        BoundedSwapPermission swapPerm = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
-        swapPerm.initialize(routers, tIn, tOut, maxAmt, slipBps, address(oracle), 3600, permSigner);
+        SwapPermission swapPerm = new SwapPermission(address(kernel), address(0xA11CE));
+        vm.prank(permSigner);
+        swapPerm.configureDirect(
+            address(safe),
+            abi.encode(routers, tIn, tOut, maxAmt, slipBps, address(oracle), uint256(3600))
+        );
 
         _registerPermission(address(swapPerm));
 
@@ -750,7 +753,7 @@ contract SailKernelTest is Test {
         assertEq(safe.callCount(), 1);
     }
 
-    function test_Integration_Dispatch_BoundedSwap_BlocksSlippageViolation() public {
+    function test_Integration_Dispatch_SwapPermission_BlocksSlippageViolation() public {
         MockOracle oracle = new MockOracle();
         address tokenIn  = address(0xAAAA);
         address tokenOut = address(0xBBBB);
@@ -761,8 +764,12 @@ contract SailKernelTest is Test {
         address[] memory tIn     = new address[](1); tIn[0]     = tokenIn;
         address[] memory tOut    = new address[](1); tOut[0]    = tokenOut;
 
-        BoundedSwapPermission swapPerm = BoundedSwapPermission(Clones.clone(address(new BoundedSwapPermission())));
-        swapPerm.initialize(routers, tIn, tOut, 1_000e18, 200, address(oracle), 3600, permSigner);
+        SwapPermission swapPerm = new SwapPermission(address(kernel), address(0xA11CE));
+        vm.prank(permSigner);
+        swapPerm.configureDirect(
+            address(safe),
+            abi.encode(routers, tIn, tOut, uint256(1_000e18), uint256(200), address(oracle), uint256(3600))
+        );
         _registerPermission(address(swapPerm));
 
         // amountOutMin = 1 violates the oracle-derived floor (196e18).
