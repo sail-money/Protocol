@@ -21,7 +21,7 @@
 #   core                  — 5 core protocol contracts
 #   templates-shared      — the six reference permission singletons + the ConfigurablePermission base
 #
-# (The experimental templates under contracts/experimental/ are opt-in and not verified here.)
+# (Only the audited shared/ reference templates are deployed and verified.)
 #
 # Flags:
 #   --check    Print what would be verified without actually submitting.
@@ -257,21 +257,17 @@ verify_shared_templates() {
   local kernel
   kernel=$(jq_read "$m" '.kernel')
 
-  # NOTE: the experimental shared templates (amm/defiBundle/pendle) take (address kernel).
-  # The reference templates (approveAndCallBatch/borrow/swap/transfer) now take
+  # The reference templates (approveAndCallBatch/borrow/swap/transfer) take
   # (address kernel, address author) — their verification requires re-encoding the
-  # constructor args with the author used at deploy time. The single-arg encoding below
-  # is correct only for the experimental entries; pass per-entry args for the reference set.
+  # constructor args with the author used at deploy time. (The experimental template
+  # catalog has been removed; only the audited shared/ reference set is verified here.)
   local kernel_args
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 
   local pairs=(
-    "sharedAmmLiquidity|contracts/experimental/SharedAMMLiquidityPermission.sol:SharedAMMLiquidityPermission"
     "approveAndCallBatch|contracts/templates/shared/ApproveAndCallBatchPermission.sol:ApproveAndCallBatchPermission"
     "borrow|contracts/templates/shared/BorrowPermission.sol:BorrowPermission"
     "swap|contracts/templates/shared/SwapPermission.sol:SwapPermission"
-    "sharedDeFiBundle|contracts/experimental/SharedDeFiBundlePermission.sol:SharedDeFiBundlePermission"
-    "sharedPendle|contracts/experimental/SharedPendlePermission.sol:SharedPendlePermission"
     "transfer|contracts/templates/shared/TransferPermission.sol:TransferPermission"
   )
 

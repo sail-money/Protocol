@@ -10,9 +10,6 @@ import {Context}                     from "../contracts/interfaces/IPermission.s
 import {SwapPermission}          from "../contracts/templates/shared/SwapPermission.sol";
 import {BorrowPermission}        from "../contracts/templates/shared/BorrowPermission.sol";
 import {TransferPermission}       from "../contracts/templates/shared/TransferPermission.sol";
-import {SharedDeFiBundlePermission}           from "../contracts/experimental/SharedDeFiBundlePermission.sol";
-import {SharedPendlePermission}               from "../contracts/experimental/SharedPendlePermission.sol";
-import {SharedAMMLiquidityPermission}         from "../contracts/experimental/SharedAMMLiquidityPermission.sol";
 import {ApproveAndCallBatchPermission}  from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
 
 /// @notice Tests for IPermissionIntrospection implementations across all shared templates.
@@ -25,29 +22,20 @@ contract PermissionIntrospectionTest is Test {
     SwapPermission         internal swap;
     BorrowPermission       internal borrow;
     TransferPermission      internal transfer;
-    SharedDeFiBundlePermission          internal bundle;
-    SharedPendlePermission              internal pendle;
-    SharedAMMLiquidityPermission        internal amm;
     ApproveAndCallBatchPermission internal batch;
 
-    IPermissionIntrospection[7] internal templates;
+    IPermissionIntrospection[4] internal templates;
 
     function setUp() public {
         swap     = new SwapPermission(STUB_KERNEL, address(0xA11CE));
         borrow   = new BorrowPermission(STUB_KERNEL, address(0xA11CE));
         transfer = new TransferPermission(STUB_KERNEL, address(0xA11CE));
-        bundle   = new SharedDeFiBundlePermission(STUB_KERNEL);
-        pendle   = new SharedPendlePermission(STUB_KERNEL);
-        amm      = new SharedAMMLiquidityPermission(STUB_KERNEL);
         batch    = new ApproveAndCallBatchPermission(STUB_KERNEL, address(0xA11CE));
 
         templates[0] = IPermissionIntrospection(address(swap));
         templates[1] = IPermissionIntrospection(address(borrow));
         templates[2] = IPermissionIntrospection(address(transfer));
-        templates[3] = IPermissionIntrospection(address(bundle));
-        templates[4] = IPermissionIntrospection(address(pendle));
-        templates[5] = IPermissionIntrospection(address(amm));
-        templates[6] = IPermissionIntrospection(address(batch));
+        templates[3] = IPermissionIntrospection(address(batch));
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -98,9 +86,9 @@ contract PermissionIntrospectionTest is Test {
     // IDENTITY UNIQUENESS (test 5)
     // ═════════════════════════════════════════════════════════════════════════
 
-    /// @notice Test 5: all seven templates return distinct permissionIds.
+    /// @notice Test 5: all four templates return distinct permissionIds.
     function test_Introspect_PermissionIds_AllDistinct() public view {
-        bytes32[7] memory ids;
+        bytes32[4] memory ids;
         for (uint256 i; i < templates.length; i++) {
             ids[i] = templates[i].permissionId();
         }
@@ -142,36 +130,7 @@ contract PermissionIntrospectionTest is Test {
         );
     }
 
-    /// @notice Test 9: SharedDeFiBundlePermission declares DEFI_BUNDLE plus
-    ///         BOUNDED_SWAP, BOUNDED_BORROW, and TRANSFER_TARGET.
-    function test_Introspect_Bundle_DeclaresAllFourCapabilities() public view {
-        bytes32[] memory ids = IPermissionIntrospection(address(bundle)).capabilityIds();
-        assertEq(ids.length, 4, "bundle: must declare exactly 4 capabilities");
-        assertTrue(_hasCapability(ids, SailCapabilities.DEFI_BUNDLE),     "bundle: missing DEFI_BUNDLE");
-        assertTrue(_hasCapability(ids, SailCapabilities.BOUNDED_SWAP),    "bundle: missing BOUNDED_SWAP");
-        assertTrue(_hasCapability(ids, SailCapabilities.BOUNDED_BORROW),  "bundle: missing BOUNDED_BORROW");
-        assertTrue(_hasCapability(ids, SailCapabilities.TRANSFER_TARGET), "bundle: missing TRANSFER_TARGET");
-    }
-
-    /// @notice Test 10: SharedPendlePermission declares PENDLE_YIELD.
-    function test_Introspect_Pendle_DeclaresCapability() public view {
-        bytes32[] memory ids = IPermissionIntrospection(address(pendle)).capabilityIds();
-        assertTrue(
-            _hasCapability(ids, SailCapabilities.PENDLE_YIELD),
-            "pendle: missing PENDLE_YIELD"
-        );
-    }
-
-    /// @notice Test 11: SharedAMMLiquidityPermission declares AMM_LIQUIDITY.
-    function test_Introspect_AMM_DeclaresCapability() public view {
-        bytes32[] memory ids = IPermissionIntrospection(address(amm)).capabilityIds();
-        assertTrue(
-            _hasCapability(ids, SailCapabilities.AMM_LIQUIDITY),
-            "amm: missing AMM_LIQUIDITY"
-        );
-    }
-
-    /// @notice Test 12: ApproveAndCallBatchPermission declares BATCH_DISPATCH.
+    /// @notice Test 9: ApproveAndCallBatchPermission declares BATCH_DISPATCH.
     function test_Introspect_Batch_DeclaresCapability() public view {
         bytes32[] memory ids = IPermissionIntrospection(address(batch)).capabilityIds();
         assertTrue(
@@ -246,18 +205,6 @@ contract PermissionIntrospectionTest is Test {
         bool r2 = transfer.evaluate("", ctx);
         assertFalse(r2, "transfer.evaluate: expected false for unconfigured state");
 
-        // SharedDeFiBundlePermission — returns false (selector not recognised)
-        bool r3 = bundle.evaluate("", ctx);
-        assertFalse(r3, "bundle.evaluate: expected false for unconfigured state");
-
-        // SharedPendlePermission — returns false (router not set)
-        bool r4 = pendle.evaluate("", ctx);
-        assertFalse(r4, "pendle.evaluate: expected false for unconfigured state");
-
-        // SharedAMMLiquidityPermission — returns false (target not in allowlist)
-        bool r5 = amm.evaluate("", ctx);
-        assertFalse(r5, "amm.evaluate: expected false for unconfigured state");
-
         // ApproveAndCallBatchPermission — always returns false (batch-only)
         bool r6 = batch.evaluate("", ctx);
         assertFalse(r6, "batch.evaluate: expected false (batch-only template)");
@@ -283,21 +230,6 @@ contract PermissionIntrospectionTest is Test {
             transfer.permissionId(),
             keccak256("sail.permission.TransferPermission.v1"),
             "transfer permissionId mismatch"
-        );
-        assertEq(
-            bundle.permissionId(),
-            keccak256("sail.permission.SharedDeFiBundlePermission.v1"),
-            "bundle permissionId mismatch"
-        );
-        assertEq(
-            pendle.permissionId(),
-            keccak256("sail.permission.SharedPendlePermission.v1"),
-            "pendle permissionId mismatch"
-        );
-        assertEq(
-            amm.permissionId(),
-            keccak256("sail.permission.SharedAMMLiquidityPermission.v1"),
-            "amm permissionId mismatch"
         );
         assertEq(
             batch.permissionId(),
