@@ -8,6 +8,7 @@ import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @title  BorrowPermission — bounded borrow with optional LTV ceiling
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
 ///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
@@ -18,10 +19,32 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         enforces what its NatSpec claims. Anyone registering this permission is
 ///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
 ///
-///         Reference borrow permission. One deployment serves any number of accounts.
-///         Supports Aave V3, Morpho, and Compound V2 borrow selectors.
+///         WHAT IT IS. A reference borrow permission. One deployment serves any number of accounts;
+///         each stores its own protocol and asset allowlists, a per-tx amount cap, an LTV ceiling,
+///         and a pair of price oracles. Supports Aave V3, Morpho, and Compound V2 borrow selectors.
 ///
-///         Config blob:
+///         WHAT IT ENFORCES. For every borrow: the protocol (call target) and asset are
+///         allowlisted; the amount is within the per-tx cap; the position is credited to the
+///         account itself (onBehalfOf / receiver == account); and, when oracles are configured, the
+///         resulting loan-to-value is within maxLtvBps.
+///
+///         ORACLE MODES. Oracles are configured in matched pairs:
+///           - ZERO oracles  → amount-cap-only borrowing. NO LTV ceiling is applied; only the
+///                             per-tx cap and the allowlists bound the borrow.
+///           - BOTH oracles  → the LTV ceiling is enforced against the collateral and borrow feeds.
+///         Exactly ONE oracle is rejected at configure() (OracleConfigInconsistent): loan-to-value
+///         is a ratio of borrow value to collateral value, and a single feed can price only one
+///         side, so a one-oracle config cannot compute a ratio and is a configuration error.
+///
+///         HONEST BOUNDARY — what it does NOT do. With zero oracles, ONLY the size cap applies —
+///         there is no LTV ceiling, despite maxLtvBps being stored. When oracles are set, the LTV
+///         ceiling is only as good as the configured oracles' honesty and freshness; it does NOT
+///         protect against a manipulated or compromised feed. The collateral oracle is trusted to
+///         report the account's aggregate collateral value (it is queried by account address). LTV
+///         is checked at borrow time only — it does NOT monitor ongoing position health after the
+///         borrow, and the cap is per-transaction, not cumulative.
+///
+/// @dev    Config blob:
 ///             abi.encode(
 ///                 address[] protocols,
 ///                 address[] assets,
@@ -58,6 +81,10 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     address public immutable author;
 
     error LtvBpsTooLarge(uint256 bps);
+    /// @notice Thrown when exactly one oracle is configured. LTV is a ratio of borrow value to
+    ///         collateral value; a single feed prices only one side and cannot form the ratio.
+    ///         Configure either zero oracles (amount-cap-only) or both.
+    error OracleConfigInconsistent();
 
     constructor(address _kernel, address _author)
         ConfigurablePermission(_kernel, "BorrowPermission", "1")
@@ -94,11 +121,16 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
         ) = abi.decode(params, (address[], address[], uint256, uint256, address, address, uint256));
 
         if (maxLtvBps > 10_000) revert LtvBpsTooLarge(maxLtvBps);
-        // The LTV check runs only when both oracles are set; in that case a freshness bound
-        // is mandatory. 0 would silently accept arbitrarily stale prices and re-open the gap.
-        if (collateralOracle != address(0) && borrowOracle != address(0) && maxPriceAgeSec == 0) {
-            revert MissingPriceAge();
-        }
+        // Oracles must come as a matched pair. LTV is a ratio of borrow value to collateral value;
+        // a single feed can price only one side, so exactly one oracle cannot form the ratio and is
+        // a meaningless config. Require zero (amount-cap-only) or both — rejecting the in-between at
+        // config time, where it is debuggable, rather than silently disabling the ceiling later.
+        bool colSet = collateralOracle != address(0);
+        bool borSet = borrowOracle != address(0);
+        if (colSet != borSet) revert OracleConfigInconsistent();
+        // When the oracles are set, a freshness bound is mandatory; 0 would silently accept
+        // arbitrarily stale prices and re-open the gap the oracle is meant to close.
+        if (colSet && maxPriceAgeSec == 0) revert MissingPriceAge();
 
         Slot storage s = _slots[account];
         for (uint256 i; i < s.protocols.length; i++) isAllowedProtocol[account][s.protocols[i]] = false;
@@ -161,6 +193,8 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
         view
         returns (bool)
     {
+        // Defense-in-depth: configure() rejects a single-oracle config, so reaching here with one
+        // oracle unset means BOTH are unset — the amount-cap-only mode, where no LTV ceiling applies.
         if (s.collateralOracle == address(0) || s.borrowOracle == address(0)) return true;
 
         // On L2s, check sequencer-uptime first.
@@ -175,15 +209,15 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
         if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
-        // Normalise both oracle values to unitless quantities before forming the ratio:
-        //   borrowScaled = amount * borPrice / 10^borDec
-        //   colNorm      = colValue / 10^colDec
-        // Dividing by raw colValue (ignoring colDec) would understate LTV by 10^colDec and
-        // silently defeat the ceiling whenever the collateral oracle reports non-zero decimals.
+        // Normalise the borrow side to a value quantity: borrowScaled = amount * borPrice / 10^borDec.
         uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        uint256 colNorm      = colValue / (10 ** uint256(colDec));
-        if (colNorm == 0) return false; // colValue too small vs precision — fail-closed
-        uint256 ltvBps       = Math.mulDiv(borrowScaled, 10_000, colNorm);
+        // LTV = borrowScaled / (colValue / 10^colDec). Do NOT pre-divide colValue by 10^colDec:
+        // that integer division floors away the fractional collateral and overstates the LTV,
+        // wrongly blocking borrows that are actually within the ceiling. Instead fold 10^colDec into
+        // the numerator — mulDiv carries the (borrowScaled*10_000)*10^colDec product at full
+        // precision in a 512-bit intermediate — and divide by the full-precision colValue exactly
+        // once. colValue == 0 is already guarded above, so the division is safe.
+        uint256 ltvBps = Math.mulDiv(borrowScaled * 10_000, 10 ** uint256(colDec), colValue);
         return ltvBps <= s.maxLtvBps;
     }
 
