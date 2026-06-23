@@ -15,7 +15,7 @@ pragma solidity 0.8.26;
 ///         is sufficiently collision-resistant for practical purposes.
 ///
 /// @dev    Every constant in this file corresponds to a live Sail template in
-///         contracts/templates/shared/. Retire constants (by NatSpec deprecation) only
+///         contracts/templates/. Retire constants (by NatSpec deprecation) only
 ///         when the corresponding template is permanently removed from the protocol.
 library SailCapabilities {
     /// @notice Capability declared by SharedBoundedSwapPermission.

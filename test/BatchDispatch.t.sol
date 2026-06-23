@@ -7,8 +7,8 @@ import {SailGovernance}    from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}  from "./support/TimelockDeployer.sol";
 import {Context}           from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {ApproveAndCallBatchPermission}   from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
-import {TransferPermission}        from "../contracts/templates/shared/TransferPermission.sol";
+import {ApproveAndCallBatchPermission}   from "../contracts/templates/ApproveAndCallBatchPermission.sol";
+import {TransferPermission}        from "../contracts/templates/TransferPermission.sol";
 
 // =============================================================================
 // Forwarding mock Safe — actually executes inner calls so allowances/balances move.

@@ -6,7 +6,7 @@ import "../contracts/core/SailKernel.sol";
 import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
-import {SwapPermission} from "../contracts/templates/shared/SwapPermission.sol";
+import {SwapPermission} from "../contracts/templates/SwapPermission.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────

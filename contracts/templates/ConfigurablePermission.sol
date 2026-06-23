@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {IPermission, Context} from "../../interfaces/IPermission.sol";
-import {IConfigurablePermission} from "../../interfaces/IConfigurablePermission.sol";
-import {AgentIdentityRef, IAccountAgentIdentityResolver} from "../../interfaces/IAgentIdentityResolver.sol";
+import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
+import {AgentIdentityRef, IAccountAgentIdentityResolver} from "../interfaces/IAgentIdentityResolver.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";

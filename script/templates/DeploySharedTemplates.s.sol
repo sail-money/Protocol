@@ -4,12 +4,12 @@ pragma solidity 0.8.26;
 import {Script, console2} from "forge-std/Script.sol";
 import {ManifestIO}       from "../lib/ManifestIO.sol";
 
-import {ApproveAndCallBatchPermission} from "../../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
-import {BorrowPermission}              from "../../contracts/templates/shared/BorrowPermission.sol";
-import {DepositPermission}             from "../../contracts/templates/shared/DepositPermission.sol";
-import {SwapPermission}                from "../../contracts/templates/shared/SwapPermission.sol";
-import {TransferPermission}            from "../../contracts/templates/shared/TransferPermission.sol";
-import {WithdrawPermission}            from "../../contracts/templates/shared/WithdrawPermission.sol";
+import {ApproveAndCallBatchPermission} from "../../contracts/templates/ApproveAndCallBatchPermission.sol";
+import {BorrowPermission}              from "../../contracts/templates/BorrowPermission.sol";
+import {DepositPermission}             from "../../contracts/templates/DepositPermission.sol";
+import {SwapPermission}                from "../../contracts/templates/SwapPermission.sol";
+import {TransferPermission}            from "../../contracts/templates/TransferPermission.sol";
+import {WithdrawPermission}            from "../../contracts/templates/WithdrawPermission.sol";
 
 /// @notice Shared permission template deployment.
 ///

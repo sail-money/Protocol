@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SwapPermission.sol";
-import "../contracts/templates/shared/TransferPermission.sol";
+import "../contracts/templates/SwapPermission.sol";
+import "../contracts/templates/TransferPermission.sol";
 
 contract MandateFactoryTest is FactoryTestBase {
     SwapPermission         internal swap;

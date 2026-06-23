@@ -7,7 +7,7 @@ import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import {Context}        from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {ApproveAndCallBatchPermission}   from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {ApproveAndCallBatchPermission}   from "../contracts/templates/ApproveAndCallBatchPermission.sol";
 
 // Re-uses the forwarding Safe / mock router / mock ERC20 from BatchDispatch.t.sol
 // by re-declaring minimal versions here. Keep this file standalone so snapshot

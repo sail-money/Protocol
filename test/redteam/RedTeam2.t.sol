@@ -26,7 +26,7 @@ import {SailGovernance}              from "../../contracts/governance/SailGovern
 import {TimelockDeployer}            from "../support/TimelockDeployer.sol";
 import {MandateFactory}           from "../../contracts/factory/MandateFactory.sol";
 import {StandardFeePolicy}           from "../../contracts/policies/StandardFeePolicy.sol";
-import {ConfigurablePermission}        from "../../contracts/templates/shared/ConfigurablePermission.sol";
+import {ConfigurablePermission}        from "../../contracts/templates/ConfigurablePermission.sol";
 import {IPermission, Context}        from "../../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}                  from "../../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                     from "../../contracts/interfaces/IOracle.sol";

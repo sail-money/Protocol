@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/MandateFactory.sol";
-import "../../contracts/templates/shared/ConfigurablePermission.sol";
+import "../../contracts/templates/ConfigurablePermission.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {TimelockDeployer} from "./TimelockDeployer.sol";
 
