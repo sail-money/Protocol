@@ -288,10 +288,11 @@ contract BatchDispatchTest is Test {
         cfg.tokens[0] = address(tokenA);
         cfg.spenders = new address[](1);
         cfg.spenders[0] = address(router);
-        cfg.consumingTargets = new address[](1);
-        cfg.consumingTargets[0] = address(router);
-        cfg.consumingSelectors = new bytes4[](1);
-        cfg.consumingSelectors[0] = SWAP_SELECTOR;
+        cfg.consumingPairs = new ApproveAndCallBatchPermission.ConsumingPair[](1);
+        cfg.consumingPairs[0] = ApproveAndCallBatchPermission.ConsumingPair({
+            target: address(router),
+            selector: SWAP_SELECTOR
+        });
         cfg.maxApprovalAmounts = new uint256[](1);
         cfg.maxApprovalAmounts[0] = DEFAULT_CAP;
         cfg.requireAmountMatch = true;
