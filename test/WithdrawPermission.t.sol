@@ -122,4 +122,24 @@ contract WithdrawPermissionTest is Test {
         bytes memory data = abi.encodeWithSelector(APPROVE, RECIPIENT, uint256(1));
         assertFalse(wp.evaluate(data, _ctx(APPROVE, 0)));
     }
+
+    // ── coverage close-out ───────────────────────────────────────────────────────
+    function test_TransferFrom_OverCap_Denied() public view {
+        assertFalse(wp.evaluate(_transferFrom(ACCOUNT, RECIPIENT, 100 ether + 1), _ctx(TRANSFERFROM, 0)));
+    }
+    function test_Transfer_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(TRANSFER, RECIPIENT); // < 68 bytes
+        assertFalse(wp.evaluate(short, _ctx(TRANSFER, 0)));
+    }
+    function test_TransferFrom_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(TRANSFERFROM, ACCOUNT, RECIPIENT); // < 100 bytes
+        assertFalse(wp.evaluate(short, _ctx(TRANSFERFROM, 0)));
+    }
+
+    // ── documented edge (pinned, not a fix): maxAmountPerTx == 0 is fail-closed ───
+    function test_Pin_ZeroCap_BlocksAnyNonZeroWithdrawal() public {
+        _configure(_one(TOKEN), RECIPIENT, 0);
+        assertFalse(wp.evaluate(_transfer(RECIPIENT, 1), _ctx(TRANSFER, 0)));        // non-zero denied
+        assertTrue(wp.evaluate(_transfer(RECIPIENT, 0), _ctx(TRANSFER, 0)));         // zero to pinned recipient ok
+    }
 }
