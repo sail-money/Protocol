@@ -42,7 +42,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         protect against a manipulated or compromised feed. The collateral oracle is trusted to
 ///         report the account's aggregate collateral value (it is queried by account address). LTV
 ///         is checked at borrow time only — it does NOT monitor ongoing position health after the
-///         borrow, and the cap is per-transaction, not cumulative.
+///         borrow, and the cap is per-transaction, not cumulative. Likewise maxLtvBps bounds each
+///         borrow step's size against the collateral valuation at the moment of that call; it does
+///         NOT bound the cumulative LTV of a position built across multiple borrows (e.g. a leverage
+///         loop). For cumulative-position safety, rely on the lending protocol's own health factor
+///         and/or a separate position-monitoring permission.
 ///
 /// @dev    Config blob:
 ///             abi.encode(
