@@ -36,11 +36,21 @@ contract FactoryDeFiTest is FactoryTestBase {
     // Second Safe — shares same template deployments
     MockSafe internal safeB;
 
+    // Permissive 1:1 oracle for the non-band swap scenarios. SwapPermission now requires an
+    // oracle; these routing/multi-account tests are not about the slippage band, so this oracle
+    // reports a 1:1 price and the configs use maximum tolerance — success swaps clear the floor
+    // trivially. The dedicated band tests below construct their own realistically-priced oracle.
+    MockOracle internal swapOracle;
+
     function setUp() public override {
         super.setUp();
         swapTemplate     = new SwapPermission(address(kernel), address(0xA11CE));
         transferTemplate = new TransferPermission(address(kernel), address(0xA11CE));
         borrowTemplate   = new BorrowPermission(address(kernel), address(0xA11CE));
+
+        swapOracle = new MockOracle();
+        swapOracle.set(WETH, USDC, 1, 0);
+        swapOracle.set(WETH, DAI, 1, 0);
 
         safeB = new MockSafe();
         vm.deal(address(safeB), 100 ether);
@@ -59,12 +69,12 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(10 ether), uint256(0), address(0)
+                uint256(10 ether), uint256(9_999), address(swapOracle), uint256(3600)
             )
         );
 
         // Agent dispatches swap
-        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 5 ether);
         _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData);
 
         // Safe must have received exactly one execTransactionFromModule call
@@ -81,11 +91,11 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(10 ether), uint256(0), address(0)
+                uint256(10 ether), uint256(9_999), address(swapOracle), uint256(3600)
             )
         );
 
-        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 5 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V2_ROUTER, 0, swapData, nonce, deadline);
@@ -102,11 +112,11 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(1 ether), uint256(0), address(0)
+                uint256(1 ether), uint256(9_999), address(swapOracle), uint256(3600)
             )
         );
 
-        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 4_900e6);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(safe), 5 ether, 5 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, swapData, nonce, deadline);
@@ -130,7 +140,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(10 ether), uint256(200), address(oracle) // 2% slippage
+                uint256(10 ether), uint256(200), address(oracle), uint256(3600) // 2% slippage
             )
         );
 
@@ -149,7 +159,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(10 ether), uint256(200), address(oracle)
+                uint256(10 ether), uint256(200), address(oracle), uint256(3600)
             )
         );
 
@@ -299,7 +309,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                uint256(5 ether), uint256(0), address(0)
+                uint256(5 ether), uint256(9_999), address(swapOracle), uint256(3600)
             )
         );
 
@@ -309,7 +319,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             swapTemplate,
             abi.encode(
                 _one(UNI_V3_ROUTER), _one(WETH), _one(DAI),
-                uint256(20 ether), uint256(0), address(0)
+                uint256(20 ether), uint256(9_999), address(swapOracle), uint256(3600)
             )
         );
 
@@ -320,11 +330,11 @@ contract FactoryDeFiTest is FactoryTestBase {
         assertTrue(swapTemplate.isAllowedTokenOut(address(safeB), DAI));
 
         // A's agent can swap WETH→USDC
-        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 4 ether, 1);
+        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 4 ether, 4 ether);
         _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B's agent can swap WETH→DAI
-        bytes memory dataB = _v3Swap(WETH, DAI, address(safeB), 15 ether, 1);
+        bytes memory dataB = _v3Swap(WETH, DAI, address(safeB), 15 ether, 15 ether);
         _dispatch(address(safeB), address(swapTemplate), UNI_V3_ROUTER, 0, dataB);
 
         assertEq(safe.callCount(),  1);
@@ -337,13 +347,13 @@ contract FactoryDeFiTest is FactoryTestBase {
             address(safe),
             swapTemplate,
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                      uint256(5 ether), uint256(0), address(0))
+                      uint256(5 ether), uint256(9_999), address(swapOracle), uint256(3600))
         );
         _attach(
             address(safeB),
             swapTemplate,
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(DAI),
-                      uint256(5 ether), uint256(0), address(0))
+                      uint256(5 ether), uint256(9_999), address(swapOracle), uint256(3600))
         );
 
         // A tries WETH→DAI — should fail because DAI is not in A's tokensOut
@@ -362,19 +372,19 @@ contract FactoryDeFiTest is FactoryTestBase {
             address(safe),
             swapTemplate,
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                      uint256(5 ether), uint256(0), address(0))
+                      uint256(5 ether), uint256(9_999), address(swapOracle), uint256(3600))
         );
         _attach(
             address(safeB),
             swapTemplate,
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                      uint256(5 ether), uint256(0), address(0))
+                      uint256(5 ether), uint256(9_999), address(swapOracle), uint256(3600))
         );
 
         // Reconfigure A's cap to 100 ETH; B should stay at 5 ETH
         bytes memory newParams = abi.encode(
             _one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-            uint256(100 ether), uint256(0), address(0)
+            uint256(100 ether), uint256(9_999), address(swapOracle), uint256(3600)
         );
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory cfgSig = _signConfigure(swapTemplate, address(safe), newParams, deadline, PERM_SIGNER_KEY);
@@ -387,7 +397,7 @@ contract FactoryDeFiTest is FactoryTestBase {
 
         // Verify dispatch behaviour matches the new caps
         // A: 50 ETH passes
-        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 50 ether, 1);
+        bytes memory dataA = _v3Swap(WETH, USDC, address(safe), 50 ether, 50 ether);
         _dispatch(address(safe), address(swapTemplate), UNI_V3_ROUTER, 0, dataA);
 
         // B: 50 ETH fails (over its 5 ETH cap)
@@ -412,7 +422,7 @@ contract FactoryDeFiTest is FactoryTestBase {
     function test_MultiTemplate_BatchAttach() public {
         bytes memory swapParams =
             abi.encode(_one(UNI_V3_ROUTER), _one(WETH), _one(USDC),
-                      uint256(10 ether), uint256(0), address(0));
+                      uint256(10 ether), uint256(9_999), address(swapOracle), uint256(3600));
         bytes memory transferParams = abi.encode(_one(BENEFICIARY), _one(USDC), type(uint256).max);
         bytes memory borrowParams   = abi.encode(
             _one(AAVE_V3_POOL), _one(USDC),

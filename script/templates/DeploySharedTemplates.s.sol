@@ -8,6 +8,7 @@ import {ApproveAndCallBatchPermission} from "../../contracts/templates/ApproveAn
 import {BorrowPermission}              from "../../contracts/templates/BorrowPermission.sol";
 import {DepositPermission}             from "../../contracts/templates/DepositPermission.sol";
 import {SwapPermission}                from "../../contracts/templates/SwapPermission.sol";
+import {SwapPermissionNoOracle}        from "../../contracts/templates/SwapPermissionNoOracle.sol";
 import {TransferPermission}            from "../../contracts/templates/TransferPermission.sol";
 import {WithdrawPermission}            from "../../contracts/templates/WithdrawPermission.sol";
 
@@ -36,6 +37,7 @@ contract DeploySharedTemplates is Script {
         BorrowPermission              borrow;
         DepositPermission             deposit;
         SwapPermission                swap;
+        SwapPermissionNoOracle        swapNoOracle;
         TransferPermission            transfer;
         WithdrawPermission            withdraw;
     }
@@ -59,6 +61,7 @@ contract DeploySharedTemplates is Script {
         d.borrow              = new BorrowPermission(d.kernel, author);
         d.deposit             = new DepositPermission(d.kernel, author);
         d.swap                = new SwapPermission(d.kernel, author);
+        d.swapNoOracle        = new SwapPermissionNoOracle(d.kernel, author);
         d.transfer            = new TransferPermission(d.kernel, author);
         d.withdraw            = new WithdrawPermission(d.kernel, author);
 
@@ -68,6 +71,7 @@ contract DeploySharedTemplates is Script {
         console2.log("BorrowPermission              :", address(d.borrow));
         console2.log("DepositPermission             :", address(d.deposit));
         console2.log("SwapPermission                :", address(d.swap));
+        console2.log("SwapPermissionNoOracle        :", address(d.swapNoOracle));
         console2.log("TransferPermission            :", address(d.transfer));
         console2.log("WithdrawPermission            :", address(d.withdraw));
 
@@ -82,6 +86,7 @@ contract DeploySharedTemplates is Script {
         vm.serializeAddress(k, "borrow",              address(d.borrow));
         vm.serializeAddress(k, "deposit",             address(d.deposit));
         vm.serializeAddress(k, "swap",                address(d.swap));
+        vm.serializeAddress(k, "swapNoOracle",        address(d.swapNoOracle));
         vm.serializeAddress(k, "transfer",            address(d.transfer));
         string memory json =
             vm.serializeAddress(k, "withdraw",        address(d.withdraw));

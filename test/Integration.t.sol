@@ -7,7 +7,19 @@ import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import {SwapPermission} from "../contracts/templates/SwapPermission.sol";
+import {IOracle} from "../contracts/interfaces/IOracle.sol";
 import "../contracts/policies/StandardFeePolicy.sol";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MockOracle — permissive 1:1 reference (price 1, 0 decimals, always fresh). These
+// integration tests exercise dispatch/fee mechanics, not the slippage band, so the
+// band is configured at maximum tolerance and every swap clears it trivially.
+// ─────────────────────────────────────────────────────────────────────────────
+contract MockOracle is IOracle {
+    function getPrice(address, address) external view returns (uint256, uint8, uint256) {
+        return (1, 0, block.timestamp);
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MockSafe — records every execTransactionFromModule call; forwards ETH
@@ -136,13 +148,15 @@ contract IntegrationTest is Test {
         vm.prank(address(mockSafe));
         kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
 
-        // 6b. Configure SwapPermission for this account: only ROUTER, WETH→USDC, 10 ETH cap,
-        //     2% slippage, no oracle. Must run after registerAccount (reads kernel.configs)
-        //     and be sent by the account's permissionSigner.
+        // 6b. Configure SwapPermission for this account: only ROUTER, WETH→USDC, 10 ETH cap.
+        //     SwapPermission now requires an oracle; these dispatch/fee tests are not about the
+        //     band, so use a permissive 1:1 oracle at maximum tolerance (full 7-field config).
+        //     Must run after registerAccount (reads kernel.configs) and be sent by permissionSigner.
+        MockOracle oracle = new MockOracle();
         vm.prank(permSigner);
         swap.configureDirect(
             address(mockSafe),
-            abi.encode(routers, tokensIn, tokensOut, 10 ether, 200, address(0), 0)
+            abi.encode(routers, tokensIn, tokensOut, 10 ether, 9_999, address(oracle), uint256(3600))
         );
 
         // 7. Register SwapPermission (pays exact fee)
@@ -258,7 +272,7 @@ contract IntegrationTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_Dispatch_GoldenPath() public {
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
         bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
@@ -275,7 +289,7 @@ contract IntegrationTest is Test {
 
     function test_Dispatch_WrongRouter_Reverts() public {
         address badRouter = address(0xBAD1);
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
         bytes memory sig = _signDispatch(address(mockSafe), address(swap), badRouter, 0, swapData, nonce, deadline);
@@ -317,7 +331,7 @@ contract IntegrationTest is Test {
     }
 
     function test_Dispatch_Replay_Reverts() public {
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
         bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
@@ -341,7 +355,7 @@ contract IntegrationTest is Test {
         assertEq(kernel.getPermissions(address(mockSafe)).length, 0);
 
         // After revocation _permissionIndex[account][swap] == 0, so PermissionNotRegistered fires
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
         bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
@@ -452,7 +466,7 @@ contract IntegrationTest is Test {
 
         assertFalse(_sessionActive(address(mockSafe)));
 
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(mockSafe));
         bytes memory sig = _signDispatch(address(mockSafe), address(swap), ROUTER, 0, swapData, nonce, deadline);
@@ -465,7 +479,7 @@ contract IntegrationTest is Test {
 
     function test_SessionRevoke_AlreadyValidSwapNowBlocked() public {
         // First confirm the swap works
-        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1);
+        bytes memory swapData = _v3Swap(WETH, USDC, address(mockSafe), 1 ether, 1 ether);
         {
             uint256 deadline = block.timestamp + 1 hours;
             uint256 nonce    = kernel.managerNonces(address(mockSafe));

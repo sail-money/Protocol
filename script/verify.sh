@@ -268,6 +268,7 @@ verify_shared_templates() {
     "approveAndCallBatch|contracts/templates/ApproveAndCallBatchPermission.sol:ApproveAndCallBatchPermission"
     "borrow|contracts/templates/BorrowPermission.sol:BorrowPermission"
     "swap|contracts/templates/SwapPermission.sol:SwapPermission"
+    "swapNoOracle|contracts/templates/SwapPermissionNoOracle.sol:SwapPermissionNoOracle"
     "transfer|contracts/templates/TransferPermission.sol:TransferPermission"
   )
 
