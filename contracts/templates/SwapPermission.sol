@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IOracle} from "../../interfaces/IOracle.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 

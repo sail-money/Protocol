@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {IPermission, Context}                 from "../../interfaces/IPermission.sol";
-import {IBatchPermission, Call, BatchContext} from "../../interfaces/IBatchPermission.sol";
-import {IPermissionIntrospection}             from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities}                     from "../../interfaces/SailCapabilities.sol";
+import {IPermission, Context}                 from "../interfaces/IPermission.sol";
+import {IBatchPermission, Call, BatchContext} from "../interfaces/IBatchPermission.sol";
+import {IPermissionIntrospection}             from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities}                     from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission}                 from "./ConfigurablePermission.sol";
 
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.

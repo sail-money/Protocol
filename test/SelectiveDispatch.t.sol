@@ -7,11 +7,11 @@ import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {ConfigurablePermission} from "../contracts/templates/shared/ConfigurablePermission.sol";
-import {SwapPermission}     from "../contracts/templates/shared/SwapPermission.sol";
-import {BorrowPermission}   from "../contracts/templates/shared/BorrowPermission.sol";
-import {TransferPermission}  from "../contracts/templates/shared/TransferPermission.sol";
-import {ApproveAndCallBatchPermission} from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
+import {SwapPermission}     from "../contracts/templates/SwapPermission.sol";
+import {BorrowPermission}   from "../contracts/templates/BorrowPermission.sol";
+import {TransferPermission}  from "../contracts/templates/TransferPermission.sol";
+import {ApproveAndCallBatchPermission} from "../contracts/templates/ApproveAndCallBatchPermission.sol";
 import {IOracle}              from "../contracts/interfaces/IOracle.sol";
 
 // =============================================================================

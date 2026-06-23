@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import {Clones}                  from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ReentrancyGuard}         from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
-import {CloneInitializable}      from "../templates/base/CloneInitializable.sol";
+import {CloneInitializable}      from "../utils/CloneInitializable.sol";
 
 interface ISailKernelFactory {
     function registerPermission(address account, address permission, uint256 deadline, bytes calldata sig)

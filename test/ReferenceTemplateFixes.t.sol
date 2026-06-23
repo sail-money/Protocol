@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {Context}         from "../contracts/interfaces/IPermission.sol";
 import {IOracle}         from "../contracts/interfaces/IOracle.sol";
-import {SwapPermission}   from "../contracts/templates/shared/SwapPermission.sol";
-import {BorrowPermission} from "../contracts/templates/shared/BorrowPermission.sol";
+import {SwapPermission}   from "../contracts/templates/SwapPermission.sol";
+import {BorrowPermission} from "../contracts/templates/BorrowPermission.sol";
 
 /// @dev Minimal kernel view stub: every account is registered and this test contract
 ///      is the permissionSigner, so `configureDirect` is accepted.

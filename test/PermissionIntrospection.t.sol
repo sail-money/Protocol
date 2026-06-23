@@ -7,10 +7,10 @@ import {IPermissionIntrospection}    from "../contracts/interfaces/IPermissionIn
 import {SailCapabilities}            from "../contracts/interfaces/SailCapabilities.sol";
 import {Context}                     from "../contracts/interfaces/IPermission.sol";
 
-import {SwapPermission}          from "../contracts/templates/shared/SwapPermission.sol";
-import {BorrowPermission}        from "../contracts/templates/shared/BorrowPermission.sol";
-import {TransferPermission}       from "../contracts/templates/shared/TransferPermission.sol";
-import {ApproveAndCallBatchPermission}  from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {SwapPermission}          from "../contracts/templates/SwapPermission.sol";
+import {BorrowPermission}        from "../contracts/templates/BorrowPermission.sol";
+import {TransferPermission}       from "../contracts/templates/TransferPermission.sol";
+import {ApproveAndCallBatchPermission}  from "../contracts/templates/ApproveAndCallBatchPermission.sol";
 
 /// @notice Tests for IPermissionIntrospection implementations across all shared templates.
 ///         All introspection functions are pure — no kernel, governance, or Safe setup required.

@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {Context}                from "../contracts/interfaces/IPermission.sol";
 import {SailCapabilities}       from "../contracts/interfaces/SailCapabilities.sol";
-import {ConfigurablePermission} from "../contracts/templates/shared/ConfigurablePermission.sol";
-import {DepositPermission}      from "../contracts/templates/shared/DepositPermission.sol";
+import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
+import {DepositPermission}      from "../contracts/templates/DepositPermission.sol";
 
 /// @dev Minimal kernel view: every account registered; this test contract is the permissionSigner.
 contract DepositMockKernel {
