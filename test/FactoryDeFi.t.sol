@@ -195,7 +195,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             abi.encode(
                 _one(AAVE_V3_POOL), _one(USDC),
                 uint256(10_000), uint256(7_500),
-                address(colOracle), address(borOracle)
+                address(colOracle), address(borOracle), uint256(3600)
             )
         );
 
@@ -220,7 +220,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             abi.encode(
                 _one(AAVE_V3_POOL), _one(USDC),
                 uint256(10_000), uint256(5_000), // 50% LTV cap
-                address(colOracle), address(borOracle)
+                address(colOracle), address(borOracle), uint256(3600)
             )
         );
 
@@ -243,7 +243,7 @@ contract FactoryDeFiTest is FactoryTestBase {
             abi.encode(
                 _one(AAVE_V3_POOL), _one(USDC),
                 uint256(5_000e18), uint256(7_500),
-                address(0), address(0) // no LTV check
+                address(0), address(0), uint256(0) // no LTV check
             )
         );
 
@@ -427,7 +427,7 @@ contract FactoryDeFiTest is FactoryTestBase {
         bytes memory borrowParams   = abi.encode(
             _one(AAVE_V3_POOL), _one(USDC),
             uint256(1_000), uint256(7_500),
-            address(0), address(0)
+            address(0), address(0), uint256(0)
         );
 
         address[] memory templates = new address[](3);

@@ -256,7 +256,7 @@ contract SelectiveDispatchTest is Test {
     function _configureBorrow(address account) internal {
         address[] memory protocols = new address[](1); protocols[0] = AAVE_POOL;
         address[] memory assets    = new address[](1); assets[0]    = BORROW_ASSET;
-        bytes memory params = abi.encode(protocols, assets, uint256(1_000e18), uint256(0), address(0), address(0));
+        bytes memory params = abi.encode(protocols, assets, uint256(1_000e18), uint256(0), address(0), address(0), uint256(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signConfigure(borrowPerm, account, params, deadline);
         borrowPerm.configure(account, params, deadline, sig);
