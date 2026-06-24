@@ -6,7 +6,7 @@
  
 Sail is a minimal account-abstraction primitive for onchain Separately Managed Accounts. The protocol does five things: it instantiates Safe accounts from any signer setup; it registers permission modules deployed by users; it gates a delegated manager's transactions through those permissions; it charges fees per permission deployed; and it tracks principal while routing manager-collected fees through a protocol-enforced split with a hard 25% cap. All permission logic, valuation math, and fee schedules live in user-deployed contracts outside the core. The protocol separates three roles — Owner, Permission Signer, Manager — and is governed by a contract initially held by the team multisig, transferable later.
  
-The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account without protocol approval. Governance allowlists apply only to trusted infrastructure — the Safe factory, the Safe singleton, the proxy codehash, and fee policies — not to permissions. The trusted kernel is ~1,700 lines of Solidity. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
+The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account without protocol approval. Governance allowlists apply only to trusted infrastructure — the Safe factory, the Safe singleton, the proxy codehash, and fee policies — not to permissions. The trusted core is roughly 1,150 lines of Solidity (the kernel itself ~820), small enough to audit in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
  
 ## Design Principles
  
@@ -145,7 +145,7 @@ Governance can lower or raise parameters within the caps but never raise the cap
  
 ## Security Model
  
-The kernel's trusted surface is ~1,700 lines of Solidity. The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts called from the kernel via `staticcall` with strict gas caps.
+The trusted surface is roughly 1,150 lines of Solidity (the kernel itself ~820). The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts called from the kernel via `staticcall` with strict gas caps.
  
 This architecture provides three security properties:
  
@@ -156,7 +156,7 @@ This architecture provides three security properties:
 1. The kernel handles signature verification, session validity, dispatch, fee splits, and custody isolation correctly.
 2. Each canonical permission template enforces what it claims.
 3. Composition is by construction — the kernel calls each permission independently; there is no cross-permission interaction.
-**Formal verification feasibility.** A trusted core of a few thousand lines is tractable for tools like Certora, Halmos, and Kontrol. Critical invariants (custody isolation, fee cap enforcement, signature verification) are amenable to formal analysis.
+**Formal verification feasibility.** A trusted core on the order of 1,150 lines is tractable for tools like Certora, Halmos, and Kontrol. Critical invariants (custody isolation, fee cap enforcement, signature verification) are amenable to formal analysis.
  
 ## Canonical Templates
  
@@ -193,7 +193,7 @@ Each exclusion reduces what the protocol owns. The protocol owns less, by design
  
 | Property | Value |
 |----------|-------|
-| Trusted kernel size | ~1,700 lines of Solidity |
+| Trusted core size | ~1,150 lines of Solidity (kernel ~820) |
 | Permission evaluation gas cap | 150,000 (single dispatch) / 1,000,000 (batch) |
 | Protocol fee cap (immutable) | 25% of manager-collected fees |
 | Permission evaluation | `staticcall`, gas-bounded, no state mutation |

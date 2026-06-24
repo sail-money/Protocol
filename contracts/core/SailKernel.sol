@@ -695,9 +695,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         each mandate via the normal `registerPermission(s)` flow — which binds them
     ///         to the new manager). A `PermissionRevoked` is emitted per cleared mandate.
     ///
-    ///         IN-FLIGHT DISPATCHES: `managerNonces`/`batchNonces` are bumped by
-    ///         `NONCE_EPOCH_INCREMENT` so any dispatch the old manager pre-signed but did
-    ///         not submit is invalidated, consistent with every other mandate-mutating op.
+    ///         IN-FLIGHT OPS: `managerNonces`, `batchNonces`, and `signerNonces` are all
+    ///         bumped by `NONCE_EPOCH_INCREMENT` so any dispatch the old manager pre-signed,
+    ///         and any permission-signer op pre-signed against the old epoch, is invalidated —
+    ///         consistent with every other mandate-mutating op.
     ///
     ///         PAUSE: Intentionally exempt from `whenNotPaused` — losing the agent key is
     ///         exactly the kind of incident during which recovery must remain possible, and

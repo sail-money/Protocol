@@ -14,8 +14,8 @@ pragma solidity 0.8.26;
 ///         effect on whether a dispatch is permitted.
 ///
 /// @dev    permissionId identifies the template TYPE, not the deployment instance.
-///         Two separate deployments of SharedBoundedSwapPermission return the same
-///         permissionId. Use the contract address to distinguish instances.
+///         Two separate deployments of the same template (e.g. SwapPermission) return
+///         the same permissionId. Use the contract address to distinguish instances.
 ///
 /// @dev    Indexers and UIs can combine PermissionRegistered events emitted by the
 ///         kernel with permissionId() lookups to group accounts by template type,
@@ -53,7 +53,7 @@ interface IPermissionIntrospection {
     ///         convention following the same format). Consumers use this list to filter
     ///         templates by capability without needing to know each template's ABI.
     ///         A template SHOULD declare all capabilities it meaningfully supports.
-    ///         A template that composes multiple domains (e.g. SharedDeFiBundlePermission)
+    ///         A template that composes multiple domains (e.g. a swap-and-borrow bundle)
     ///         SHOULD declare all composed capabilities.
     /// @return ids An array of capability identifiers; must be non-empty.
     function capabilityIds() external view returns (bytes32[] memory ids);
