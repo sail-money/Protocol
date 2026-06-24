@@ -25,15 +25,15 @@ interface IUniswapV3PoolLike {
 }
 
 /// @title  SwapPermissionNoOracle — bounded swap with a pool-referenced hallucination sanity band
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         This permission is a reference example demonstrating how to express a bounded
-///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
-///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
-///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
-///         evaluates any permission safely under staticcall + a gas cap + fail-closed
-///         semantics, but it does NOT verify that this permission's logic correctly
-///         enforces what its NatSpec claims. Anyone registering this permission is
-///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+/// @notice MINIMAL-GUARANTEE SHIPPING TEMPLATE — part of the launch template set.
+///         It enforces only a non-zero minimum-out plus a pool-referenced hallucination
+///         floor; it provides NO oracle-based, manipulation-resistant slippage protection —
+///         use the oracle-gated SwapPermission for that. Read "WHAT IT DOES NOT PROTECT
+///         AGAINST" below before relying on it. The kernel evaluates any permission safely
+///         under staticcall + a gas cap + fail-closed semantics, but it does NOT verify that
+///         this permission's logic correctly enforces what its NatSpec claims. Anyone
+///         registering this permission is responsible for understanding its narrow guarantee.
+///         See docs/SECURITY.md for the audit-scope documentation.
 ///
 ///         WHAT IT IS. A swap template for tokens that have NO oracle — i.e. no independent,
 ///         manipulation-resistant price feed. It is the non-oracle tier of the swap templates; for
