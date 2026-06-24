@@ -214,7 +214,7 @@ The protocol is deployed on **Ethereum, Base, Arbitrum, and Unichain** (with Bas
 
 **Reference**
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — architecture overview
-- [docs/terminology-mapping.md](./docs/terminology-mapping.md) — glossary of protocol terms
+- [docs/GLOSSARY.md](./docs/GLOSSARY.md) — glossary of protocol terms
 - Advanced: [docs/agent-identity.md](./docs/agent-identity.md) · [docs/off-chain-attribution.md](./docs/off-chain-attribution.md)
 
 ## Build and test
