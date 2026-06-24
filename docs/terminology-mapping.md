@@ -165,10 +165,10 @@ Solidity uses of "template":
 | `contracts/templates/SynthetixPerpPermission.sol` | 14, 16 | Same | Correct. |
 | `contracts/templates/AzuroPredictionPermission.sol` | 14, 16 | Same | Correct. |
 | `contracts/templates/LimitlessPredictionPermission.sol` | 17, 19 | Same | Correct. |
-| `contracts/templates/shared/SharedPendlePermission.sol` | 9 | `/// @notice Multi-account permission template` | Correct — template pattern, also IS a permission. |
-| `contracts/templates/shared/SharedAMMLiquidityPermission.sol` | 9 | `/// @notice Multi-account permission template` | Same. |
-| `contracts/templates/shared/SharedDeFiBundlePermission.sol` | 11 | `/// @notice Composite multi-account template` | Correct. |
-| `contracts/templates/shared/SharedApproveAndCallBatchPermission.sol` | 13, 23, 161 | `/// @dev The batch shape this template authorises` | Correct. |
+| `contracts/templates/SharedPendlePermission.sol` | 9 | `/// @notice Multi-account permission template` | Correct — template pattern, also IS a permission. |
+| `contracts/templates/SharedAMMLiquidityPermission.sol` | 9 | `/// @notice Multi-account permission template` | Same. |
+| `contracts/templates/SharedDeFiBundlePermission.sol` | 11 | `/// @notice Composite multi-account template` | Correct. |
+| `contracts/templates/SharedApproveAndCallBatchPermission.sol` | 13, 23, 161 | `/// @dev The batch shape this template authorises` | Correct. |
 | `contracts/interfaces/IPermissionIntrospection.sol` | 5–18, 26–28 | "Templates that implement it…", "permissionId identifies the template TYPE" | Correct use — template = type/class of permission. |
 | `contracts/interfaces/IConfigurablePermission.sol` | 7, 17 | "A single deployed template can serve unlimited accounts" | Correct. |
 | `contracts/interfaces/IAgentIdentityResolver.sol` | 60–62, 66, 103 | "same identity for all accounts that use this template" | Correct. |
@@ -380,7 +380,7 @@ All places where the SMA/Mandate/Permission/Template relationship is described
 | `SailCapabilities` | `SailCapabilities` | ✅ Yes | No change | N/A | |
 | `StandardFeePolicy` | `StandardFeePolicy` | ✅ Yes | No change | N/A | |
 
-### 4.2 Shared template contracts (`contracts/templates/shared/`)
+### 4.2 Shared template contracts (`contracts/templates/`)
 
 Each of these contracts is both:
 1. **A Permission** — implements `IPermission.evaluate()`, is registered in the kernel's permission registry, and gates dispatch
@@ -447,7 +447,7 @@ All are consistent with the agreed hierarchy. No renames required.
 | Directory | Status | Notes |
 |---|---|---|
 | `contracts/templates/` | ⚠️ Minor tension | Named "templates" but contains Permission contracts. Under the hierarchy these ARE Permissions that follow Template patterns. Renaming to `contracts/permissions/` would be more strictly consistent but would break every `import` path in the test suite and all contracts. **Recommendation: leave as-is.** The NatSpec already calls them "permission templates"; the contract identifiers use `*Permission`. The directory name is a useful grouping by purpose, not a misrepresentation. |
-| `contracts/templates/shared/` | Same | Same recommendation. |
+| `contracts/templates/` | Same | Same recommendation. |
 
 ### 4.6 `MandateFactory` event parameter names: `template`
 

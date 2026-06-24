@@ -4,8 +4,7 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {Context}         from "../contracts/interfaces/IPermission.sol";
 import {IOracle}         from "../contracts/interfaces/IOracle.sol";
-import {SwapPermission}   from "../contracts/templates/shared/SwapPermission.sol";
-import {BorrowPermission} from "../contracts/templates/shared/BorrowPermission.sol";
+import {BorrowPermission} from "../contracts/templates/BorrowPermission.sol";
 
 /// @dev Minimal kernel view stub: every account is registered and this test contract
 ///      is the permissionSigner, so `configureDirect` is accepted.
@@ -32,28 +31,23 @@ contract MockOracle is IOracle {
     }
 }
 
-/// @notice Regression guards for the PR3 reference-template fixes:
-///         - SwapPermission: with NO oracle, amountOutMin == 0 must be DENIED (was fail-open).
+/// @notice Regression guards for the reference-template fixes:
 ///         - BorrowPermission: a non-zero-decimals collateral oracle that previously let a borrow
 ///           slip under maxLtvBps (raw-colValue bug) must now correctly DENY.
-///         Plus a basic author-attribution check.
+///         Plus a basic author-attribution check. (The Swap no-oracle behaviour now lives in
+///         the dedicated SwapPermissionNoOracle suite.)
 contract ReferenceTemplateFixesTest is Test {
-    bytes4 internal constant EXACT_INPUT_SINGLE_V1 = 0x414bf389;
     bytes4 internal constant COMPOUND_BORROW       = bytes4(keccak256("borrow(uint256)"));
 
     address internal constant AUTHOR  = address(0xA11CE);
     address internal constant ACCOUNT = address(0xACC0);
-    address internal constant ROUTER  = address(0x9000);
-    address internal constant TOKIN   = address(0x100);
-    address internal constant TOKOUT  = address(0x200);
+    address internal constant ROUTER  = address(0x9000); // reused as the Compound cToken target
 
     MockKernelView internal kernel;
-    SwapPermission  internal swap;
     BorrowPermission internal borrow;
 
     function setUp() public {
         kernel = new MockKernelView(address(this)); // this contract is the permissionSigner
-        swap   = new SwapPermission(address(kernel), AUTHOR);
         borrow = new BorrowPermission(address(kernel), AUTHOR);
     }
 
@@ -73,44 +67,7 @@ contract ReferenceTemplateFixesTest is Test {
     // ── Author attribution ─────────────────────────────────────────────────────
 
     function test_Author_IsRecordedFromConstructorArg() public view {
-        assertEq(swap.author(),   AUTHOR);
         assertEq(borrow.author(), AUTHOR);
-    }
-
-    // ── SwapPermission: no-oracle slippage fail-closed ──────────────────────────
-
-    function _configureSwapNoOracle() internal {
-        address[] memory routers   = new address[](1); routers[0]   = ROUTER;
-        address[] memory tokensIn  = new address[](1); tokensIn[0]  = TOKIN;
-        address[] memory tokensOut = new address[](1); tokensOut[0] = TOKOUT;
-        bytes memory params = abi.encode(
-            routers, tokensIn, tokensOut,
-            uint256(1000 ether), // maxAmountPerTx
-            uint256(0),          // maxSlippageBps
-            address(0),          // priceOracle — none
-            uint256(0)           // maxPriceAgeSec
-        );
-        swap.configureDirect(ACCOUNT, params);
-    }
-
-    function _swapCalldata(uint256 amountOutMin) internal view returns (bytes memory) {
-        return abi.encodeWithSelector(
-            EXACT_INPUT_SINGLE_V1,
-            TOKIN, TOKOUT, uint24(3000), ACCOUNT, uint256(block.timestamp + 1),
-            uint256(1 ether), amountOutMin, uint160(0)
-        );
-    }
-
-    function test_Swap_NoOracle_AmountOutMinZero_IsDenied() public {
-        _configureSwapNoOracle();
-        // amountOutMin == 0 with no oracle: previously fail-open (true); now must be DENIED.
-        assertFalse(swap.evaluate(_swapCalldata(0), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
-    }
-
-    function test_Swap_NoOracle_AmountOutMinNonZero_IsAllowed() public {
-        _configureSwapNoOracle();
-        // A non-zero caller-supplied minimum-out passes the no-oracle guard.
-        assertTrue(swap.evaluate(_swapCalldata(1), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
     }
 
     // ── BorrowPermission: collateral-decimals LTV fix ───────────────────────────

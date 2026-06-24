@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {IPermission, Context} from "../../interfaces/IPermission.sol";
-import {IConfigurablePermission} from "../../interfaces/IConfigurablePermission.sol";
-import {AgentIdentityRef, IAccountAgentIdentityResolver} from "../../interfaces/IAgentIdentityResolver.sol";
+import {IPermission, Context} from "../interfaces/IPermission.sol";
+import {IConfigurablePermission} from "../interfaces/IConfigurablePermission.sol";
+import {AgentIdentityRef, IAccountAgentIdentityResolver} from "../interfaces/IAgentIdentityResolver.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Subset of SailKernel that templates need to read.
+///      `configs` declares only the field the templates actually use (permissionSigner,
+///      ABI position 0). Declaring fewer return values than the kernel's full AccountConfig
+///      getter is safe — the ABI decoder reads the first word and ignores trailing returndata —
+///      and it cannot drift if the kernel struct later adds or reorders subsequent fields.
 interface ISailKernelView {
     function registered(address account) external view returns (bool);
-    function configs(address account)
-        external
-        view
-        returns (address permissionSigner, address manager, address feePolicy, bool sessionActive);
+    function configs(address account) external view returns (address permissionSigner);
 }
 
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
@@ -95,7 +96,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         ));
         bytes32 digest = _hashTypedDataV4(structHash);
 
-        (address permSigner,,,) = kernel.configs(account);
+        address permSigner = kernel.configs(account);
         if (!_verifySig(permSigner, digest, sig)) revert InvalidSignature();
 
         // Increment nonce only after successful verification
@@ -108,7 +109,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
     /// @inheritdoc IConfigurablePermission
     function configureDirect(address account, bytes calldata params) external nonReentrant {
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
-        (address permSigner,,,) = kernel.configs(account);
+        address permSigner = kernel.configs(account);
         if (msg.sender != permSigner) revert NotPermissionSigner(msg.sender, permSigner);
 
         uint256 nonce = configNonces[account]++;
@@ -148,7 +149,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         bytes32 structHash = keccak256(abi.encode(SET_IDENTITY_TYPEHASH, account, identityHash, nonce, deadline));
         bytes32 digest = _hashTypedDataV4(structHash);
 
-        (address permSigner,,,) = kernel.configs(account);
+        address permSigner = kernel.configs(account);
         if (!_verifySig(permSigner, digest, sig)) revert InvalidSignature();
 
         configNonces[account] = nonce + 1;
@@ -164,7 +165,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
     ///      with concurrent `configure` or `setAgentIdentity` calls for the same account.
     function setAgentIdentityDirect(address account, AgentIdentityRef calldata ref) external nonReentrant {
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
-        (address permSigner,,,) = kernel.configs(account);
+        address permSigner = kernel.configs(account);
         if (msg.sender != permSigner) revert NotPermissionSigner(msg.sender, permSigner);
 
         configNonces[account]++;

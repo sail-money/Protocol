@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
+/// @title  TransferPermission — bounded ERC-20 transfer to an allowlisted recipient set
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
 ///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
@@ -16,10 +17,29 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         enforces what its NatSpec claims. Anyone registering this permission is
 ///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
 ///
-///         Reference transfer permission. One deployment serves any number of accounts;
-///         each account stores its own recipient and token allowlists.
+///         WHAT IT IS. A reference transfer template. One deployment serves any number of accounts;
+///         each account stores its own recipient allowlist, token allowlist, and per-tx amount cap.
+///         It gates a manager's ERC-20 transfers so funds only move to pre-approved recipients, in
+///         pre-approved tokens, within a per-transaction size cap.
 ///
-///         Config blob:
+///         WHAT IT ENFORCES. For every call: the token (call target) is allowlisted; the amount is
+///         within the per-tx cap; the destination is in the recipient allowlist; and on
+///         transferFrom the `from` is the account itself (so the manager cannot pull tokens a third
+///         party approved to the account). Calls carrying native ETH (msg.value != 0) are rejected.
+///
+///         SELECTOR BOUNDARY. Recognizes the two ERC-20 movement selectors only:
+///           - transfer(address to, uint256 amount)
+///           - transferFrom(address from, address to, uint256 amount)
+///         Any other selector (including approve) is denied. This is a plain ERC-20 transfer gate;
+///         it does NOT interpret vault/pool/router calldata or any protocol-specific interface.
+///
+///         HONEST BOUNDARY — what it does NOT do. Recipients are an open SET the permissionSigner
+///         controls; a compromised permissionSigner can add a recipient, and an allowlisted
+///         recipient that is itself a malicious contract is not vetted here. The cap is
+///         per-transaction, NOT cumulative — a manager may make many at-cap transfers. A
+///         maxAmountPerTx of 0 is accepted and blocks every non-zero transfer (fail-closed).
+///
+/// @dev    Config blob:
 ///             abi.encode(
 ///                 address[] allowedRecipients,
 ///                 address[] allowedTokens,

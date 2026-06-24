@@ -15,13 +15,19 @@ pragma solidity 0.8.26;
 ///         is sufficiently collision-resistant for practical purposes.
 ///
 /// @dev    Every constant in this file corresponds to a live Sail template in
-///         contracts/templates/shared/. Retire constants (by NatSpec deprecation) only
+///         contracts/templates/. Retire constants (by NatSpec deprecation) only
 ///         when the corresponding template is permanently removed from the protocol.
 library SailCapabilities {
-    /// @notice Capability declared by SharedBoundedSwapPermission.
+    /// @notice Capability declared by SwapPermission (oracle-gated).
     ///         Gates token-swap operations with amount caps, slippage bounds, and oracle checks.
     bytes32 internal constant BOUNDED_SWAP =
         keccak256("sail.capability.bounded-swap.v1");
+
+    /// @notice Capability declared by SwapPermissionNoOracle.
+    ///         Gates token-swap operations with amount caps, allowlists, and recipient pinning,
+    ///         but NO on-chain price band — price protection rides on the manager's amountOutMin.
+    bytes32 internal constant SWAP_NO_ORACLE =
+        keccak256("sail.capability.swap-no-oracle.v1");
 
     /// @notice Capability declared by SharedBoundedBorrowPermission.
     ///         Gates borrow operations on Aave V3, Morpho, and Compound with LTV enforcement.

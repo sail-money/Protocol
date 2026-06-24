@@ -9,7 +9,7 @@ import {TimelockController}      from "@openzeppelin/contracts/governance/Timelo
 import {IPermission, Context}    from "../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}              from "../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                 from "../contracts/interfaces/IOracle.sol";
-import {SwapPermission}          from "../contracts/templates/shared/SwapPermission.sol";
+import {SwapPermission}          from "../contracts/templates/SwapPermission.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks

@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
 import "./mocks/MockClonePermission.sol";
-import "../contracts/templates/base/CloneInitializable.sol";
+import "../contracts/utils/CloneInitializable.sol";
 
 contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
     // Test-only clone template — the production shared/ templates are configure-based,

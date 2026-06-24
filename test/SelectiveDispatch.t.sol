@@ -7,11 +7,11 @@ import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {ConfigurablePermission} from "../contracts/templates/shared/ConfigurablePermission.sol";
-import {SwapPermission}     from "../contracts/templates/shared/SwapPermission.sol";
-import {BorrowPermission}   from "../contracts/templates/shared/BorrowPermission.sol";
-import {TransferPermission}  from "../contracts/templates/shared/TransferPermission.sol";
-import {ApproveAndCallBatchPermission} from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
+import {SwapPermission}     from "../contracts/templates/SwapPermission.sol";
+import {BorrowPermission}   from "../contracts/templates/BorrowPermission.sol";
+import {TransferPermission}  from "../contracts/templates/TransferPermission.sol";
+import {ApproveAndCallBatchPermission} from "../contracts/templates/ApproveAndCallBatchPermission.sol";
 import {IOracle}              from "../contracts/interfaces/IOracle.sol";
 
 // =============================================================================
@@ -239,7 +239,15 @@ contract SelectiveDispatchTest is Test {
         address[] memory routers   = new address[](1); routers[0]   = UNI_ROUTER;
         address[] memory tokensIn  = new address[](1); tokensIn[0]  = TOKEN_IN;
         address[] memory tokensOut = new address[](1); tokensOut[0] = TOKEN_OUT;
-        bytes memory params = abi.encode(routers, tokensIn, tokensOut, uint256(1_000e18), uint256(0), address(0));
+        // SwapPermission requires an oracle. These dispatch-selection tests exercise routing, not
+        // the slippage band, so use a permissive 1:1 oracle with maximum tolerance; the success
+        // swaps clear the resulting floor trivially. This is a full 7-field config; the prior
+        // 6-field encode only decoded by ABI-layout coincidence on the now-removed no-oracle path.
+        MockOracle oracle = new MockOracle();
+        oracle.set(TOKEN_IN, TOKEN_OUT, 1, 0);
+        bytes memory params = abi.encode(
+            routers, tokensIn, tokensOut, uint256(1_000e18), uint256(9_999), address(oracle), uint256(3600)
+        );
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signConfigure(swapPerm, account, params, deadline);
         swapPerm.configure(account, params, deadline, sig);
@@ -248,7 +256,7 @@ contract SelectiveDispatchTest is Test {
     function _configureBorrow(address account) internal {
         address[] memory protocols = new address[](1); protocols[0] = AAVE_POOL;
         address[] memory assets    = new address[](1); assets[0]    = BORROW_ASSET;
-        bytes memory params = abi.encode(protocols, assets, uint256(1_000e18), uint256(0), address(0), address(0));
+        bytes memory params = abi.encode(protocols, assets, uint256(1_000e18), uint256(0), address(0), address(0), uint256(0));
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signConfigure(borrowPerm, account, params, deadline);
         borrowPerm.configure(account, params, deadline, sig);
@@ -315,7 +323,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(borrowPerm));
         _registerPermission(address(transferPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         _dispatch(address(swapPerm), UNI_ROUTER, 0, swapData);
         assertEq(safe.callCount(), 1, "swap call not executed");
     }
@@ -357,7 +365,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(borrowPerm));
         _registerPermission(address(transferPerm));
 
-        _dispatch(address(swapPerm),    UNI_ROUTER,   0, _buildSwapData(100e18, 1));
+        _dispatch(address(swapPerm),    UNI_ROUTER,   0, _buildSwapData(100e18, 100e18));
         _dispatch(address(borrowPerm),  AAVE_POOL,    0, _buildBorrowData(500e18));
         _dispatch(address(transferPerm), TRANSFER_TKN, 0, _buildTransferData(100e18));
 
@@ -378,7 +386,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(swapPerm));
         _registerPermission(address(borrowPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(borrowPerm), UNI_ROUTER, 0, swapData, nonce, deadline);
@@ -392,7 +400,7 @@ contract SelectiveDispatchTest is Test {
     /// @dev Test 7: Dispatch with an unregistered permission address → PermissionNotRegistered.
     function test_7_UnregisteredPermission_Reverts() public {
         address unregistered = address(new MockPermission());
-        bytes memory data    = _buildSwapData(100e18, 1);
+        bytes memory data    = _buildSwapData(100e18, 100e18);
         uint256 deadline     = block.timestamp + 1 hours;
         uint256 nonce        = kernel.managerNonces(address(safe));
         bytes memory sig     = _signDispatch(address(safe), unregistered, UNI_ROUTER, 0, data, nonce, deadline);
@@ -405,7 +413,7 @@ contract SelectiveDispatchTest is Test {
 
     /// @dev Test 8: Dispatch with permission = address(0) → PermissionNotRegistered(address(0)).
     function test_8_ZeroPermission_Reverts() public {
-        bytes memory data = _buildSwapData(100e18, 1);
+        bytes memory data = _buildSwapData(100e18, 100e18);
         uint256 deadline  = block.timestamp + 1 hours;
         uint256 nonce     = kernel.managerNonces(address(safe));
         bytes memory sig  = _signDispatch(address(safe), address(0), UNI_ROUTER, 0, data, nonce, deadline);
@@ -428,7 +436,7 @@ contract SelectiveDispatchTest is Test {
         _registerPermission(address(swapPerm));
         _registerPermission(address(borrowPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -446,7 +454,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -477,7 +485,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
 
@@ -542,7 +550,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory data = _buildSwapData(100e18, 1);
+        bytes memory data = _buildSwapData(100e18, 100e18);
         _dispatch(address(swapPerm), UNI_ROUTER, 0, data);
         assertEq(safe.callCount(), 1, "swap dispatch failed");
     }
@@ -575,9 +583,13 @@ contract SelectiveDispatchTest is Test {
         address[] memory tokensIn   = new address[](1); tokensIn[0]   = TOKEN_IN;
         address[] memory tokensOut  = new address[](1); tokensOut[0]  = TOKEN_OUT;
         uint256 maxAmountPerTx = 1_000e18;
-        uint256 maxSlippageBps = 0;
-        address priceOracle    = address(0);
-        uint256 maxPriceAgeSec = 0;
+        // SwapPermission requires an oracle; this routing test is not about the band, so use a
+        // permissive 1:1 oracle with maximum tolerance and a min-out that clears the floor.
+        MockOracle oracle = new MockOracle();
+        oracle.set(TOKEN_IN, TOKEN_OUT, 1, 0);
+        uint256 maxSlippageBps = 9_999;
+        address priceOracle    = address(oracle);
+        uint256 maxPriceAgeSec = 3600;
 
         bytes memory params = abi.encode(
             routers, tokensIn, tokensOut, maxAmountPerTx, maxSlippageBps, priceOracle, maxPriceAgeSec
@@ -593,7 +605,7 @@ contract SelectiveDispatchTest is Test {
         bytes memory data = abi.encodeWithSelector(
             EXACT_INPUT_SINGLE_V1,
             TOKEN_IN, TOKEN_OUT, uint24(3000), address(safe),
-            uint256(block.timestamp + 1 hours), uint256(100e18), uint256(1), uint160(0)
+            uint256(block.timestamp + 1 hours), uint256(100e18), uint256(100e18), uint160(0)
         );
 
         _dispatch(address(swap), UNI_ROUTER, 0, data);
@@ -633,7 +645,7 @@ contract SelectiveDispatchTest is Test {
         _configureSwap(address(safe));
         _registerPermission(address(swapPerm));
 
-        bytes memory swapData = _buildSwapData(100e18, 1);
+        bytes memory swapData = _buildSwapData(100e18, 100e18);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce    = kernel.managerNonces(address(safe));
         bytes memory sig = _signDispatch(address(safe), address(swapPerm), UNI_ROUTER, 0, swapData, nonce, deadline);

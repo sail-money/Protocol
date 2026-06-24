@@ -265,10 +265,11 @@ verify_shared_templates() {
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 
   local pairs=(
-    "approveAndCallBatch|contracts/templates/shared/ApproveAndCallBatchPermission.sol:ApproveAndCallBatchPermission"
-    "borrow|contracts/templates/shared/BorrowPermission.sol:BorrowPermission"
-    "swap|contracts/templates/shared/SwapPermission.sol:SwapPermission"
-    "transfer|contracts/templates/shared/TransferPermission.sol:TransferPermission"
+    "approveAndCallBatch|contracts/templates/ApproveAndCallBatchPermission.sol:ApproveAndCallBatchPermission"
+    "borrow|contracts/templates/BorrowPermission.sol:BorrowPermission"
+    "swap|contracts/templates/SwapPermission.sol:SwapPermission"
+    "swapNoOracle|contracts/templates/SwapPermissionNoOracle.sol:SwapPermissionNoOracle"
+    "transfer|contracts/templates/TransferPermission.sol:TransferPermission"
   )
 
   for pair in "${pairs[@]}"; do

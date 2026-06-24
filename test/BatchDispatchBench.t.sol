@@ -7,7 +7,7 @@ import {SailGovernance} from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 import {Context}        from "../contracts/interfaces/IPermission.sol";
 import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
-import {ApproveAndCallBatchPermission}   from "../contracts/templates/shared/ApproveAndCallBatchPermission.sol";
+import {ApproveAndCallBatchPermission}   from "../contracts/templates/ApproveAndCallBatchPermission.sol";
 
 // Re-uses the forwarding Safe / mock router / mock ERC20 from BatchDispatch.t.sol
 // by re-declaring minimal versions here. Keep this file standalone so snapshot
@@ -125,8 +125,8 @@ contract BatchDispatchBenchmark is Test {
         ApproveAndCallBatchPermission.Config memory cfg;
         cfg.tokens = new address[](1);             cfg.tokens[0] = address(token);
         cfg.spenders = new address[](1);           cfg.spenders[0] = address(router);
-        cfg.consumingTargets = new address[](1);   cfg.consumingTargets[0] = address(router);
-        cfg.consumingSelectors = new bytes4[](1);  cfg.consumingSelectors[0] = SWAP_SEL;
+        cfg.consumingPairs = new ApproveAndCallBatchPermission.ConsumingPair[](1);
+        cfg.consumingPairs[0] = ApproveAndCallBatchPermission.ConsumingPair({target: address(router), selector: SWAP_SEL});
         cfg.maxApprovalAmounts = new uint256[](1); cfg.maxApprovalAmounts[0] = 1_000 ether;
         cfg.requireAmountMatch = true;
 

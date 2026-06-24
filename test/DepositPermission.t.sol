@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import "forge-std/Test.sol";
 import {Context}                from "../contracts/interfaces/IPermission.sol";
 import {SailCapabilities}       from "../contracts/interfaces/SailCapabilities.sol";
-import {ConfigurablePermission} from "../contracts/templates/shared/ConfigurablePermission.sol";
-import {DepositPermission}      from "../contracts/templates/shared/DepositPermission.sol";
+import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
+import {DepositPermission}      from "../contracts/templates/DepositPermission.sol";
 
 /// @dev Minimal kernel view: every account registered; this test contract is the permissionSigner.
 contract DepositMockKernel {
@@ -149,5 +149,50 @@ contract DepositPermissionTest is Test {
     function test_UnroutedSelector_Denied() public view {
         bytes memory data = abi.encodeWithSelector(WITHDRAW_SEL, uint256(1), ACCOUNT, ACCOUNT);
         assertFalse(dp.evaluate(data, _ctx(VAULT, WITHDRAW_SEL, 0)));
+    }
+
+    // ── coverage close-out: remaining denial branches per path ───────────────────
+    function test_Mint_OverCap_Denied() public view {
+        assertFalse(dp.evaluate(_erc4626(MINT, 100 ether + 1, ACCOUNT), _ctx(VAULT, MINT, 0)));
+    }
+    function test_Mint_VaultNotTokenAllowlisted_Denied() public {
+        _configure(_one(VAULT), _one(ASSET), 100 ether); // VAULT is a target but not a token
+        assertFalse(dp.evaluate(_erc4626(MINT, 1 ether, ACCOUNT), _ctx(VAULT, MINT, 0)));
+    }
+    function test_AaveDeposit_OverCap_Denied() public view {
+        assertFalse(dp.evaluate(_aave(DEPOSIT_AAVE, ASSET, 100 ether + 1, ACCOUNT), _ctx(AAVE_POOL, DEPOSIT_AAVE, 0)));
+    }
+    function test_AaveSupply_AssetNotAllowed_Denied() public view {
+        assertFalse(dp.evaluate(_aave(SUPPLY_AAVE, OTHER, 1 ether, ACCOUNT), _ctx(AAVE_POOL, SUPPLY_AAVE, 0)));
+    }
+    function test_AaveSupply_OnBehalfOfNotAccount_Denied() public view {
+        assertFalse(dp.evaluate(_aave(SUPPLY_AAVE, ASSET, 1 ether, OTHER), _ctx(AAVE_POOL, SUPPLY_AAVE, 0)));
+    }
+
+    // ── short-calldata guards (fail closed, no out-of-bounds read) ───────────────
+    function test_DepositSimple_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(DEPOSIT_SIMPLE, uint256(1)); // < 68 bytes
+        assertFalse(dp.evaluate(short, _ctx(VAULT, DEPOSIT_SIMPLE, 0)));
+    }
+    function test_Mint_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(MINT, uint256(1)); // < 68 bytes
+        assertFalse(dp.evaluate(short, _ctx(VAULT, MINT, 0)));
+    }
+    function test_AaveDeposit_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(DEPOSIT_AAVE, ASSET, uint256(1)); // < 132 bytes
+        assertFalse(dp.evaluate(short, _ctx(AAVE_POOL, DEPOSIT_AAVE, 0)));
+    }
+    function test_AaveSupply_ShortCalldata_Denied() public view {
+        bytes memory short = abi.encodeWithSelector(SUPPLY_AAVE, ASSET, uint256(1)); // < 132 bytes
+        assertFalse(dp.evaluate(short, _ctx(AAVE_POOL, SUPPLY_AAVE, 0)));
+    }
+
+    // ── documented edge (pinned, not a fix): mint() cap is denominated in SHARES ──
+    function test_Pin_MintCapIsInShares_NotAssets() public {
+        // The cap bounds the `shares` argument directly; its asset/USD value floats with the share
+        // price. A shares amount within the cap is allowed regardless of underlying value.
+        _configure(_two(VAULT, AAVE_POOL), _two(VAULT, ASSET), 1_000);
+        assertTrue(dp.evaluate(_erc4626(MINT, 1_000, ACCOUNT), _ctx(VAULT, MINT, 0)));   // shares == cap
+        assertFalse(dp.evaluate(_erc4626(MINT, 1_001, ACCOUNT), _ctx(VAULT, MINT, 0)));  // shares > cap
     }
 }

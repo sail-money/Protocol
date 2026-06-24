@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
+/// @title  WithdrawPermission — bounded ERC-20 move to a single pinned recipient
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
 ///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
@@ -16,19 +17,31 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         enforces what its NatSpec claims. Anyone registering this permission is
 ///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
 ///
-///         Reference withdraw permission. One deployment serves any number of accounts;
-///         each account stores its own token allowlist, pinned recipient, and amount cap.
+///         WHAT IT IS. A reference withdraw template. One deployment serves any number of accounts;
+///         each account stores its own token allowlist, a single pinned recipient, and a per-tx cap.
+///         It gates ERC-20 movements so funds can only ever reach the account's configured
+///         allowedRecipient (typically the owner's own Safe — e.g. safe-to-safe consolidation).
 ///
-///         Gates ERC-20 movements so funds only ever reach the account's configured
-///         `allowedRecipient` (typically the account's own Safe), the token is allowlisted,
-///         and the amount is within the per-tx cap. Native ETH is rejected.
+///         WHAT IT ENFORCES. For every call: the token (call target) is allowlisted; the amount is
+///         within the per-tx cap; the destination equals the single configured allowedRecipient
+///         (not an open set); and on transferFrom the `from` is the account itself (so the manager
+///         cannot pull tokens a third party approved to the account). Calls carrying native ETH
+///         (msg.value != 0) are rejected.
 ///
-///         Supported selectors:
-///           transfer(address to, uint256 amount)               — direct send from the account
-///           transferFrom(address from, address to, uint256)    — pull (from MUST be the account)
-///         Any other selector (including approve) is denied.
+///         SELECTOR BOUNDARY. Recognizes the two ERC-20 movement selectors only:
+///           - transfer(address to, uint256 amount)
+///           - transferFrom(address from, address to, uint256 amount)
+///         Any other selector (including approve) is denied. This moves ERC-20s to a pinned address;
+///         it is NOT a protocol-withdraw interface — it does NOT recognize vault/pool redeem or
+///         withdraw calls. To redeem from a vault, pair it with a separate permission.
 ///
-///         Config blob:
+///         HONEST BOUNDARY — what it does NOT do. The pinned recipient is whatever the latest
+///         configuration set; the permissionSigner can change it by reconfiguring, so the pin is
+///         only as trustworthy as the permissionSigner key. The cap is per-transaction, NOT
+///         cumulative — a manager may make many at-cap moves to the pinned recipient. A
+///         maxAmountPerTx of 0 is accepted and blocks every non-zero withdrawal (fail-closed).
+///
+/// @dev    Config blob:
 ///             abi.encode(
 ///                 address[] tokens,
 ///                 address   allowedRecipient,

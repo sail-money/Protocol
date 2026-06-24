@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
+/// @title  DepositPermission — bounded ERC-20 deposit credited to the account
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
 ///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
@@ -16,31 +17,38 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         enforces what its NatSpec claims. Anyone registering this permission is
 ///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
 ///
-///         Reference deposit permission. One deployment serves any number of accounts;
-///         each account stores its own target (protocol/vault) allowlist, token allowlist,
-///         and per-tx amount cap.
+///         WHAT IT IS. A reference deposit template. One deployment serves any number of accounts;
+///         each account stores its own target (protocol/vault) allowlist, token allowlist, and
+///         per-tx amount cap. It gates a manager's ERC-20 deposits into vaults and lending pools so
+///         the resulting position is always credited to the account itself.
 ///
-///         Gates ERC-20 deposits into vaults and lending pools, enforcing that the deposit
-///         credits the account itself (receiver / onBehalfOf == ctx.account) — never an
-///         arbitrary address — within the per-tx cap, into an allowlisted target with an
-///         allowlisted token. Native ETH is rejected (no supported selector is payable).
-///         Deposits ERC-20 tokens only (including WETH); native ETH is not accepted — wrap
-///         to WETH first. Calls carrying msg.value are rejected.
+///         WHAT IT ENFORCES. For every deposit: the target (call destination) is allowlisted; the
+///         deposited token/asset is allowlisted; the amount is within the per-tx cap; and the
+///         position recipient — receiver (ERC-4626) or onBehalfOf (Aave-style) — equals the
+///         account, never an arbitrary address. Calls carrying native ETH (msg.value != 0) are
+///         rejected: deposits are ERC-20 only (wrap to WETH first).
 ///
-///         Supported selectors and calldata layouts:
-///           deposit(uint256 assets, address receiver)                  — ERC-4626 / simple vault
-///           mint(uint256 shares, address receiver)                     — ERC-4626
-///           deposit(address asset, uint256 amount, address onBehalfOf, uint16) — Aave v2
-///           supply(address asset, uint256 amount, address onBehalfOf, uint16) — Aave v3
-///         Any other selector is denied.
+///         SELECTOR / VENUE BOUNDARY. Recognizes exactly four standard deposit shapes:
+///           - deposit(uint256 assets, address receiver)                          — ERC-4626 / simple vault
+///           - mint(uint256 shares, address receiver)                             — ERC-4626
+///           - deposit(address asset, uint256 amount, address onBehalfOf, uint16) — Aave v2
+///           - supply(address asset, uint256 amount, address onBehalfOf, uint16)  — Aave v3
+///         Any other selector — or a non-standard / non-ERC-4626 / non-Aave-style deposit interface
+///         — is denied. TOKEN ALLOWLIST ON ERC-4626 PATHS: deposit(assets,receiver) and
+///         mint(shares,receiver) do NOT carry the underlying token in calldata — only the vault
+///         (the call target). A given ERC-4626 vault accepts exactly one fixed underlying, so the
+///         template requires the VAULT ADDRESS ITSELF to be in the token allowlist (in addition to
+///         the target allowlist); allowlisting the vault thereby authorizes deposits of that one
+///         token. For the Aave-style paths the asset is a calldata argument and is allowlisted
+///         directly.
 ///
-/// @dev    TOKEN ALLOWLIST ON ERC-4626 PATHS: deposit(assets,receiver) and mint(shares,receiver)
-///         do NOT carry the asset in calldata — only the vault (ctx.target). This template
-///         therefore requires the vault to be present in BOTH the target allowlist AND the
-///         token allowlist, so the operator must explicitly opt the vault in on both axes.
-///         For the Aave-style paths the asset is a calldata argument and is allowlisted directly.
+///         HONEST BOUNDARY — what it does NOT do. The cap on mint() is denominated in SHARES, not
+///         underlying assets — its asset/USD value floats with the share price, and these templates
+///         are oracle-free, so an operator sizing a mint cap must account for that. The cap is
+///         per-transaction, NOT cumulative. An allowlisted-but-malicious vault or pool is not vetted
+///         here; the template constrains the deposit shape and destination, not the venue's honesty.
 ///
-///         Config blob:
+/// @dev    Config blob:
 ///             abi.encode(
 ///                 address[] targets,
 ///                 address[] tokens,

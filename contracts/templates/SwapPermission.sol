@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.26;
 
-import {Context} from "../../interfaces/IPermission.sol";
-import {IOracle} from "../../interfaces/IOracle.sol";
-import {IPermissionIntrospection} from "../../interfaces/IPermissionIntrospection.sol";
-import {SailCapabilities} from "../../interfaces/SailCapabilities.sol";
+import {Context} from "../interfaces/IPermission.sol";
+import {IOracle} from "../interfaces/IOracle.sol";
+import {IPermissionIntrospection} from "../interfaces/IPermissionIntrospection.sol";
+import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @title  SwapPermission — oracle-gated bounded swap (recommended default)
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
 ///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
@@ -18,11 +19,34 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         enforces what its NatSpec claims. Anyone registering this permission is
 ///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
 ///
-///         Reference swap permission (Uniswap V3 / V3-02 / V2). One deployment serves any
-///         number of accounts; each account stores its own routers, token allowlists,
-///         amount cap, slippage tolerance, and oracle.
+///         WHAT IT IS. The recommended default swap template. One deployment serves any number
+///         of accounts; each account stores its own routers, token allowlists, per-tx amount cap,
+///         slippage tolerance, and oracle. It gates a manager's swaps so that for every trade the
+///         input/output tokens and the router are allowlisted, the input amount is within a per-tx
+///         cap, the output recipient is the account itself, and the caller-supplied minimum-out
+///         clears a slippage band derived from an injected price reference.
 ///
-///         Config blob:
+///         TRUST MODEL. An oracle is REQUIRED (see OracleRequired). The price reference is an
+///         injected IOracle adapter — NOT the AMM pool being traded — so the band is measured
+///         against an independent source rather than the same spot price an attacker can move.
+///
+///         VENUE BOUNDARY. Decodes standard AMM router ABIs only:
+///           - V2  swapExactTokensForTokens(uint256,uint256,address[],address,uint256)
+///           - V3  exactInputSingle(struct) — both the SwapRouter (with deadline) and the
+///                 SwapRouter02 (no deadline) layouts.
+///         These ABIs are shared byte-for-byte by Uniswap and its forks (PancakeSwap, SushiSwap,
+///         Aerodrome-classic, etc.); cross-protocol/chain coverage comes from the router allowlist,
+///         not from per-protocol code. It does NOT cover the Universal Router, Uniswap V4, or DEX
+///         aggregators (1inch/Matcha/CoW): those carry swap parameters inside an opaque
+///         command/bytes payload that cannot be decoded at a fixed offset.
+///
+///         HONEST BOUNDARY — what it does NOT do. The slippage band is only as good as the
+///         configured oracle's honesty and freshness; it does NOT protect against a manipulated or
+///         compromised oracle. The amount cap is per-transaction, NOT cumulative — a manager may
+///         make many at-cap trades. The template constrains the swap shape, not the wisdom of the
+///         trade.
+///
+/// @dev    Config blob:
 ///             abi.encode(
 ///                 address[] routers,
 ///                 address[] tokensIn,
@@ -63,6 +87,10 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     address public immutable author;
 
     error SlippageBpsTooLarge(uint256 bps);
+    /// @notice Thrown when an account is configured without a price oracle. The oracle is
+    ///         mandatory by design: this template must never run reference-free. Accounts that
+    ///         deliberately want no on-chain band must use SwapPermissionNoOracle instead.
+    error OracleRequired();
 
     constructor(address _kernel, address _author)
         ConfigurablePermission(_kernel, "SwapPermission", "1")
@@ -103,9 +131,13 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
         ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address, uint256));
 
         if (maxSlippageBps > 9_999) revert SlippageBpsTooLarge(maxSlippageBps);
+        // The oracle is mandatory by design: without it the template would have no on-chain price
+        // reference and could only fall back to trusting the manager's quote. That reference-free
+        // mode lives in SwapPermissionNoOracle, never here — so reject a missing oracle outright.
+        if (priceOracle == address(0)) revert OracleRequired();
         // A configured oracle must come with a freshness bound; 0 would silently accept
         // arbitrarily stale prices and re-open the staleness gap the oracle is meant to close.
-        if (priceOracle != address(0) && maxPriceAgeSec == 0) revert MissingPriceAge();
+        if (maxPriceAgeSec == 0) revert MissingPriceAge();
 
         // Clear previous allowlists for this account
         Slot storage s = _slots[account];
@@ -206,16 +238,9 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
         uint256 amountIn,
         uint256 amountOutMin
     ) internal view returns (bool) {
-        // No oracle configured: the template cannot derive a price floor on-chain. Rather than
-        // fail open (which would let a manager pass amountOutMin = 0 and be sandwiched), require
-        // a non-zero caller-supplied minimum-out. The manager remains responsible for choosing a
-        // sane value; the template guarantees only that it is not zero.
-        if (s.priceOracle == address(0)) {
-            return amountOutMin > 0;
-        }
-
-        // Oracle configured: ALWAYS enforce the band. maxSlippageBps == 0 is treated as zero
-        // tolerance (exact-out-or-better) — the strictest valid setting, never a bypass.
+        // The oracle is guaranteed non-zero (enforced at configure() via OracleRequired), so the
+        // band is ALWAYS enforced here. maxSlippageBps == 0 is treated as zero tolerance
+        // (exact-out-or-better) — the strictest valid setting, never a bypass.
         // On L2s, check sequencer-uptime first.
         (uint256 price, uint8 dec, uint256 updatedAt) = IOracle(s.priceOracle).getPrice(tokenIn, tokenOut);
         if (s.maxPriceAgeSec > 0 && (updatedAt == 0 || block.timestamp - updatedAt > s.maxPriceAgeSec)) return false;
@@ -223,6 +248,12 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
         if (dec > 77) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
+        // Integer division floors: a small enough trade (low price / high-decimal token / tiny
+        // amountIn) can truncate oracleMinOut to 0, at which point `amountOutMin >= 0` would wave
+        // ANY minimum-out through — including 0 — silently defeating the band. Fail closed instead:
+        // if there is no positive floor to enforce, deny rather than pretend to protect. Dust-sized
+        // trades are denied under an oracle as a deliberate consequence.
+        if (oracleMinOut == 0) return false;
         return amountOutMin >= oracleMinOut;
     }
 

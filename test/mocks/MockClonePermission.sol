@@ -2,13 +2,13 @@
 pragma solidity 0.8.26;
 
 import {IPermission, Context} from "../../contracts/interfaces/IPermission.sol";
-import {CloneInitializable}   from "../../contracts/templates/base/CloneInitializable.sol";
+import {CloneInitializable}   from "../../contracts/utils/CloneInitializable.sol";
 
 /// @notice TEST-ONLY clone permission.
 ///
 ///         Exercises the `MandateFactory.deployAndAttach` / `CloneInitializable`
 ///         (EIP-1167 clone + `initialize()`) path. The production reference templates
-///         under `contracts/templates/shared/` use the multi-account `configure()`
+///         under `contracts/templates/` use the multi-account `configure()`
 ///         pattern and are NOT clones, so a clone template is needed purely to keep the
 ///         factory's clone path covered. This contract is never deployed in production.
 ///

@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 import "./support/FactoryTestBase.sol";
-import "../contracts/templates/shared/SwapPermission.sol";
-import "../contracts/templates/shared/TransferPermission.sol";
+import "../contracts/templates/SwapPermission.sol";
+import "../contracts/templates/TransferPermission.sol";
 
 contract MandateFactoryTest is FactoryTestBase {
     SwapPermission         internal swap;
@@ -302,7 +302,13 @@ contract MandateFactoryTest is FactoryTestBase {
         uint256 slippageBps,
         address oracle
     ) internal pure returns (bytes memory) {
-        return abi.encode(routers, tokensIn, tokensOut, cap, slippageBps, oracle);
+        // SwapPermission now requires a non-zero oracle + freshness bound at configure(). These
+        // factory-mechanics tests never dispatch a swap, so the oracle is never queried — a
+        // non-zero placeholder satisfies configure() validation. This produces the full 7-field
+        // config; the previous 6-field encode only decoded by ABI-layout coincidence on the
+        // now-removed no-oracle path.
+        address oracleAddr = oracle == address(0) ? address(0x074C1E) : oracle;
+        return abi.encode(routers, tokensIn, tokensOut, cap, slippageBps, oracleAddr, uint256(3600));
     }
 
     function _one(address a) internal pure returns (address[] memory arr) {
