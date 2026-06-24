@@ -45,7 +45,7 @@
 % Title block (Morpho-style: title + authors + abstract on page 1)
 % ---------------------------------------------------------------
 \begin{center}
-  \includegraphics[width=2.4cm]{sail_money.pdf}\\[0.8em]
+  \includegraphics[width=2.4cm]{../brand/sail_logo.pdf}\\[0.8em]
   {\LARGE\bfseries Sail Protocol}\\[0.5em]
   {\large Onchain Separately Managed Accounts Run by Agents}\\[1.2em]
   Alejandro Dopico\\
@@ -59,7 +59,7 @@
 
 \begin{center}\bfseries Abstract\end{center}
 
-\noindent Sail Protocol\footnote{\url{https://github.com/sail-money/protocol}} is a protocol for onchain separately managed accounts (SMAs), implemented for the Ethereum Virtual Machine. Capital is held in a self-custodial Safe owned by the LP; a designated manager---typically an autonomous agent---executes transactions within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed Solidity permission contracts registered against the account. The manager's signature names one registered permission as the authorizer for each dispatch; the kernel evaluates that permission via \texttt{staticcall} under a gas cap and forwards the call to the Safe only if it returns true. Because permissions are arbitrary Solidity, any DeFi primitive can be expressed as a permission: the protocol covers, by construction, everything DeFi can do. The trusted core is deployed at the same address on every supported chain, and an SMA derives the same address on every chain. Protocol fees are bounded by immutable constitutional caps. Anyone can deploy SMAs, write permissions, and operate as a manager.
+\noindent Sail Protocol\footnote{\url{https://github.com/sail-money/protocol}} is a protocol for onchain separately managed accounts (SMAs), implemented for the Ethereum Virtual Machine. Capital is held in a self-custodial Safe the owner controls; a designated manager---typically an autonomous agent---executes transactions within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed Solidity permission contracts registered against the account. The manager's signature names one registered permission as the authorizer for each dispatch; the kernel evaluates that permission via \texttt{staticcall} under a gas cap and forwards the call to the Safe only if it returns true. Because permissions are arbitrary Solidity, any DeFi primitive can be expressed as a permission: the protocol covers, by construction, everything DeFi can do. Protocol fees are bounded by immutable constitutional caps. Anyone can deploy SMAs, write permissions, and operate as a manager.
 
 \newpage
 
@@ -83,15 +83,15 @@ Any returns, rates, or other figures referenced in this paper---or in related co
 % ---------------------------------------------------------------
 \section{Introduction}
 
-Personalized investment management has historically been an institutional product. A separately managed account (SMA) is the structure that supports it: capital is held in an account titled to the owner, while a designated manager executes investments within bounds set by a mandate. Unlike pooled vehicles, the assets remain separately custodied for each client; the manager has bounded authority, not full discretion; the mandate can be revised, narrowed, or revoked at any time; and performance is attributed per account. These properties make the SMA the dominant primitive for serious capital. They have also kept it inaccessible: account minimums of \$100{,}000 to \$1{,}000{,}000 are typical, because the cost of custodians, legal infrastructure, and reconciliation is prohibitive at smaller sizes.
+Personalized investment management has historically been an institutional product. A separately managed account (SMA) is the structure that supports it: capital is held in an account titled to the owner, while a designated manager executes investments within bounds set by a mandate. Unlike pooled vehicles, the assets remain separately custodied for each client; the manager has bounded authority, not full discretion; the mandate can be revised, narrowed, or revoked at any time; and performance is attributed per account. These properties made the SMA the standard structure for institutional and large-scale allocation. They have also kept it inaccessible: account minimums of \$100{,}000 to \$1{,}000{,}000 are typical, because the cost of custodians, legal infrastructure, and reconciliation is prohibitive at smaller sizes.
 
 Decentralized finance has not replicated the structure. The dominant managed-account pattern in DeFi is the pooled vault: depositors mint shares of a strategy operated by a single manager, giving up account-level custody, sharing attribution with every other depositor, and inheriting the strategy's full risk profile. Self-custodial smart wallets preserve custody but offer no native concept of a manager bounded by a mandate. The category between them---an onchain SMA primitive---has been missing.
 
 Autonomous agents make the gap urgent. AI systems can now execute trades, rebalance portfolios, and respond to market conditions continuously. To act onchain on behalf of capital they do not own, they need two properties at once: the ability to sign transactions, and enforceable bounds on what they may do. Existing approaches force a choice---give the agent a private key and surrender custody, or run it through an off-chain co-signer and lose machine speed. The legal mandate that governs traditional SMAs cannot resolve this: an agent executing continuously cannot be governed by paperwork it cannot read. The bounds must be code, evaluated on every transaction, revocable in a single block.
 
-Code-enforced mandates also change what a strategy can be. A traditional mandate is static: one template, applied uniformly across a book of accounts. An agent operating inside an onchain SMA can run a distinct strategy per account---continuously calibrated to each owner's balance, risk tolerance, time horizon, and liquidity needs---while sharing the same infrastructure, the same permission templates, and the same fee model. An agent managing a thousand accounts runs a thousand strategies; the marginal cost of one more is one more agent execution.
+Code-enforced mandates also change what a strategy can be. Traditional asset management is static: one template, applied uniformly across a book of accounts and rebalanced on a human schedule. An agent operating inside an onchain SMA enables \emph{dynamic asset management}---management that is continuously sensitive to each account's own variables, calibrating to its balance, risk tolerance, time horizon, and liquidity needs in real time rather than fitting it to a shared template. This is a new category: an agent managing a thousand accounts runs a thousand strategies, sharing one set of infrastructure, one set of permission templates, and one fee model, and the marginal cost of one more account is one more agent execution.
 
-Sail Protocol expresses the SMA relationship as a minimal onchain primitive. A small trusted kernel handles account instantiation, permission registration, manager dispatch, and fee splitting. Everything else---what permissions express, how fees are calculated, how NAV is reported, which venues are supported---lives in user-deployed contracts outside the trusted core. The kernel is auditable in isolation. Each permission is auditable in isolation. The protocol supports any DeFi primitive, current or future, without kernel changes.
+Sail Protocol expresses the SMA relationship as a minimal onchain primitive. A minimal trusted kernel handles account instantiation, permission registration, manager dispatch, and fee splitting. Everything else---what permissions express, how fees are calculated, how NAV is reported, which venues are supported---lives in user-deployed contracts outside the trusted core. The kernel is auditable in isolation. Each permission is auditable in isolation. The protocol supports any DeFi primitive, current or future, without kernel changes.
 
 % ---------------------------------------------------------------
 % 2. Protocol Model
@@ -109,11 +109,11 @@ Sail separates three roles that exist implicitly in any managed-account structur
 \toprule
 \textbf{Role} & \textbf{Authority} & \textbf{Held by} \\
 \midrule
-Owner & Holds the Safe. Custodies the SMA's capital. Always self-custodial. & The LP, who owns the Safe. \\
+Owner & Holds the Safe. Custodies the SMA's capital. Always self-custodial. & The account owner, whose capital it holds. \\
 \addlinespace[2pt]
 Permission Signer & Authorizes the mandate. Signs registration, configuration, and revocation of permissions via EIP-712. & The Owner, or a separate signing key or multisig. \\
 \addlinespace[2pt]
-Manager & Executes transactions within bounds. Cannot exceed what the registered permissions allow. & EOA, multisig, MPC wallet, or autonomous agent. \\
+Manager & Executes transactions within bounds. Cannot exceed what the registered permissions allow. & An autonomous agent or a human operator; the signing key may be an EOA, multisig, or MPC wallet. \\
 \bottomrule
 \end{tabular}
 \caption{Core protocol roles.}
@@ -123,14 +123,14 @@ The role of transaction submitter---the address that pays gas and submits the ma
 
 \subsection{The Mandate}
 
-In Sail, the mandate is not a document. It is the set of permissions registered for an SMA---contracts implementing \texttt{IPermission} that define what the Manager is authorized to do. The Safe is the account the mandate applies to; it is not itself part of the mandate.
+In Sail, the mandate is the set of permissions registered for an SMA---contracts implementing \texttt{IPermission} that define what the Manager is authorized to do. The Safe is the account the mandate applies to; it is not itself part of the mandate.
 
 When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls \texttt{evaluate()} on that permission alone and dispatches the call to the Safe only if it returns true. If the manager attempts to swap on an unallowed router, transfer to an unallowed recipient, borrow above the configured LTV, or call any function outside the registered permission set, the transaction reverts before any state change occurs. Figure~\ref{fig:model} shows the full relationship.
 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-  node distance=15mm and 14mm,
+  node distance=11mm and 14mm,
   every node/.style={font=\normalsize},
   box/.style={draw, rounded corners=4pt, align=center, inner sep=8pt,
               fill=gray!6, text width=34mm, minimum height=13mm},
@@ -143,10 +143,10 @@ When the Manager submits a transaction, the signature names one registered permi
 
 %% ── Nodes: relative placement, no absolute coordinates ──────────────
 \node[box] (sma) {\textbf{SMA}\\[1pt]\small Safe $\cdot$ holds assets $\cdot$ executes};
-\node[box, above=15mm of sma] (owner) {\textbf{Owner}\\[1pt]\small holds the Safe $\cdot$ signs the mandate};
+\node[box, above=11mm of sma] (owner) {\textbf{Owner}\\[1pt]\small holds the Safe $\cdot$ signs the mandate};
 \node[box, left=26mm of sma] (manager) {\textbf{Manager}\\[1pt]\small agent $\cdot$ signs dispatches};
 \node[box, right=26mm of sma] (mandate) {\textbf{Mandate}\\[1pt]\small set of permission contracts};
-\node[core, below=16mm of sma] (kernel) {\textbf{Sail Kernel}\\[1pt]\small evaluates permission $\cdot$ trusted core\\[1pt]\small dispatches to Safe on success};
+\node[core, below=12mm of sma] (kernel) {\textbf{Sail Kernel}\\[1pt]\small evaluates permission $\cdot$ trusted core\\[1pt]\small dispatches to Safe on success};
 
 %% ── Setup edges (out of Owner) ─────────────────────────────────────
 %% 01 Owner -> SMA : label on the edge, midway
@@ -165,7 +165,7 @@ When the Manager submits a transaction, the signature names one registered permi
 \draw[flow] (kernel.north) -- node[steplbl, pos=0.5] {\textbf{06} $\checkmark$ executes on SMA\\[-1pt]\small $\oslash$ outside mandate: reverts} (sma.south);
 
 \end{tikzpicture}
-\caption{The Sail Protocol model. The Owner deploys and owns the SMA (a Safe smart wallet), signs the mandate (the set of registered permission contracts), and appoints the Manager. The Manager signs a dispatch message (EIP-712) naming one permission as the authorizer; the Mandate defines the bounds the Kernel enforces. The Sail Kernel evaluates the named permission via \texttt{staticcall} on every dispatch and executes the call on the SMA only if it returns true---otherwise the dispatch reverts. Transactions execute on the SMA; the Kernel never holds assets.}
+\caption{The Sail Protocol model. The Owner deploys and owns the SMA (a Safe), signs the mandate (the set of registered permission contracts), and appoints the Manager. The Manager signs a dispatch message (EIP-712) naming one permission as the authorizer; the Mandate defines the bounds the Kernel enforces. The Sail Kernel evaluates the named permission via \texttt{staticcall} on every dispatch and executes the call on the SMA only if it returns true---otherwise the dispatch reverts. Transactions execute on the SMA; the Kernel never holds assets.}
 \label{fig:model}
 \end{figure}
 
@@ -176,7 +176,7 @@ When the Manager submits a transaction, the signature names one registered permi
 
 \subsection{Components}
 
-The protocol comprises a small trusted core, plus a default fee policy and a starter set of permission templates. The trusted core is what users must trust to use Sail at all. The default policy and templates are what users must trust if they choose them; alternatives can be deployed by anyone without protocol-level changes.
+The protocol comprises a minimal trusted core, plus a default fee policy and a starter set of permission templates. The trusted core is what users must trust to use Sail at all. The default policy and templates are what users must trust if they choose them; alternatives can be deployed by anyone without protocol-level changes.
 
 \begin{table}[h]
 \small
@@ -201,11 +201,11 @@ ConfigurablePermission & Abstract base for shared multi-tenant permission templa
 \addlinespace[2pt]
 Interfaces & \texttt{IPermission}, \texttt{IBatchPermission}, \texttt{IConfigurablePermission}, \texttt{IFeePolicy}, \texttt{IOracle}, \texttt{IPermissionIntrospection}, \texttt{IAgentIdentityResolver}. \\
 \midrule
-\multicolumn{2}{@{}l}{\emph{Default policy and example templates}} \\
+\multicolumn{2}{@{}l}{\emph{Swappable defaults}} \\
 \addlinespace[2pt]
-StandardFeePolicy & Reference fee policy: management fee on AUM, performance fee above a per-account high-water mark. \\
+StandardFeePolicy & Reference fee policy: management fee on AUM, performance fee above a per-account high-water mark. Any account may register a different \texttt{IFeePolicy} instead. \\
 \addlinespace[2pt]
-Shared*Permission & A starter set of shared permission templates demonstrating the pattern across common DeFi primitives (Section~\ref{sec:templates}). \\
+Permission templates & Reference multi-tenant permission templates covering common DeFi primitives; an account may instead register any contract that implements \texttt{IPermission} (Section~\ref{sec:templates}). \\
 \bottomrule
 \end{tabular}
 \caption{Protocol components.}
@@ -285,19 +285,19 @@ To demonstrate the permission pattern across common DeFi primitives, Sail ships 
 \toprule
 \textbf{Template} & \textbf{Gates} \\
 \midrule
-SharedBoundedSwapPermission & AMM swaps. Router allowlist, token allowlist, per-transaction amount cap, optional oracle-based slippage check. \\
+SwapPermission & DEX swaps. Router and token allowlists, size cap, output paid to the account, slippage floor against an independent price oracle. \\
 \addlinespace[2pt]
-SharedBoundedBorrowPermission & Lending borrows. Protocol allowlist, asset allowlist, LTV check against a collateral value oracle. \\
+SwapPermissionNoOracle & DEX swaps without an external oracle. Router and token allowlists, size cap, slippage floor against the reference pool's own live price (V2 reserves / V3 \texttt{sqrtPriceX96}). \\
 \addlinespace[2pt]
-SharedTransferTargetPermission & ERC-20 transfers. Recipient allowlist, token allowlist. \\
+BorrowPermission & Lending borrows. Protocol and asset allowlists, size cap, position credited to the account, optional LTV ceiling against oracles. \\
 \addlinespace[2pt]
-SharedDeFiBundlePermission & Composite: swap, borrow, and transfer in one registered permission. Selector-routed evaluation. \\
+DepositPermission & Deposits into allowlisted vaults and lending pools. Token and target allowlists, size cap, position credited to the account. \\
 \addlinespace[2pt]
-SharedPendlePermission & Yield-protocol router: liquidity, principal-token and yield-token swaps, mint/redeem, claim rewards. \\
+WithdrawPermission & ERC-20 movements pinned to one configured recipient. Token allowlist, size cap, \texttt{transferFrom} source must be the account. \\
 \addlinespace[2pt]
-SharedAMMLiquidityPermission & Concentrated liquidity operations on AMM position managers. \\
+TransferPermission & ERC-20 sends to an allowlisted recipient set. Token allowlist, size cap, \texttt{transferFrom} source must be the account, native ETH rejected. \\
 \addlinespace[2pt]
-SharedApproveAndCallBatchPermission & Batch: atomic approve / protocol call / reset sequence. Token allowlist, spender allowlist, amount cap, mandatory reset to zero. \\
+ApproveAndCallBatchPermission & Atomic approve / protocol-call / reset batch. Token and spender allowlists, amount cap, paired (target, selector), mandatory reset to zero. \\
 \bottomrule
 \end{tabular}
 \caption{Example permission templates.}
@@ -335,12 +335,13 @@ A permission's lifecycle is governed by operations authorized by the Permission 
 
 \subsection{Optional Extension Interfaces}
 
-Templates may optionally implement \texttt{IPermissionIntrospection}, exposing a stable identifier, version hash, metadata URI, and capability identifiers used by indexers and the Sail Marketplace for discovery---and \texttt{IAgentIdentityResolver}, associating the manager with an external agent identity registry. Both are conventions for the tooling layer; neither is required or verified by the kernel, consistent with keeping the trusted core minimal.
+Templates may optionally implement \texttt{IPermissionIntrospection}, exposing a stable identifier, version hash, metadata URI, and capability identifiers used by indexers and discovery tooling---and \texttt{IAgentIdentityResolver}, associating the manager with an external agent identity registry. Both are conventions for the tooling layer; neither is required or verified by the kernel, consistent with keeping the trusted core minimal.
 
 % ---------------------------------------------------------------
 % 5. Deterministic Deployment
 % ---------------------------------------------------------------
 \section{Deterministic Deployment and Chain-Portable Accounts}
+\label{sec:deployment}
 
 The trusted core is deployed through a CREATE2 factory with chain-independent salts and identical constructor arguments on every supported chain. Identical init code and identical salts yield identical addresses: every core contract---kernel, governance, timelock, factory, fee policy, module enabler---lives at the same address on every supported chain.
 
@@ -350,7 +351,7 @@ Account addresses inherit the property. When an account is created, the kernel d
 \end{center}
 The Safe initializer references only the kernel and the module enabler---both chain-identical---so the same owner, permission signer, manager, fee policy, and salt nonce produce the same SMA address on every supported chain. Binding the principals into the salt also means a counterfactual address cannot be front-run with different principals: a deployment supplying a different manager or signer lands at a different address.
 
-The consequence is chain portability: \emph{an SMA has one address across every supported chain}. Assets sent to that address on any supported chain reach the same account, whether or not the Safe has been deployed there yet. The protocol is deployed on Ethereum, Base, Arbitrum, and Unichain.
+The consequence is chain portability: across chains that share identical core construction, both the trusted core and each SMA resolve to one address, and assets sent there reach the same account whether or not the Safe has been deployed on that chain yet. The property holds only where the construction arguments match. One such argument is the per-permission registration-fee ceiling, denominated in the chain's native token (Section~\ref{sec:governance}); a chain whose native token differs materially may be deployed with a different ceiling, in which case its core and accounts resolve to different addresses. The protocol is deployed on Ethereum, Base, Arbitrum, and Unichain.
 
 % ---------------------------------------------------------------
 % 6. Fee Model
@@ -366,7 +367,7 @@ When a permission is registered with the kernel, the registering account pays a 
 \begin{equation*}
 \text{total fee} = \texttt{permissionRegistrationFee} \times n_{\text{permissions}}
 \end{equation*}
-The active rate is held in SailGovernance, bounded above by the immutable cap of 0.01~ETH (\texttt{MAX\_PERMISSION\_FEE\_WEI}), and tunable through the timelock. Excess \texttt{msg.value} is refunded. The fee is denominated in native ETH with no oracle dependency; governance retunes the rate as ETH price moves.
+The active rate (\texttt{permissionRegistrationFee}) is held in SailGovernance, set at deployment and tunable through the timelock---it is not a hardcoded constant. It is bounded by an immutable per-deployment maximum (\texttt{MAX\_PERMISSION\_FEE\_WEI}), which the SailGovernance constructor in turn caps at a constitutional ceiling of 0.01~ETH. Excess \texttt{msg.value} is refunded. The fee is denominated in native ETH with no oracle dependency; governance retunes the active rate as ETH price moves.
 
 \subsection{Fee 2: Protocol Cut on Manager-Collected Fees}
 
@@ -375,13 +376,13 @@ When the Manager calls \texttt{collectFees}, the kernel asks the registered \tex
 \text{protocol cut} &= \text{managerGrossFee} \times \texttt{currentProtocolCutBps} / 10{,}000\\
 \text{manager take} &= \text{managerGrossFee} - \text{protocol cut} - \text{distributor cut}
 \end{align*}
-The active cut is governance-tunable, bounded above by the immutable cap of 25\%: the protocol can never take more than a quarter of what a manager collects, regardless of any future governance procedure. \emph{The protocol cut is set to zero at launch.} Activation is a separate governance decision tied to the Sail Marketplace, the forthcoming curation layer for third-party managers.
+The active cut is governance-tunable, bounded above by the immutable cap of 25\%: the protocol can never take more than a quarter of what a manager collects, regardless of any future governance procedure. \emph{The protocol cut defaults to zero.} Setting any non-zero cut is a separate governance decision, bounded by that cap.
 
 The kernel does not compute the gross fee. That responsibility lies in the registered \texttt{IFeePolicy} contract, which contains the schedule.
 
 \subsection{Fee Policy Extensibility}
 
-\texttt{IFeePolicy} is an interface, not a fixed contract. The reference implementation, StandardFeePolicy, provides a management fee on AUM and a performance fee above a per-account high-water mark, using a manager-attested NAV model appropriate for self-managed SMAs where the manager and the LP are the same party (Section~\ref{sec:limitations}). Alternative policies suited to third-party allocation---trustless NAV from on-chain position adapters, fees crystallized only on withdrawal, independent attester co-signatures---can be deployed by anyone and follow with the Marketplace.
+\texttt{IFeePolicy} is an interface, not a fixed contract. The reference implementation, StandardFeePolicy, provides a management fee on AUM and a performance fee above a per-account high-water mark, using a manager-attested NAV model appropriate for self-managed SMAs where the manager and the owner are the same party (Section~\ref{sec:limitations}). Alternative policies suited to third-party allocation---trustless NAV from on-chain position adapters, fees crystallized only on withdrawal, independent attester co-signatures---can be deployed by anyone.
 
 % ---------------------------------------------------------------
 % 7. Governance
@@ -391,17 +392,17 @@ The kernel does not compute the gross fee. That responsibility lies in the regis
 
 \subsection{Constitutional Caps}
 
-Two constants are immutable in source code. No governance procedure can raise them.
+Two bounds are fixed in the source code. No governance procedure can raise them.
 \begin{itemize}
   \itemsep0.1em
   \item The maximum protocol cut on manager-collected fees: $\texttt{MAX\_PROTOCOL\_CUT\_BPS} = 2{,}500$ (25\%).
-  \item The maximum permission registration fee: $\texttt{MAX\_PERMISSION\_FEE\_WEI} = 0.01$~ETH.
+  \item The maximum permission registration fee: a constitutional ceiling of $0.01$ of the chain's native token (0.01~ETH on Ethereum and ETH-denominated chains) that the immutable \texttt{MAX\_PERMISSION\_FEE\_WEI}, set per deployment, can never exceed.
 \end{itemize}
-These bounds are properties of the deployed bytecode. A future governance under any control structure---multisig, token, DAO---cannot raise them. Lowering the active parameter inside these bounds remains possible.
+These bounds are properties of the deployed bytecode. A future governance under any control structure---multisig, token, DAO---cannot raise them. Lowering the active parameter inside these bounds remains possible. Because this ceiling is denominated in the native token and fixed in the bytecode, a chain with a materially different native token may carry a different cap---the construction difference behind the cross-chain address variation in Section~\ref{sec:deployment}.
 
 \subsection{Governance Parameters}
 
-The following are mutable within the constitutional caps: the active protocol cut (zero at launch); the active registration fee; the trusted Safe factory, singleton, proxy-codehash, and fee-policy allowlists; and the emergency admin. Parameter mutations require a 48-hour timelock delay followed by execution. Governance transfer is itself two-step (propose and accept). Emergency pause is a separate, lower-latency channel held by an emergency admin; pauses expire automatically and a cooldown applies between invocations to prevent denial of service by spam-pausing.
+The following are mutable within the constitutional caps: the active protocol cut (zero by default); the active registration fee; the trusted Safe factory, singleton, proxy-codehash, and fee-policy allowlists; and the emergency admin. Parameter mutations require a 48-hour timelock delay followed by execution. Governance transfer is itself two-step (propose and accept). Emergency pause is a separate, lower-latency channel held by an emergency admin; pauses expire automatically and a cooldown applies between invocations to prevent denial of service by spam-pausing.
 
 The timelock is a standalone contract injected at construction, and SailGovernance validates it before accepting it: the delay must equal 48 hours exactly, governance must hold both the proposer and executor roles, and the timelock must administer its own roles, with no external account holding administrative power over them. A deployment that fails any of these checks reverts.
 
@@ -429,24 +430,30 @@ The protocol provides six guarantees, each a property of the deployed bytecode r
 \subsection{Known Limitations}
 \label{sec:limitations}
 
-The protocol does not guarantee three properties that follow from its design as open infrastructure.
+The protocol does not guarantee the following properties, which follow from its design as open infrastructure.
 
 \textbf{Permission correctness.} A buggy permission is still a permission. The kernel verifies that a permission is a contract and that it returns true or false; it does not verify that the permission's logic correctly enforces what its author claims. Users are responsible for the permissions they register.
 
-\textbf{Manager-attested NAV.} The reference fee policy uses a manager-attested NAV model: the manager reports portfolio value at fee collection time. A manager operating an SMA holding third-party deposits could in principle inflate the reported NAV when collecting fees. For this reason, the protocol at launch is designed for self-managed SMAs---developers, agent builders, and crypto-native users operating Safes with their own capital---where the manager and the LP are the same party and the trust model is moot. The Sail Marketplace is the curation layer that will introduce fee policy variants suited to third-party allocations; until then, third-party allocations on the open protocol should not be made without independent due diligence on the manager, the fee policy, and the registered permissions.
+\textbf{Upgradeable permissions.} The kernel binds a registered permission by its address and does not re-check its code on each dispatch. An upgradeable or otherwise mutable permission can therefore change its \texttt{evaluate} behaviour after the Permission Signer has approved it, silently widening the mandate. Owners should register only non-upgradeable, reviewed permission contracts.
+
+\textbf{Manager-attested NAV.} The reference fee policy uses a manager-attested NAV model: the manager reports portfolio value at fee collection time. A manager operating an SMA holding third-party deposits could in principle inflate the reported NAV when collecting fees, unlocking a fee that the kernel bounds only by the account's own balance---in the limit, approaching a full withdrawal of the account. This model is appropriate where the manager and the owner are the same party---an account operated with its owner's own capital. A third-party allocation on the open protocol warrants independent due diligence on the manager, the fee policy, and the registered permissions, or a fee policy that derives NAV without manager attestation.
 
 \textbf{Off-chain venue components.} For venues whose state is partly off-chain, permissions can constrain the on-chain boundary (deposits, withdrawals, allowed sub-accounts) but cannot constrain off-chain order signing. Permissions for such venues must disclose which surfaces are enforced onchain and which inherit venue-specific trust assumptions.
+
+\textbf{Further limitations.} In-place rotation of the Permission Signer is not provided; recovery from a compromised separate signing key is by migrating the Safe to a fresh account. A registered permission is bound by its address, and its code hash is not pinned at registration---the reason the upgradeable-permission boundary above applies. Native-ETH fee collection requires a payable recipient, so ERC-20 fee assets are preferred where payability is not guaranteed. The emergency pause that halts dispatch and fee collection expires automatically and is rate-limited by a cooldown between invocations.
 
 % ---------------------------------------------------------------
 % 9. Use Cases
 % ---------------------------------------------------------------
 \section{Use Cases}
 
+Sail is infrastructure for personalized, dynamic asset management, and it serves two kinds of operator. The first is an individual delegating to an autonomous money agent: a crypto-native owner who grants an agent bounded authority over their own capital and lets it act continuously within the mandate. The second is an asset manager running dynamic strategies at scale: a distinct, continuously-calibrated strategy per account, each account bounded by its own registered permissions, all sharing one set of infrastructure. Both reduce to the same primitive---a Safe, a mandate, and a manager the kernel holds to it.
+
 The protocol is venue-agnostic. Any on-chain primitive becomes a permission template: AMM swaps, lending deposits and borrows, LP positions, perpetual trades, restaking deposits, prediction market bets, RWA flows.
 
 For venues with fully on-chain state, permissions enforce the full set of mandate constraints---allowlisted routers, bounded amounts, LTV ceilings, slippage tolerances, recipient checks---at calldata level, before the call leaves the kernel. For hybrid venues with partly off-chain state, permissions enforce what is enforceable onchain, and the boundary is documented per template.
 
-The dominant use case at launch is the agent-operated SMA. A developer building an agent strategy deploys a Safe, registers the permission templates corresponding to the agent's expected actions, configures bounds, and grants the agent's signing key as the Manager. The agent runs continuously within the registered bounds. It cannot drain the Safe, cannot redirect funds, and cannot exceed its mandate. If the agent malfunctions or is compromised, the owner revokes its permissions onchain and the agent's authority ends immediately. The custody and bounds infrastructure is the protocol's responsibility, not the application's.
+The agent-operated SMA makes the model concrete. A developer building an agent strategy deploys a Safe, registers the permission templates corresponding to the agent's expected actions, configures bounds, and grants the agent's signing key as the Manager. The agent runs continuously within the registered bounds. It cannot drain the Safe, cannot redirect funds, and cannot exceed its mandate. If the agent malfunctions or is compromised, the owner revokes its permissions onchain and the agent's authority ends immediately. The custody and bounds infrastructure is the protocol's responsibility, not the application's.
 
 % ---------------------------------------------------------------
 % 10. Non-Goals
@@ -462,7 +469,7 @@ Sail's design is shaped as much by what it excludes as by what it includes. The 
   \item \textbf{Workflow execution as a kernel concept.} A multi-step workflow is just a kind of permission: the transaction must conform to this shape. The protocol does not need to know.
   \item \textbf{ERC-4337 and EIP-7702 adapters in the kernel.} Peripheral adapter contracts wrap the kernel for users who want those entry points. The kernel remains transport-agnostic.
   \item \textbf{NAV computation.} Lives in user-deployed valuation modules and oracle adapters. Oracle choice is an ecosystem concern, not a protocol concern.
-  \item \textbf{A registry of curators or template authors.} A Marketplace function, handled off-chain.
+  \item \textbf{A registry of curators or template authors.} An off-chain concern, outside the protocol.
   \item \textbf{Identity primitives.} Permission modules may consult external identity registries; the kernel stays agnostic.
 \end{itemize}
 
@@ -473,12 +480,12 @@ Each exclusion reduces what the protocol owns. The kernel owns less, by design, 
 % ---------------------------------------------------------------
 \section{Conclusion}
 
-Sail Protocol expresses the separately managed account as a minimal onchain primitive. A small trusted kernel mediates between an Owner who holds custody through a Safe, a Permission Signer who authorizes the mandate, and a Manager who executes within bounds. Permissions are user-deployed Solidity contracts evaluated under structural guarantees---\texttt{staticcall}, gas cap, selective authorization, fail-closed. Fees split through a protocol-enforced mechanism with immutable constitutional caps. The core lives at one address on every supported chain, and so does each account. Everything beyond the kernel lives outside it.
+Sail Protocol expresses the separately managed account as a minimal onchain primitive. A minimal trusted kernel mediates between an Owner who holds custody through a Safe, a Permission Signer who authorizes the mandate, and a Manager who executes within bounds. Permissions are user-deployed Solidity contracts evaluated under structural guarantees---\texttt{staticcall}, gas cap, selective authorization, fail-closed. Fees split through a protocol-enforced mechanism with immutable constitutional caps. The core lives at one address on every supported chain, and so does each account. Everything beyond the kernel lives outside it.
 
 The protocol exists because autonomous agents have made the legal mandate insufficient. An agent executing at machine speed cannot be governed by paperwork. The mandate must be code, evaluated on every transaction, revocable in a single block.
 
 It also exists because the SMA structure has been inaccessible to most investors for a century. Onchain, with a minimal kernel and machine managers, an SMA holding \$1{,}000 has the same operational structure, the same custody guarantees, and the same protocol cost as one holding \$1{,}000{,}000. The marginal cost of personalization, in protocol terms, is zero.
 
-The agent economy is the medium. The onchain SMA is the structure. Personalized finance for all is the destination.
+The agent economy is the medium. The onchain SMA is the structure. Sail's mission is to unlock personalized finance for all.
 
 \end{document}

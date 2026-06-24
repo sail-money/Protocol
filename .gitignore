@@ -6,6 +6,15 @@ out/
 .DS_Store
 **/.DS_Store
 
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
 # Commonly ignored directories
 .logs/
 .ignore/
