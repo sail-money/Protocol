@@ -142,8 +142,8 @@ agents. Appropriate for:
 
 ```
                 ┌──────────────────────────────┐
-                │  SharedAgentPermission        │
-                │  (multi-tenant)               │
+                │  ConfigurablePermission       │
+                │  (multi-tenant base)          │
                 └───────┬──────────────┬────────┘
                         │              │
                agentIdentityFor(A)  agentIdentityFor(B)

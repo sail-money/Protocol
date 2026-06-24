@@ -15,7 +15,7 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 | `SailKernel` | Central execution engine. Verifies manager signatures, evaluates permissions, executes through the Safe module interface, and handles fee accounting. |
 | `SailGovernance` | Protocol parameter store. Holds fee caps, permission registration fees, and the protocol cut. Immutable constitutional caps cannot be raised by any governance action. |
 | `IFeePolicy` / `StandardFeePolicy` | Fee computation layer. The kernel delegates fee calculation to the attached policy. `StandardFeePolicy` implements a management + performance fee schedule with a high-water mark. |
-| `IPermission` / permission templates | Pluggable access-control modules. Each permission implements a single `evaluate()` function. Five audited templates ship with the protocol: `BoundedSwapPermission`, `BoundedDepositPermission`, `BoundedBorrowPermission`, `BoundedWithdrawPermission`, and `TransferTargetPermission`. |
+| `IPermission` / permission templates | Pluggable access-control modules. Each permission implements a single `evaluate()` function. A reference set of seven templates ships with the protocol — `SwapPermission`, `SwapPermissionNoOracle`, `BorrowPermission`, `DepositPermission`, `WithdrawPermission`, `TransferPermission`, `ApproveAndCallBatchPermission` — over a shared base, `ConfigurablePermission`. They are swappable defaults; any contract implementing `IPermission` can be registered instead. |
 
 ---
 
@@ -39,7 +39,7 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 Manager (off-chain)
   │
   │  Signs EIP-712 Dispatch struct
-  │  {account, target, value, dataHash, nonce, deadline}
+  │  {account, permission, target, value, dataHash, nonce, deadline}
   ▼
 SailKernel.dispatch()
   │
@@ -52,7 +52,7 @@ SailKernel.dispatch()
   ├─ 6. SELECTIVE EVALUATION ─────────────────────────────────────────┐
   │       named permission must be registered (_permissionIndex O(1)) │
   │       staticcall permission.evaluate(txData, ctx)                 │
-  │       gas: PERMISSION_GAS_CAP (100 000)                           │
+  │       gas: PERMISSION_GAS_CAP (150 000)                           │
   │       revert / OOG / false → PermissionDenied (deny)             │
   └─────────────────────────────────────────────────────────────────── ┘
   │
@@ -104,8 +104,8 @@ SailKernel.configs[account]
   │  }
   │
   ├──► _permissions[account][]
-  │      ├── BoundedSwapPermission
-  │      ├── BoundedDepositPermission
+  │      ├── SwapPermission
+  │      ├── DepositPermission
   │      └── ... (up to maxPermissionsPerAccount)
   │
   └──► IFeePolicy (StandardFeePolicy or custom)
@@ -132,28 +132,28 @@ StandardFeePolicy
   ├── implements IFeePolicy
   └── imports Math (OpenZeppelin)
 
-BoundedSwapPermission
-  ├── implements IPermission
-  └── imports IOracle
+ConfigurablePermission (shared base)
+  └── implements IPermission, IConfigurablePermission
 
-BoundedDepositPermission
-  └── implements IPermission
+SwapPermission / SwapPermissionNoOracle
+  ├── extends ConfigurablePermission
+  └── imports IOracle (SwapPermission only)
 
-BoundedBorrowPermission
-  └── implements IPermission
+BorrowPermission
+  └── extends ConfigurablePermission (imports IOracle)
 
-BoundedWithdrawPermission
-  └── implements IPermission
+DepositPermission / WithdrawPermission / TransferPermission
+  └── extends ConfigurablePermission
 
-TransferTargetPermission
-  └── implements IPermission
+ApproveAndCallBatchPermission
+  └── extends ConfigurablePermission, implements IBatchPermission
 ```
 
 ---
 
 ## Security Boundaries
 
-The **trusted core** consists of `SailKernel` and `SailGovernance`. These contracts are audited and their behaviour is assumed correct.
+The **trusted core** consists of `SailKernel` and `SailGovernance`. These are the contracts every account must trust; the protocol's guarantees are properties of their deployed bytecode.
 
 Permission templates and fee policies are **outside the trusted core**. A bug in a template affects only accounts that registered it; a bug in a fee policy affects only accounts using that policy. The blast radius of any template or policy bug is bounded by the accounts that opted into it.
 

@@ -11,7 +11,8 @@ The kernel is the central execution engine of the Sail protocol. It maintains a 
 
 | Name | Value | Description |
 |---|---|---|
-| `PERMISSION_GAS_CAP` | `100_000` | Gas budget forwarded to each permission's `evaluate()` staticcall. A revert or gas exhaustion inside a permission is treated as `false` (denial) without affecting the kernel or burning the caller's full gas. |
+| `PERMISSION_GAS_CAP` | `150_000` | Gas budget forwarded to each permission's `evaluate()` staticcall. A revert or gas exhaustion inside a permission is treated as `false` (denial) without affecting the kernel or burning the caller's full gas. |
+| `BATCH_EVAL_GAS_CAP` | `1_000_000` | Gas budget forwarded to a batch permission's `evaluateBatch()` staticcall in `dispatchBatch`. |
 | `ERC1271_MAGIC` | `0x1626ba7e` | ERC-1271 magic value checked when verifying smart-contract signatures. |
 
 ---
@@ -34,7 +35,7 @@ All nine type hashes are `public constant bytes32` on the contract and can be re
 ### `DISPATCH_TYPEHASH`
 
 ```
-Dispatch(address account,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)
+Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)
 ```
 
 Used by `dispatch()`. `dataHash` is `keccak256(calldata)` — the raw bytes are recoverable from the transaction.
@@ -171,8 +172,8 @@ struct AccountConfig {
 
 ### `createAccount(safeFactory, safeSingleton, safeInitializer, saltNonce, permissionSigner, manager, feePolicy) → address account`
 
-- **Access:** Anyone (permissionless)
-- **What it does:** Deploys a new Safe proxy via the provided factory and registers it with the kernel in a single transaction. The CREATE2 salt is derived as `uint256(keccak256(abi.encode(saltNonce, msg.sender)))`, binding the deployment address to `msg.sender`. This prevents an observer from front-running registration by claiming a Safe they did not deploy.
+- **Access:** Anyone may call it; the supplied `safeFactory` and `safeSingleton` must be on governance's trusted allowlists.
+- **What it does:** Deploys a new Safe proxy via the provided factory and registers it with the kernel in a single transaction. The CREATE2 salt is derived as `uint256(keccak256(abi.encode(saltNonce, msg.sender, permissionSigner, manager, feePolicy)))`, binding the deployment address to the caller and the account's principals. This prevents an observer from front-running registration by claiming a Safe they did not deploy, and means a different signer, manager, or fee policy lands at a different address.
 - **Parameters:**
 
 | Parameter | Description |
@@ -204,7 +205,7 @@ struct AccountConfig {
 ### `registerPermission(account, permission, sig)` (payable)
 
 - **Access:** Anyone (signature-gated by permissionSigner)
-- **What it does:** Adds a single permission to an account's permission set. Requires a valid EIP-712 `RegisterPermission` signature from the account's `permissionSigner` and an ETH registration fee (computed from the permission's bytecode size via governance parameters).
+- **What it does:** Adds a single permission to an account's permission set. Requires a valid EIP-712 `RegisterPermission` signature from the account's `permissionSigner` and the flat ETH registration fee.
 - **Parameters:**
 
 | Parameter | Description |
@@ -213,7 +214,7 @@ struct AccountConfig {
 | `permission` | Permission contract address to register |
 | `sig` | EIP-712 signature over `RegisterPermission` struct |
 
-- **Fee:** `min(baseFee + complexityRate × codeSize, MAX_PERMISSION_FEE_WEI)`. Overpayment is refunded to `msg.sender`.
+- **Fee:** the flat `permissionRegistrationFee` (bounded by `MAX_PERMISSION_FEE_WEI`), the same amount regardless of contract size. Overpayment is refunded to `msg.sender`.
 - **Events:** `PermissionRegistered(account, permission)`
 - **Errors:** `AccountNotRegistered`, `PermissionAlreadyRegistered`, `TooManyPermissions`, `InvalidSignerSignature`, `InsufficientFee`, `FeeTransferFailed`
 
@@ -337,10 +338,10 @@ struct AccountConfig {
 
 ---
 
-### `collectFees(account, grossFee, currentNav, feeToken, recipient)`
+### `collectFees(account, grossFee, currentNav, feeToken)`
 
-- **Access:** `cfg.manager` only (`nonReentrant`, `whenNotPaused`)
-- **What it does:** Validates `grossFee` against the policy's computed maximum and distributes fees to the treasury, distributor, and manager recipient according to the protocol split.
+- **Access:** the account's `manager` or the account itself (`nonReentrant`, `whenNotPaused`)
+- **What it does:** Validates `grossFee` against the policy's computed maximum and distributes fees to the treasury, distributor, and manager recipient according to the protocol split. The manager's recipient address is pulled from the fee policy (`feeRecipient()`), not passed by the caller, so the caller cannot redirect the payout.
 
   **Trust assumption:** `currentNav` is provided by the manager and is not verified on-chain. A dishonest manager could inflate `currentNav` to unlock a larger fee ceiling. Deployers must use a fee policy that validates NAV through an oracle if the manager is not trusted.
 
@@ -361,7 +362,6 @@ struct AccountConfig {
 | `grossFee` | Requested fee amount; must not exceed policy's `maxFee` |
 | `currentNav` | Manager-reported net asset value |
 | `feeToken` | ERC-20 token for payment; `address(0)` = native ETH |
-| `recipient` | Address receiving the manager's net share; must not be `address(0)` |
 
 - **Events:** `FeesCollected(account, feeToken, grossFee, protocolCut, distributorCut, managerTake)`
 - **Errors:** `AccountNotRegistered`, `ZeroAddress`, `NotManager`, `FeePolicyNotSet`, `FeeTooLarge`, `DistributorBpsTooLarge`, `FeeTransferFailed`, `ProtocolPaused`

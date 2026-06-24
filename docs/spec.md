@@ -6,7 +6,7 @@
  
 Sail is a minimal account-abstraction primitive for onchain Separately Managed Accounts. The protocol does five things: it instantiates Safe accounts from any signer setup; it registers permission modules deployed by users; it gates a delegated manager's transactions through those permissions; it charges fees per permission deployed; and it tracks principal while routing manager-collected fees through a protocol-enforced split with a hard 25% cap. All permission logic, valuation math, and fee schedules live in user-deployed contracts outside the core. The protocol separates three roles — Owner, Permission Signer, Manager — and is governed by a contract initially held by the team multisig, transferable later.
  
-The architecture is minimal-core, permissionless-extension. The trusted kernel is ~1,500 lines of Solidity. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
+The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account without protocol approval. Governance allowlists apply only to trusted infrastructure — the Safe factory, the Safe singleton, the proxy codehash, and fee policies — not to permissions. The trusted core is roughly 1,150 lines of Solidity (the kernel itself ~820), small enough to audit in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
  
 ## Design Principles
  
@@ -32,7 +32,7 @@ The kernel does exactly five things:
  
 1. **Account instantiation.** Wraps Safe's existing factory to deploy a Safe and register it with Sail in a single transaction.
 2. **Permission registry.** Each account has a per-account list of registered permission contract addresses. Adding requires Permission Signer authorisation.
-3. **Manager dispatch.** Verifies manager signature, session validity, nonce/replay protection. Walks the registered permissions. Calls `evaluate(tx, ctx)` on each via `staticcall` with a per-permission gas cap (default 100k). Executes via the Safe if all return true.
+3. **Manager dispatch.** Verifies manager signature, session validity, nonce/replay protection. The manager's signature names one registered permission as the authorizer; the kernel evaluates that permission alone via `staticcall` under a fixed 150,000-gas cap (a batch evaluates one batch-aware permission under 1,000,000). Executes via the Safe only if it returns true. Other registered permissions are not consulted.
 4. **Fee accounting.** Tracks per-account cumulative deposits, cumulative withdrawals, and (when relevant) high-water mark. Validates manager fee collection through registered `IFeePolicy` contracts. Splits collected fees subject to the constitutional 25% protocol cap.
 5. **Principal tracking.** Maintains the basis numbers fee policies use to compute legitimate fee amounts. The protocol does not compute NAV — that lives in user-deployed valuation modules.
 Nothing else lives in the core. Workflow validation, composable execution, transport adapters (ERC-4337, EIP-7702), NAV computation, fee schedule logic, and policy authoring workflows are explicitly out of scope.
@@ -85,16 +85,15 @@ Two independent fee mechanisms, each capped by immutable constants, each tunable
  
 #### Fee 1 — Per-permission Deployment Fee
  
-Charged to the Owner when registering permissions. Paid as `msg.value` in native ETH on the registration transaction. Scales with permission bytecode size as a complexity proxy:
+Charged to the registering account when permissions are registered. Paid as `msg.value` in native ETH. The fee is flat — the same amount per permission, regardless of contract size or template type:
  
 ```
-fee_per_permission = min(BASE_FEE + (bytecode_size × COMPLEXITY_RATE), MAX_PERMISSION_FEE_WEI)
-total_fee          = sum(fee_per_permission for each permission in the batch)
+total fee = permissionRegistrationFee × n_permissions
 ```
  
-`MAX_PERMISSION_FEE_WEI` is immutable in source code. `BASE_FEE` and `COMPLEXITY_RATE` are governance-tunable within the cap. Proceeds go to the protocol treasury; no split.
+`permissionRegistrationFee` is a governance-tunable parameter set at deployment and changed only through the timelock; it is bounded by the immutable per-deployment ceiling `MAX_PERMISSION_FEE_WEI`, itself capped at a constitutional `0.01 ether` (0.01 of the chain's native token). Proceeds go to the protocol treasury; no split. Excess `msg.value` is refunded.
  
-Denominated in native ETH (no oracle dependency). The ETH cost is bounded by the cap; USD cost varies with ETH price, and governance is expected to retune `BASE_FEE` and `COMPLEXITY_RATE` periodically.
+Denominated in native ETH (no oracle dependency). The ETH cost is bounded by the ceiling; USD cost varies with ETH price, and governance is expected to retune the rate periodically.
  
 #### Fee 2 — Protocol Cut on Manager-collected Fees
  
@@ -133,42 +132,44 @@ NAV computation lives in valuation modules registered alongside the fee policy. 
  
 ### Governance
  
-A `SailGovernance` contract holds the team multisig as the initial governance address. Single mutator: `transferGovernance(newAddress)` for transitioning control later — DAO, ownership token, decision-market, or any chosen mechanism.
+A `SailGovernance` contract holds the team multisig as the initial governance address. Parameter changes and governance transfer flow through a 48-hour `TimelockController`; governance transfer is two-step (`proposeGovernance` then `acceptGovernance`) so control can move later — DAO, ownership token, decision-market, or any chosen mechanism — without risk of a misdirected one-step handoff.
  
 **Constitutional caps** (immutable — no governance procedure can change):
 - `MAX_PROTOCOL_CUT_BPS = 2_500`
-- `MAX_PERMISSION_FEE_WEI` (set at deploy time)
+- `MAX_PERMISSION_FEE_WEI` (set at deploy time; itself capped at `0.01 ether`)
 **Governance-tunable parameters** (within the caps):
-- `CURRENT_PROTOCOL_CUT_BPS`
-- `BASE_FEE`
-- `COMPLEXITY_RATE`
+- `currentProtocolCutBps`
+- `permissionRegistrationFee`
+- `maxPermissionsPerAccount`
 Governance can lower or raise parameters within the caps but never raise the caps themselves. The caps bound governance; governance does not bound the caps.
  
 ## Security Model
  
-The kernel's trusted surface is ~1,500 lines of Solidity. The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts called from the kernel via `staticcall` with strict gas caps.
+The trusted surface is roughly 1,150 lines of Solidity (the kernel itself ~820). The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts called from the kernel via `staticcall` with strict gas caps.
  
 This architecture provides three security properties:
  
-**Bounded blast radius.** A bug in a permission template affects only users who registered that specific template. A bug in a fee policy affects only accounts using that policy. The kernel itself is small enough to be audited exhaustively.
+**Bounded blast radius.** A bug in a permission template affects only users who registered that specific template. A bug in a fee policy affects only accounts using that policy. The kernel itself is small enough to review in full.
  
 **Modular reasoning.** Proving the protocol safe decomposes into three independently verifiable claims:
  
 1. The kernel handles signature verification, session validity, dispatch, fee splits, and custody isolation correctly.
 2. Each canonical permission template enforces what it claims.
 3. Composition is by construction — the kernel calls each permission independently; there is no cross-permission interaction.
-**Formal verification feasibility.** A 1,500-line trusted core is tractable for tools like Certora, Halmos, and Kontrol. Critical invariants (custody isolation, fee cap enforcement, signature verification) can be formally proven.
+**Formal verification feasibility.** A trusted core on the order of 1,150 lines is tractable for tools like Certora, Halmos, and Kontrol. Critical invariants (custody isolation, fee cap enforcement, signature verification) are amenable to formal analysis.
  
 ## Canonical Templates
  
-The protocol ships with a library of formally-audited permission templates covering the most common patterns:
+The protocol ships with a reference set of permission templates covering common patterns. They are swappable defaults — any contract implementing `IPermission` can be registered instead:
  
-- **BoundedSwapPermission** — gates DEX swaps with router allowlist, token allowlist, recipient enforcement, and oracle-bounded slippage.
-- **BoundedDepositPermission** — gates lending and vault deposits with target allowlist and amount caps.
-- **BoundedBorrowPermission** — gates borrowing with LTV caps and recipient enforcement.
-- **BoundedWithdrawPermission** — gates withdrawals with recipient enforcement (Safe-only by default).
-- **TransferTargetPermission** — gates raw token transfers with recipient allowlists.
-Each template is published with verified bytecode. UIs display registered templates by their canonical name and parameters — the same model used for verified token contracts on block explorers. Users registering non-canonical permissions opt into them explicitly.
+- **SwapPermission** / **SwapPermissionNoOracle** — gate DEX swaps with router and token allowlists, a size cap, output paid to the account, and a slippage floor (against an independent oracle, or the reference pool's own live price).
+- **BorrowPermission** — gates lending borrows with protocol and asset allowlists, a size cap, the position credited to the account, and an optional LTV ceiling.
+- **DepositPermission** — gates vault and lending-pool deposits with token and target allowlists and a size cap, crediting the position to the account.
+- **WithdrawPermission** — pins ERC-20 movements to one configured recipient, with a token allowlist and size cap.
+- **TransferPermission** — gates ERC-20 sends to an allowlisted recipient set.
+- **ApproveAndCallBatchPermission** — gates an atomic approve / protocol-call / reset batch.
+
+All inherit a shared base, **ConfigurablePermission**, which provides per-account configuration and is not deployed on its own. Each template is published with verified bytecode. UIs display registered templates by their canonical name and parameters — the same model used for verified token contracts on block explorers. Users registering non-canonical permissions opt into them explicitly.
  
 ## Use Case Coverage
  
@@ -192,8 +193,8 @@ Each exclusion reduces what the protocol owns. The protocol owns less, by design
  
 | Property | Value |
 |----------|-------|
-| Trusted kernel size | ~1,500 lines of Solidity |
-| Per-permission gas cap | 100,000 gas (configurable per template) |
+| Trusted core size | ~1,150 lines of Solidity (kernel ~820) |
+| Permission evaluation gas cap | 150,000 (single dispatch) / 1,000,000 (batch) |
 | Protocol fee cap (immutable) | 25% of manager-collected fees |
 | Permission evaluation | `staticcall`, gas-bounded, no state mutation |
 | Reentrancy attack surface in evaluation | Zero (by construction) |
