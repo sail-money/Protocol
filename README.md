@@ -226,6 +226,10 @@ forge test      # run test suite
 forge test -vvv # verbose output with traces
 ```
 
+## Documentation
+
+For a glossary of protocol terms (SMA, Mandate, Permission, Template) and how they map across the codebase, see [docs/terminology-mapping.md](./docs/terminology-mapping.md).
+
 ## Security
 
 The Sail Protocol contracts have been submitted for audit by Octane Security. The audit is ongoing; findings are being addressed as received. See [docs/SECURITY.md](./docs/SECURITY.md) for scope and known issues.
