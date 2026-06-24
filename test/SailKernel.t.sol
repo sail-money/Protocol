@@ -34,6 +34,19 @@ contract MockSafe {
         return moduleCallSuccess;
     }
 
+    /// @dev Faithful to Safe v1.4.1: records the call, then actually performs it and returns
+    ///      the inner call's (success, returndata) so the kernel can verify the token's own
+    ///      return value. When `moduleCallSuccess` is toggled off, models a module-level failure.
+    function execTransactionFromModuleReturnData(address to, uint256 value, bytes calldata data, uint8 operation)
+        external
+        returns (bool, bytes memory)
+    {
+        calls.push(Call(to, value, data, operation));
+        if (!moduleCallSuccess) return (false, "");
+        (bool ok, bytes memory ret) = to.call{value: value}(data);
+        return (ok, ret);
+    }
+
     function callCount() external view returns (uint256) { return calls.length; }
 
     function getCall(uint256 i) external view returns (address, uint256, bytes memory, uint8) {
@@ -47,6 +60,28 @@ contract MockSafe {
     function clearCalls() external { delete calls; }
 
     receive() external payable {}
+}
+
+/// @dev ERC-20 stub whose `transfer` returns true (standard compliant token).
+contract MockTokenTrue {
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+}
+
+/// @dev ERC-20 stub whose `transfer` returns false without reverting (the case the
+///      module-only success bool fails to catch).
+contract MockTokenFalse {
+    function transfer(address, uint256) external pure returns (bool) { return false; }
+}
+
+/// @dev Non-standard ERC-20 stub whose `transfer` returns nothing (e.g. some USDT
+///      deployments). Must be tolerated as success per SafeERC20 semantics.
+contract MockTokenNoReturn {
+    function transfer(address, uint256) external {}
+}
+
+/// @dev ERC-20 stub whose `transfer` returns a non-canonical 32-byte word (neither 0 nor 1).
+contract MockTokenGarbage {
+    function transfer(address, uint256) external pure returns (uint256) { return 2; }
 }
 
 contract MockSafeFactory {
@@ -1652,5 +1687,59 @@ contract SailKernelTest is Test {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
         new SailKernel(address(gov), predicted);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ERC-20 fee transfer: inner return-value verification
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev Point the account's feeAsset at `token` via a signed setFeePolicy op.
+    function _setFeeAsset(address token) internal {
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max
+        ));
+        kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, _signerSig(sh));
+    }
+
+    /// @dev A token that returns false without reverting must fail the collection — previously
+    ///      the module-only success bool recorded it as a collected fee while nothing moved.
+    function test_CollectFees_ERC20_RevertsOnFalseReturn() public {
+        MockTokenFalse token = new MockTokenFalse();
+        feePolicy.setFee(500, address(0), 0);
+        _setFeeAsset(address(token));
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.FeeTransferFailed.selector);
+        kernel.collectFees(address(safe), 500, 0, address(token));
+    }
+
+    /// @dev A standard token that returns true still succeeds.
+    function test_CollectFees_ERC20_SucceedsOnTrueReturn() public {
+        MockTokenTrue token = new MockTokenTrue();
+        feePolicy.setFee(500, address(0), 0);
+        _setFeeAsset(address(token));
+        vm.prank(manager);
+        kernel.collectFees(address(safe), 500, 0, address(token));
+        assertEq(safe.callCount(), 1);
+    }
+
+    /// @dev A compliant no-return token (empty returndata) is tolerated as success.
+    function test_CollectFees_ERC20_SucceedsOnNoReturn() public {
+        MockTokenNoReturn token = new MockTokenNoReturn();
+        feePolicy.setFee(500, address(0), 0);
+        _setFeeAsset(address(token));
+        vm.prank(manager);
+        kernel.collectFees(address(safe), 500, 0, address(token));
+        assertEq(safe.callCount(), 1);
+    }
+
+    /// @dev A token returning a non-canonical (non-0/1) word fails the collection.
+    function test_CollectFees_ERC20_RevertsOnGarbageReturn() public {
+        MockTokenGarbage token = new MockTokenGarbage();
+        feePolicy.setFee(500, address(0), 0);
+        _setFeeAsset(address(token));
+        vm.prank(manager);
+        vm.expectRevert(SailKernel.FeeTransferFailed.selector);
+        kernel.collectFees(address(safe), 500, 0, address(token));
     }
 }
