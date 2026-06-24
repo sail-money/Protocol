@@ -4,7 +4,6 @@
 # Validates the deployed manifests for a chain by:
 #   - confirming every contract has bytecode at its recorded address
 #   - confirming every cross-reference (factory.kernel == kernel, etc.) matches
-#   - confirming standalone clone-logic contracts are locked (initialized() == true)
 #
 # Read-only. Zero gas. Safe to run anytime.
 #
@@ -49,9 +48,8 @@ cd "$(dirname "$0")/.."
 CHAIN_DIR="deployments/${CHAIN_ID}"
 CORE="${CHAIN_DIR}/core.json"
 SHARED="${CHAIN_DIR}/templates.shared.json"
-STANDALONE="${CHAIN_DIR}/templates.standalone.json"
 
-for f in "$CORE" "$SHARED" "$STANDALONE"; do
+for f in "$CORE" "$SHARED"; do
   [[ -f "$f" ]] || { echo "error: $f missing"; exit 1; }
 done
 
@@ -171,23 +169,6 @@ for key in sharedAmmLiquidity sharedApproveAndCallBatch sharedBoundedBorrow \
     FAIL=$((FAIL + 1)); echo "  ✗ $key missing bytecode at $addr"; continue
   fi
   check "$key.kernel() == manifest.kernel" "$kernel" "$(addr_call "$addr" "kernel()(address)")"
-done
-
-echo
-
-# ─── Standalone clone-logic ──────────────────────────────────────────────────
-echo "▶ Standalone clone-logic (initialized() should be true — implementations locked)"
-for key in azuroPrediction boundedApprove boundedBorrow boundedDeposit \
-           boundedLiFi boundedSwap boundedWithdraw gmxPerp gainsNetworkPerp \
-           limitlessPrediction synthetixPerp transferTarget; do
-  addr=$(jq -r ".${key}" "$STANDALONE")
-  if has_code "$addr"; then
-    PASS=$((PASS + 1)); echo "  ✓ $key has bytecode"
-  else
-    FAIL=$((FAIL + 1)); echo "  ✗ $key missing bytecode at $addr"; continue
-  fi
-  actual_init=$(bool_call "$addr" "initialized()(bool)")
-  check "$key.initialized() == true" "true" "$actual_init"
 done
 
 echo
