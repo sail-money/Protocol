@@ -35,6 +35,10 @@ interface ISafe {
         external
         returns (bool success);
 
+    function execTransactionFromModuleReturnData(address to, uint256 value, bytes calldata data, uint8 operation)
+        external
+        returns (bool success, bytes memory returnData);
+
     function isModuleEnabled(address module) external view returns (bool);
 }
 
@@ -1551,10 +1555,24 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!ISafe(account).execTransactionFromModule(to, value, "", 0)) revert FeeTransferFailed();
     }
 
-    /// @dev Execute an ERC-20 transfer out of the Safe via module call.
+    /// @dev Execute an ERC-20 transfer out of the Safe via module call, verifying BOTH the
+    ///      Safe module's success bool AND the token's own return value (SafeERC20 semantics).
+    ///      The module-only bool is true whenever the inner `transfer` does not revert, so a
+    ///      token that returns `false` without reverting — or returns malformed data — would
+    ///      otherwise be recorded as a collected fee while no tokens moved. This reverts on
+    ///      that case. A compliant token that returns nothing (non-standard, e.g. some USDT
+    ///      deployments) is tolerated as success, matching SafeERC20.
+    ///      The return value is decoded as a uint256 compared to 1 (rather than abi.decode to
+    ///      bool) so a non-canonical word reverts cleanly with FeeTransferFailed instead of a
+    ///      decode panic, consistent with the permission-evaluation decode elsewhere.
+    /// @dev OUT OF SCOPE: fee-on-transfer shortfall. A fee-on-transfer token returns `true`
+    ///      and does move tokens, just fewer than `amount`; this check does not guarantee the
+    ///      recipient received `amount`. That risk is bounded by the account's feeAsset choice.
     function _safeTransferERC20(address account, address token, address to, uint256 amount) internal {
         bytes memory data = abi.encodeCall(IERC20.transfer, (to, amount));
-        if (!ISafe(account).execTransactionFromModule(token, 0, data, 0)) revert FeeTransferFailed();
+        (bool ok, bytes memory ret) = ISafe(account).execTransactionFromModuleReturnData(token, 0, data, 0);
+        if (!ok) revert FeeTransferFailed();
+        if (ret.length != 0 && (ret.length < 32 || abi.decode(ret, (uint256)) != 1)) revert FeeTransferFailed();
     }
 
     // -------------------------------------------------------------------------
