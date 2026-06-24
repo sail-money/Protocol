@@ -76,9 +76,9 @@ governance.setPermissionRegistrationFee(0.0005 ether); // flat fee per permissio
 governance.setMaxPermissionsPerAccount(10);
 ```
 
-### 5. Deploy Permission Templates
+### 5. Configure Permission Templates
 
-Deploy one or more permission templates for your allowed trading scope:
+The launch templates are shared, multi-tenant contracts: one deployment per chain serves every account, and each account stores its own bounds set through `configure()` (see [TEMPLATES.md](./TEMPLATES.md)) — they are not constructed per account. The snippet below is illustrative of the bounds a swap template enforces:
 
 ```solidity
 address[] memory routers = new address[](1);
@@ -92,15 +92,13 @@ address[] memory tokensOut = new address[](2);
 tokensOut[0] = WETH;
 tokensOut[1] = USDC;
 
-BoundedSwapPermission swapPerm = new BoundedSwapPermission(
-    routers,
-    tokensIn,
-    tokensOut,
-    100_000e6,          // maxAmountPerTx: 100,000 USDC
-    200,                // maxSlippageBps: 2%
-    address(oracle),    // IOracle implementation
-    permissionSignerAddress
-);
+// SwapPermission bounds (encoded and applied per account via configure()):
+//   routers       — allowlisted swap routers
+//   tokensIn      — allowlisted input tokens
+//   tokensOut     — allowlisted output tokens
+//   maxAmountPerTx: 100_000e6   // 100,000 USDC
+//   maxSlippageBps: 200         // 2%
+//   oracle        — IOracle implementation for the slippage floor
 ```
 
 ### 6. Deploy a Fee Policy
@@ -177,6 +175,7 @@ Once permissions are registered, the manager can sign and submit dispatch calls:
 // Manager signs Dispatch struct off-chain
 kernel.dispatch(
     account,
+    permission,   // the one registered permission that authorizes this call
     target,
     value,
     calldata,
@@ -203,7 +202,7 @@ interface IPermission {
 ### Constraints
 
 - `evaluate` is called via `staticcall` — no state changes are possible and none will persist even if attempted.
-- Gas budget: **100 000 gas** (`PERMISSION_GAS_CAP`). Stay well under this limit — allow margin for calldata decoding, memory allocation, and any on-chain reads.
+- Gas budget: **150,000 gas** (`PERMISSION_GAS_CAP`) for single dispatch; **1,000,000 gas** (`BATCH_EVAL_GAS_CAP`) for a batch permission's `evaluateBatch`. Stay well under the limit — allow margin for calldata decoding, memory allocation, and any on-chain reads.
 - A revert inside `evaluate` is caught by the kernel and treated as `false`. Revert-as-false is safe but can make debugging harder; prefer explicit `return false` branches.
 
 ### Context Fields Available
@@ -355,8 +354,9 @@ Each address is zero-padded to 32 bytes (standard ABI encoding), and the concate
 
 ```
 bytes32 structHash = keccak256(abi.encode(
-    DISPATCH_TYPEHASH,       // "Dispatch(address account,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
+    DISPATCH_TYPEHASH,       // "Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"
     account,
+    permission,              // the registered permission authorizing this dispatch
     target,
     value,
     keccak256(data),         // dataHash

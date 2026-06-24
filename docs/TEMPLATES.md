@@ -2,19 +2,21 @@
 
 This is the operator-facing companion to the permission templates that ship with Sail. It explains what each template is for, what you configure, and — just as importantly — what each one does **not** guarantee. For source-level detail, read each contract's header NatSpec in `contracts/templates/`; for the protocol's security model, see [`SECURITY.md`](./SECURITY.md).
 
-The launch set is **seven user-facing templates**, plus one shared base they all inherit (`ConfigurablePermission`, not deployed on its own). They are **hardened launch templates pending formal audit** — they are not yet audited, and they are not "out of audit scope." Treat them as reference implementations you are responsible for reviewing against your own use.
+The launch set is **seven user-facing templates**, plus one shared base they all inherit (`ConfigurablePermission`, not deployed on its own). They are reference implementations: swappable defaults you are responsible for reviewing against your own use, and any contract implementing `IPermission` can be registered instead.
 
 ---
 
 ## The shared model (read this once)
 
-**What a permission template is.** A template is a contract the kernel calls on **every dispatch**, via `staticcall`, to decide whether the manager's proposed transaction is allowed. It returns allow/deny only — it **never moves funds** and **cannot change state** (custody stays in the Safe). Evaluation is **fail-closed**: a revert, an out-of-gas, or a `false` return all mean *deny*. Each evaluation runs under a fixed **150,000-gas cap**, and each dispatch is gated by **one** named permission the manager selects (selective authorization) — so the bounds you register are exactly the bounds that apply.
+**What a permission template is.** A template is a contract the kernel calls on **every dispatch**, via `staticcall`, to decide whether the manager's proposed transaction is allowed. It returns allow/deny only — it **never moves funds** and **cannot change state** (custody stays in the Safe). Evaluation is **fail-closed**: a revert, an out-of-gas, or a `false` return all mean *deny*. A single-dispatch `evaluate` runs under a fixed **150,000-gas cap** (a batch template's `evaluateBatch` runs under **1,000,000**), and each dispatch is gated by **one** named permission the manager selects (selective authorization) — so the bounds you register are exactly the bounds that apply.
 
 **What that buys the operator.** Every bound below is enforced **on-chain, in Solidity, at call time**. A compromised or buggy manager can only ever act *within* the bounds of a registered template — it cannot exceed them. The owner can **revoke a permission in a single block**. Nothing here depends on off-chain trust in the manager.
 
 **Configuration & multi-tenancy.** One template contract serves **any number of accounts**: each account stores its own bounds. You set those bounds with `configure(...)`, authorized by an **EIP-712 signature from the account's permission signer** (or `configureDirect` when the signer calls directly). All seven inherit this config/auth spine from `ConfigurablePermission`; reconfiguring replaces an account's bounds.
 
 **The honest caveat.** These templates enforce a **shape and bounds** — which selector, which token/router/recipient, how much per call, output pinned to the account — **not the honesty of the venue** they point at. Allowlisting a malicious or buggy router/vault/pool is not something a template can catch. A template is only as good as its configuration and the keys behind the permission signer and manager. Read each template's "does NOT" section before relying on it.
+
+**Oracle adapters and the gas cap.** Oracle-backed templates (`SwapPermission`, `BorrowPermission`) read their configured `IOracle` adapter inside `evaluate`, which runs under the 150,000-gas cap. A heavy adapter — one that performs multiple external reads or expensive math — can exhaust that budget, and `evaluate` then fails closed (deny), blocking otherwise-valid dispatches. Budget the adapter's read cost against the cap and test the heaviest adapter you intend to allowlist end-to-end before relying on it in production.
 
 ---
 

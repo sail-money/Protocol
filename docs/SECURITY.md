@@ -37,12 +37,12 @@ All permission evaluations are performed via `staticcall`. This provides two gua
 
 ---
 
-## Gas Cap — `PERMISSION_GAS_CAP = 100_000`
+## Gas Cap — `PERMISSION_GAS_CAP = 150_000`
 
-Each permission evaluation receives exactly 100 000 gas. Consequences:
+A single dispatch evaluates exactly one named permission under a fixed 150,000-gas cap (a batch dispatch evaluates one batch-aware permission's `evaluateBatch` under `BATCH_EVAL_GAS_CAP = 1_000_000`). Consequences:
 
 - A runaway permission that loops indefinitely or performs excessive computation exhausts its budget and is treated as denial — the kernel and the caller's remaining gas are unaffected.
-- The maximum gas consumed by the permission loop is `maxPermissionsPerAccount × 100_000 = 100 × 100_000 = 10_000_000 gas`. This is feasible on all L2s; it is expensive but possible on Ethereum mainnet.
+- The kernel does not loop over all of an account's registered permissions; each dispatch consults only the one named in the manager's signature. An account may register up to `maxPermissionsPerAccount` (max 100) permissions, but that bounds how many can be attached, not the gas of any single dispatch.
 
 ---
 
@@ -149,7 +149,7 @@ The `maxPermissionsPerAccount` limit (governance-tunable, 1–100, hard cap 100)
 
 ### NAV is Not Verified On-Chain
 
-The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy and extract a larger fee.
+The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy, and the resulting fee is bounded only by the account's own balance — in the limit, approaching a full withdrawal of the account. This model fits accounts where the manager and the owner are the same party; a third-party allocation warrants a fee policy that validates NAV without manager attestation.
 
 **Operator responsibility:** use a fee policy that validates NAV through a trusted oracle if the manager is not fully trusted. `StandardFeePolicy` does not include oracle validation — it accepts manager-provided NAV values directly.
 

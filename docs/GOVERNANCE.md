@@ -26,8 +26,6 @@ The deploy script independently asserts the same self-administration property an
 
 **Why injected?** Extracting the timelock makes every `SailGovernance` constructor argument chain-independent. Combined with deterministic **CREATE2** deployment using a **global, chain-independent salt** (see `script/core/DeployCore.s.sol`), this yields the **same `SailGovernance` address — and the same kernel, Safe initializer, and SMA address — on every chain**. The on-chain security behaviour is identical to constructing the timelock inline; only the deployment transaction that creates the timelock moves into the deploy script.
 
-> **Note:** the parameter-name and function-signature tables below predate later contract changes (e.g. the single `permissionRegistrationFee` / `setPermissionRegistrationFee` replaced the earlier `baseFee` + `complexityRate`, and the parameter setters and `proposeGovernance` are now `onlyTimelock`). Treat `contracts/governance/SailGovernance.sol` as the source of truth.
-
 ---
 
 ## Constitutional Caps
@@ -37,10 +35,10 @@ These values are locked at deployment and cannot be raised by any governance act
 | Name | Value | Description |
 |---|---|---|
 | `MAX_PROTOCOL_CUT_BPS` | `2_500` | Maximum protocol share of each fee collection (25%). A `constant` in source — cannot change. |
-| `MAX_PERMISSION_FEE_WEI` | Set at deploy; must be `<= 1e36` | Hard ceiling on the per-permission registration fee in wei. An `immutable` set in the constructor. |
-| `MAX_PERMISSIONS_CAP` | `100` | Hard ceiling on the number of permissions per account. Bounds the maximum gas cost of the dispatch loop (`100 × 100_000 gas = 10_000_000 gas`). A `constant` — cannot change. |
+| `MAX_PERMISSION_FEE_WEI` | Set at deploy; constructor reverts if `> 0.01 ether` | Hard ceiling on the per-permission registration fee in wei. An `immutable` set in the constructor, itself bounded by a constitutional ceiling of `0.01 ether` (0.01 of the chain's native token). |
+| `MAX_PERMISSIONS_CAP` | `100` | Hard ceiling on the number of permissions per account. Bounds the maximum gas cost of the dispatch loop (`100 × 150,000 gas = 15,000,000 gas`). A `constant` — cannot change. |
 
-`MAX_PERMISSION_FEE_WEI` is capped at `1e36` in the constructor to prevent overflow in the kernel's fee arithmetic (both `baseFee` and the size contribution are individually capped at this value before being summed).
+`MAX_PERMISSION_FEE_WEI` is the per-deployment immutable ceiling on the registration fee; the constructor reverts if a deployment passes a value above the `0.01 ether` constitutional ceiling.
 
 ---
 
@@ -51,17 +49,16 @@ These can be adjusted by the current `governance` address, subject to the caps a
 | Name | Default | Range | Description |
 |---|---|---|---|
 | `currentProtocolCutBps` | `0` | `0 – MAX_PROTOCOL_CUT_BPS` | Protocol's share of each fee collection in basis points. |
-| `baseFee` | `0` | `0 – MAX_PERMISSION_FEE_WEI` | Flat component of the permission registration fee (wei). Applied regardless of bytecode size. |
-| `complexityRate` | `0` | `0 – MAX_PERMISSION_FEE_WEI` | Per-byte component of the permission registration fee (wei/byte). |
+| `permissionRegistrationFee` | `0` | `0 – MAX_PERMISSION_FEE_WEI` | Flat fee in wei charged per permission registered. The same amount regardless of contract size or template type. |
 | `maxPermissionsPerAccount` | `20` | `1 – MAX_PERMISSIONS_CAP` | Live limit on registered permissions per account. |
 
-**Fee formula** (computed in the kernel at registration time):
+**Fee formula** (applied by the kernel at registration time):
 
 ```
-fee = min(baseFee + complexityRate × permission.code.length, MAX_PERMISSION_FEE_WEI)
+total fee = permissionRegistrationFee × n_permissions
 ```
 
-Each component is individually capped at `MAX_PERMISSION_FEE_WEI` before summing to prevent overflow.
+The registration fee is flat — it does not scale with bytecode size. `permissionRegistrationFee` is bounded by `MAX_PERMISSION_FEE_WEI`; the setter reverts if a value above that immutable ceiling is requested.
 
 **Note on `maxPermissionsPerAccount`:** lowering the limit does not retroactively revoke permissions from accounts already at or above the new limit. It only prevents further registrations until those accounts fall below the live limit.
 
@@ -90,7 +87,7 @@ Calling `proposeGovernance` again before acceptance overwrites `pendingGovernanc
 
 ### `proposeGovernance(address candidate)`
 
-- **Access:** `onlyGovernance`
+- **Access:** `onlyTimelock`
 - **What it does:** Step 1 of governance transfer. Sets `pendingGovernance = candidate`. No immediate effect on protocol operation.
 - **Parameters:** `candidate` — nominated successor; must not be `address(0)`.
 - **Events:** `GovernanceProposed(currentGovernance, proposedGovernance)`
@@ -109,41 +106,31 @@ Calling `proposeGovernance` again before acceptance overwrites `pendingGovernanc
 
 ### `setProtocolCutBps(uint256 newBps)`
 
-- **Access:** `onlyGovernance`
+- **Access:** `onlyTimelock`
 - **What it does:** Updates the protocol's share of each fee collection.
 - **Parameters:** `newBps` — new basis-point value; must not exceed `MAX_PROTOCOL_CUT_BPS` (2 500).
 - **Events:** `ProtocolCutUpdated(oldBps, newBps)`
-- **Errors:** `NotGovernance`, `ExceedsProtocolCutCap(requested, cap)`
+- **Errors:** `NotTimelock`, `ExceedsProtocolCutCap(requested, cap)`
 
 ---
 
-### `setBaseFee(uint256 newFee)`
+### `setPermissionRegistrationFee(uint256 newFee)`
 
-- **Access:** `onlyGovernance`
-- **What it does:** Updates the flat component of the permission registration fee.
+- **Access:** `onlyTimelock`
+- **What it does:** Updates the flat per-permission registration fee.
 - **Parameters:** `newFee` — new fee in wei; must not exceed `MAX_PERMISSION_FEE_WEI`.
-- **Events:** `BaseFeeUpdated(oldFee, newFee)`
-- **Errors:** `NotGovernance`, `ExceedsPermissionFeeCap(requested, cap)`
-
----
-
-### `setComplexityRate(uint256 newRate)`
-
-- **Access:** `onlyGovernance`
-- **What it does:** Updates the per-byte component of the permission registration fee. Because the kernel always caps the final fee at `MAX_PERMISSION_FEE_WEI`, an extreme rate cannot cause fees to exceed the constitutional cap.
-- **Parameters:** `newRate` — new rate in wei per byte; must not exceed `MAX_PERMISSION_FEE_WEI`.
-- **Events:** `ComplexityRateUpdated(oldRate, newRate)`
-- **Errors:** `NotGovernance`, `ExceedsPermissionFeeCap(requested, cap)`
+- **Events:** `PermissionRegistrationFeeUpdated(oldFee, newFee)`
+- **Errors:** `NotTimelock`, `FeeExceedsCap(requested, cap)`
 
 ---
 
 ### `setMaxPermissionsPerAccount(uint256 newLimit)`
 
-- **Access:** `onlyGovernance`
+- **Access:** `onlyTimelock`
 - **What it does:** Sets the live per-account permission limit. Raising the limit increases the maximum dispatch gas cost by up to `PERMISSION_GAS_CAP` gas per additional slot.
 - **Parameters:** `newLimit` — new limit; must be `>= 1` and `<= MAX_PERMISSIONS_CAP` (100).
 - **Events:** `MaxPermissionsPerAccountUpdated(oldLimit, newLimit)`
-- **Errors:** `NotGovernance`, `ExceedsPermissionsCap(requested, cap)` (also thrown when `newLimit == 0`)
+- **Errors:** `NotTimelock`, `ExceedsPermissionsCap(requested, cap)` (also thrown when `newLimit == 0`)
 
 ---
 
@@ -154,8 +141,7 @@ Calling `proposeGovernance` again before acceptance overwrites `pendingGovernanc
 | `GovernanceTransferred(previousGovernance, newGovernance)` | Governance transfer accepted; also emitted at construction with `previousGovernance = address(0)` |
 | `GovernanceProposed(currentGovernance, proposedGovernance)` | Step 1 of governance transfer |
 | `ProtocolCutUpdated(oldBps, newBps)` | `setProtocolCutBps` succeeds |
-| `BaseFeeUpdated(oldFee, newFee)` | `setBaseFee` succeeds |
-| `ComplexityRateUpdated(oldRate, newRate)` | `setComplexityRate` succeeds |
+| `PermissionRegistrationFeeUpdated(oldFee, newFee)` | `setPermissionRegistrationFee` succeeds |
 | `MaxPermissionsPerAccountUpdated(oldLimit, newLimit)` | `setMaxPermissionsPerAccount` succeeds |
 
 ---
@@ -167,6 +153,7 @@ Calling `proposeGovernance` again before acceptance overwrites `pendingGovernanc
 | `NotGovernance()` | Caller is not the current `governance` address |
 | `NotPendingGovernance()` | `acceptGovernance()` caller is not `pendingGovernance` |
 | `ExceedsProtocolCutCap(requested, cap)` | Requested `currentProtocolCutBps` exceeds `MAX_PROTOCOL_CUT_BPS` |
-| `ExceedsPermissionFeeCap(requested, cap)` | Requested `baseFee` or `complexityRate` exceeds `MAX_PERMISSION_FEE_WEI`; also thrown by constructor if `maxPermissionFeeWei > 1e36` |
+| `FeeExceedsCap(requested, cap)` | Requested `permissionRegistrationFee` exceeds `MAX_PERMISSION_FEE_WEI`; also thrown by constructor if `maxPermissionFeeWei > 0.01 ether` |
 | `ExceedsPermissionsCap(requested, cap)` | Requested `maxPermissionsPerAccount` is zero or exceeds `MAX_PERMISSIONS_CAP` |
+| `NotTimelock()` | Caller of a timelocked setter is not the `TimelockController` |
 | `ZeroAddress()` | `initialGovernance` or `candidate` is `address(0)` |
