@@ -516,7 +516,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  _governance  Address of the deployed SailGovernance contract.
     /// @param  _treasury    Address that will receive the protocol's share of fees.
     constructor(address _governance, address _treasury) EIP712("SailKernel", "1") {
-        if (_governance == address(0) || _treasury == address(0)) revert ZeroAddress();
+        if (_governance == address(0) || _treasury == address(0) || _treasury == address(this)) revert ZeroAddress();
         governance = SailGovernance(_governance);
         treasury   = _treasury;
     }
@@ -624,6 +624,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
         }
 
         if (!ISafe(account).isModuleEnabled(address(this))) revert ModuleNotEnabled();
+
+        // Parity with registerAccount: the resulting proxy must carry an allowlisted Safe-proxy
+        // runtime codehash. The trusted factory + CREATE2 prediction path already implies this,
+        // so the check is redundant for a legitimately-created proxy — it makes the codehash trust
+        // anchor explicit and symmetric across both account-entry paths.
+        bytes32 accountCodehash;
+        assembly { accountCodehash := extcodehash(account) }
+        if (!governance.trustedSafeProxyCodehash(accountCodehash)) revert UntrustedProxyCodehash(accountCodehash);
+
         _registerAccount(account, permissionSigner, manager, feePolicy, feeAsset);
     }
 
@@ -702,6 +711,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _clearPermissions(account);
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
         batchNonces[account]   += NONCE_EPOCH_INCREMENT;
+        signerNonces[account]  += NONCE_EPOCH_INCREMENT;
 
         emit ManagerChanged(account, oldManager, newManager);
     }
@@ -1161,9 +1171,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // Prevent module-triggered self-calls: a call targeting the Safe itself satisfies
         // Safe's onlySelf guard, enabling enableModule/setGuard/owner changes without permission.
         if (target == account) revert AccountSelfTarget();
-        // Parity with dispatchBatch's per-subcall guard: a single dispatch may not target the
-        // kernel either. Re-entry is already blocked by nonReentrant; rejecting kernel-targeted
-        // calls closes the class at the dispatch boundary. Single dispatch has no subcall index.
+        // Parity with dispatchBatch's per-subcall guards: a single dispatch may not target the
+        // zero address or the kernel itself. Re-entry is already blocked by nonReentrant; rejecting
+        // these targets closes the class at the dispatch boundary. Single dispatch has no subcall
+        // index, so it reuses the batch errors with index 0.
+        if (target == address(0))    revert BatchZeroTarget(0);
         if (target == address(this)) revert KernelSelfTarget(0);
 
         bytes4 sel = data.length >= 4 ? bytes4(data[:4]) : bytes4(0);
@@ -1477,9 +1489,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);
-        // Allow the manager, the Safe account itself (for non-forwarding ERC-1271 managers),
-        // or the permissionSigner (as a backstop against fee-starvation) to crystallise fees.
-        if (msg.sender != cfg.manager && msg.sender != account && msg.sender != cfg.permissionSigner) {
+        // Fee collection is a fund-moving operation, so it is restricted to the manager or
+        // the Safe account itself (the latter covers non-forwarding ERC-1271 managers, and is
+        // the owner-controlled backstop). The permissionSigner manages the permission registry
+        // and never moves funds, so it is intentionally excluded.
+        if (msg.sender != cfg.manager && msg.sender != account) {
             revert NotManager(msg.sender, cfg.manager);
         }
         address feePolicy = cfg.feePolicy;

@@ -137,6 +137,19 @@ contract MaliciousProxy {
     function execTransactionFromModule(address, uint256, bytes calldata, uint8) external pure returns (bool) { return true; }
 }
 
+/// @dev Factory that deploys a non-Safe proxy whose runtime codehash is not allowlisted, while
+///      still satisfying the module-enabled check. Used to exercise createAccount's proxy-codehash
+///      guard (the parity check with registerAccount).
+contract RogueSafeFactory is ISafeFactory {
+    function createProxyWithNonce(address, bytes calldata, uint256) external override returns (address proxy) {
+        proxy = address(new MaliciousProxy());
+    }
+
+    function proxyCreationCode() external pure override returns (bytes memory) {
+        return type(MaliciousProxy).creationCode;
+    }
+}
+
 /// @dev Malicious setup helper for the stealth-pre-registration test. Delegatecalled during
 ///      Safe.setup (before any module is enabled), it tries to self-register the proxy.
 contract StealthSetup {
@@ -365,6 +378,22 @@ contract CreateAccountTest is Test {
         (address ps, address mgr,,,) = kernel.configs(address(safe));
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
+    }
+
+    // ── 9b. createAccount enforces the proxy-codehash check (parity w/ registerAccount) ─
+
+    /// @dev A trusted factory that yields a proxy with a non-allowlisted runtime codehash is
+    ///      rejected, mirroring registerAccount. The happy-path test proves a legitimate proxy
+    ///      (allowlisted codehash) still registers, so the guard is exercised on both sides.
+    function test_CreateAccount_RevertsOnUntrustedProxyCodehash() public {
+        RogueSafeFactory rogue = new RogueSafeFactory();
+        _allowlist(abi.encodeCall(gov.setTrustedSafeFactory, (address(rogue), true)));
+
+        bytes32 rogueCodehash = address(new MaliciousProxy()).codehash;
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, rogueCodehash));
+        kernel.createAccount(
+            address(rogue), SINGLETON, _initializer(address(moduleEnabler)), 1234, permSigner, manager, address(0), address(0)
+        );
     }
 
     // ── 10. Stealth pre-registration during Safe.setup → ModuleNotEnabled ─────

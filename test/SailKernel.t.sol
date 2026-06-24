@@ -1612,4 +1612,45 @@ contract SailKernelTest is Test {
     function _sessionActive() internal view returns (bool active) {
         (,,,, active) = kernel.configs(address(safe));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Core parity / defense-in-depth
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev Fee collection is restricted to the manager or the account itself; the
+    ///      permissionSigner manages the registry and is not a fund-mover.
+    function test_CollectFees_RevertsForPermissionSigner() public {
+        feePolicy.setFee(1_000, DIST, 0);
+        vm.prank(permSigner);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.NotManager.selector, permSigner, manager));
+        kernel.collectFees(address(safe), 1_000, 0, address(0));
+    }
+
+    /// @dev Rotating the manager bumps the signer-nonce namespace by the epoch increment,
+    ///      invalidating any pre-signed permissionSigner operation alongside dispatch/batch ops.
+    function test_SetManager_BumpsSignerNonceEpoch() public {
+        uint256 before = kernel.signerNonces(address(safe));
+        address newManager = vm.addr(0xCAFE);
+        vm.prank(address(safe));
+        kernel.setManager(newManager);
+        assertGe(kernel.signerNonces(address(safe)) - before, uint256(1) << 128);
+    }
+
+    /// @dev Single dispatch rejects the zero target, mirroring dispatchBatch's per-subcall guard.
+    function test_Dispatch_RevertsOnZeroTarget() public {
+        _registerPermission(address(perm));
+        bytes memory data = abi.encodeWithSignature("foo()");
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce    = kernel.managerNonces(address(safe));
+        bytes memory sig = _signDispatch(address(safe), address(perm), address(0), 0, data, nonce, deadline);
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.BatchZeroTarget.selector, uint256(0)));
+        kernel.dispatch(address(safe), address(perm), address(0), 0, data, sig, deadline);
+    }
+
+    /// @dev The constructor rejects a treasury equal to the kernel itself, mirroring setTreasury.
+    function test_Constructor_RevertsOnTreasuryEqualsSelf() public {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
+        vm.expectRevert(SailKernel.ZeroAddress.selector);
+        new SailKernel(address(gov), predicted);
+    }
 }
