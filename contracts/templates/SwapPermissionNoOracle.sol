@@ -257,6 +257,10 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
     // ── IPermission ───────────────────────────────────────────────────────────
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Swaps pull tokenIn via ERC-20 allowance; no supported router call needs native ETH.
+        // A payable router (e.g. V3 exactInputSingle) would otherwise let an attached value be
+        // forwarded to the router and swept via refundETH — reject nonzero value outright.
+        if (ctx.value != 0) return false;
         if (!isAllowedRouter[ctx.account][ctx.target]) return false;
         Slot storage s = _slots[ctx.account];
 

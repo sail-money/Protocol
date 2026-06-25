@@ -120,6 +120,11 @@ contract SwapPermissionNoOracleTest is Test {
         });
     }
 
+    function _ctxVal(address target, bytes4 selector, uint256 value) internal view returns (Context memory c) {
+        c = _ctx(target, selector);
+        c.value = value;
+    }
+
     function _v3cd(address tokenIn, address tokenOut, address recipient, uint256 amtIn, uint256 amtOutMin)
         internal view returns (bytes memory)
     {
@@ -275,6 +280,16 @@ contract SwapPermissionNoOracleTest is Test {
         v2.setReserves(1000 ether, 2000 ether); _configV2(200);
         bytes memory short = abi.encodeWithSelector(EXACT_INPUT_SINGLE_V1, TOKIN);
         assertFalse(swap.evaluate(short, _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
+    }
+
+    function test_NonzeroValue_Denies() public {
+        // Identical to test_V1_FairWithinTolerance_Passes, but with ETH attached. The router is
+        // payable; forwarding this value would let it be swept via refundETH. Must deny.
+        v2.setReserves(1000 ether, 2000 ether); _configV2(200);
+        bytes memory data = _v3cd(TOKIN, TOKOUT, ACCOUNT, 1 ether, 1.96 ether);
+        assertFalse(swap.evaluate(data, _ctxVal(ROUTER, EXACT_INPUT_SINGLE_V1, 90 ether)));
+        // The same swap with value == 0 still passes — the guard does not over-block.
+        assertTrue(swap.evaluate(data, _ctxVal(ROUTER, EXACT_INPUT_SINGLE_V1, 0)));
     }
 
     // ── reverse orientation (tokenIn == pool.token1) ─────────────────────────────
