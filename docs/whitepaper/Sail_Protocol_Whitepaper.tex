@@ -127,7 +127,7 @@ In Sail, the mandate is the set of permissions registered for an SMA---contracts
 
 When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls \texttt{evaluate()} on that permission alone and dispatches the call to the Safe only if it returns true. If the manager attempts to swap on an unallowed router, transfer to an unallowed recipient, borrow above the configured LTV, or call any function outside the registered permission set, the transaction reverts before any state change occurs. Figure~\ref{fig:model} shows the full relationship.
 
-\begin{figure}[H]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
   node distance=11mm and 14mm,
