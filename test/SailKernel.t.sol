@@ -906,14 +906,10 @@ contract SailKernelTest is Test {
     function test_CollectFees_ERC20Path() public {
         address token    = address(0x1234567890123456789012345678901234567890);
         uint256 grossFee = 500;
-        feePolicy.setFee(grossFee, address(0), 0);
 
-        // Update feeAsset to match ERC-20 token
-        {
-            uint256 nonce = kernel.signerNonces(address(safe));
-            bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max));
-            kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, _signerSig(sh));
-        }
+        // Change the fee asset to the ERC-20 token via a fresh policy instance (Octane #5).
+        _setFeeAsset(token);
+        feePolicy.setFee(grossFee, address(0), 0);
 
         vm.prank(manager);
         kernel.collectFees(address(safe), grossFee, 0, token);
@@ -1011,9 +1007,7 @@ contract SailKernelTest is Test {
         // Denomination mismatch: feeAsset is an ERC-20 but manager passes ETH (address(0)).
         // Finding #3: feeToken must match the bound feeAsset in both directions.
         address erc20Token = address(0xE20);
-        uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), erc20Token, nonce, type(uint256).max));
-        kernel.setFeePolicy(address(safe), address(feePolicy), erc20Token, type(uint256).max, _signerSig(sh));
+        _setFeeAsset(erc20Token);
 
         feePolicy.setFee(1_000, address(0), 0);
         vm.prank(manager);
@@ -1033,17 +1027,15 @@ contract SailKernelTest is Test {
     }
 
     function test_SetFeePolicy_ClearsFeeAssetOnZeroPolicy() public {
-        // Set to non-zero first
+        // Set to a non-zero policy + non-ETH asset first (fresh instance per Octane #5).
         address someToken = address(0xABCD);
-        uint256 nonce = kernel.signerNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), someToken, nonce, type(uint256).max));
-        kernel.setFeePolicy(address(safe), address(feePolicy), someToken, type(uint256).max, _signerSig(sh));
+        _setFeeAsset(someToken);
         (,, , address fa,) = kernel.configs(address(safe));
         assertEq(fa, someToken);
 
         // Clear policy -> feeAsset should clear to address(0)
-        nonce = kernel.signerNonces(address(safe));
-        sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), nonce, type(uint256).max));
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(0), address(0), nonce, type(uint256).max));
         kernel.setFeePolicy(address(safe), address(0), address(0), type(uint256).max, _signerSig(sh));
         (,, , address fa2,) = kernel.configs(address(safe));
         assertEq(fa2, address(0));
@@ -1342,6 +1334,82 @@ contract SailKernelTest is Test {
         vm.expectEmit(true, true, false, false);
         emit SailKernel.FeePolicyUpdated(address(safe), address(newPolicy));
         kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
+    }
+
+    // ── Octane #5: fee-policy asset binding ─────────────────────────────────────
+    // setFeePolicy pins a policy instance to a single fee asset per account. Reusing the same
+    // instance with a different asset would leave the policy's persisted high-water mark in
+    // stale units and inflate the next performance fee (one-time over-collection). To change
+    // the fee asset, point the account at a fresh policy instance. `safe` is registered with
+    // `feePolicy` and ETH (address(0)); the binding for that pair is captured lazily on the
+    // first setFeePolicy call.
+
+    function _setFeePolicy(address newPolicy, address feeAsset) internal {
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), newPolicy, feeAsset, nonce, type(uint256).max
+        ));
+        kernel.setFeePolicy(address(safe), newPolicy, feeAsset, type(uint256).max, _signerSig(sh));
+    }
+
+    function test_SetFeePolicy_AssetBinding_RevertsOnAssetSwapSameInstance() public {
+        // The #5-main attack: reuse the SAME instance with a different asset. Blocked at
+        // setFeePolicy, before any mis-unit collection can occur.
+        address token = address(0xA11CE);
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max
+        ));
+        bytes memory sig = _signerSig(sh);
+        vm.expectRevert(abi.encodeWithSelector(
+            SailKernel.FeePolicyAssetMismatch.selector, address(feePolicy), address(0), token
+        ));
+        kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, sig);
+    }
+
+    function test_SetFeePolicy_AssetBinding_ReattachSameAssetPasses() public {
+        // Re-pointing at the same instance with the same asset (ETH) is legitimate.
+        _setFeePolicy(address(feePolicy), address(0));
+        (,, address fp, address fa,) = kernel.configs(address(safe));
+        assertEq(fp, address(feePolicy));
+        assertEq(fa, address(0));
+    }
+
+    function test_SetFeePolicy_AssetBinding_SurvivesDetach() public {
+        // Detach (policy = 0) must NOT clear the binding: a later reattach of the same
+        // instance with a different asset must still revert.
+        _setFeePolicy(address(0), address(0)); // detach
+        address token = address(0xA11CE);
+        uint256 nonce = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max
+        ));
+        bytes memory sig = _signerSig(sh);
+        vm.expectRevert(abi.encodeWithSelector(
+            SailKernel.FeePolicyAssetMismatch.selector, address(feePolicy), address(0), token
+        ));
+        kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, sig);
+    }
+
+    function test_SetFeePolicy_AssetBinding_DetachThenReattachSameAssetPasses() public {
+        _setFeePolicy(address(0), address(0));         // detach
+        _setFeePolicy(address(feePolicy), address(0)); // reattach, same asset
+        (,, address fp,,) = kernel.configs(address(safe));
+        assertEq(fp, address(feePolicy));
+    }
+
+    function test_SetFeePolicy_AssetBinding_DifferentInstanceNewAssetSucceeds() public {
+        // The correct way to change denomination: a fresh instance carries fresh state and
+        // binds to the new asset.
+        address token = address(0xA11CE);
+        MockFeePolicy p2 = new MockFeePolicy();
+        p2.setFeeRecipient(manager);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(p2), true);
+        _setFeePolicy(address(p2), token);
+        (,, address fp, address fa,) = kernel.configs(address(safe));
+        assertEq(fp, address(p2));
+        assertEq(fa, token);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1701,21 +1769,30 @@ contract SailKernelTest is Test {
     // ERC-20 fee transfer: inner return-value verification
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Point the account's feeAsset at `token` via a signed setFeePolicy op.
+    /// @dev Switch the account to a FRESH trusted policy instance bound to `token`. This is the
+    ///      canonical way to change the fee asset after Octane #5: a policy instance is pinned to
+    ///      one fee asset per account, so changing denomination requires a fresh instance (which
+    ///      carries fresh per-account state). Reassigns `feePolicy` to the new instance and
+    ///      restores `manager` as the fee recipient; configure the fee on `feePolicy` afterwards.
     function _setFeeAsset(address token) internal {
+        MockFeePolicy fresh = new MockFeePolicy();
+        fresh.setFeeRecipient(manager);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedFeePolicy(address(fresh), true);
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(
-            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(feePolicy), token, nonce, type(uint256).max
+            kernel.SET_FEE_POLICY_TYPEHASH(), address(safe), address(fresh), token, nonce, type(uint256).max
         ));
-        kernel.setFeePolicy(address(safe), address(feePolicy), token, type(uint256).max, _signerSig(sh));
+        kernel.setFeePolicy(address(safe), address(fresh), token, type(uint256).max, _signerSig(sh));
+        feePolicy = fresh;
     }
 
     /// @dev A token that returns false without reverting must fail the collection — previously
     ///      the module-only success bool recorded it as a collected fee while nothing moved.
     function test_CollectFees_ERC20_RevertsOnFalseReturn() public {
         MockTokenFalse token = new MockTokenFalse();
-        feePolicy.setFee(500, address(0), 0);
         _setFeeAsset(address(token));
+        feePolicy.setFee(500, address(0), 0);
         vm.prank(manager);
         vm.expectRevert(SailKernel.FeeTransferFailed.selector);
         kernel.collectFees(address(safe), 500, 0, address(token));
@@ -1724,8 +1801,8 @@ contract SailKernelTest is Test {
     /// @dev A standard token that returns true still succeeds.
     function test_CollectFees_ERC20_SucceedsOnTrueReturn() public {
         MockTokenTrue token = new MockTokenTrue();
-        feePolicy.setFee(500, address(0), 0);
         _setFeeAsset(address(token));
+        feePolicy.setFee(500, address(0), 0);
         vm.prank(manager);
         kernel.collectFees(address(safe), 500, 0, address(token));
         assertEq(safe.callCount(), 1);
@@ -1734,8 +1811,8 @@ contract SailKernelTest is Test {
     /// @dev A compliant no-return token (empty returndata) is tolerated as success.
     function test_CollectFees_ERC20_SucceedsOnNoReturn() public {
         MockTokenNoReturn token = new MockTokenNoReturn();
-        feePolicy.setFee(500, address(0), 0);
         _setFeeAsset(address(token));
+        feePolicy.setFee(500, address(0), 0);
         vm.prank(manager);
         kernel.collectFees(address(safe), 500, 0, address(token));
         assertEq(safe.callCount(), 1);
@@ -1744,8 +1821,8 @@ contract SailKernelTest is Test {
     /// @dev A token returning a non-canonical (non-0/1) word fails the collection.
     function test_CollectFees_ERC20_RevertsOnGarbageReturn() public {
         MockTokenGarbage token = new MockTokenGarbage();
-        feePolicy.setFee(500, address(0), 0);
         _setFeeAsset(address(token));
+        feePolicy.setFee(500, address(0), 0);
         vm.prank(manager);
         vm.expectRevert(SailKernel.FeeTransferFailed.selector);
         kernel.collectFees(address(safe), 500, 0, address(token));

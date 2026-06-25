@@ -294,6 +294,22 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         Written by the permissionSigner via `recordWithdrawal`.
     mapping(address account => uint256) public cumulativeWithdrawals;
 
+    /// @dev Records the single fee asset a policy instance has been bound to for an account.
+    ///      `bound` is an explicit flag (not asset != 0) because address(0) is a valid fee
+    ///      asset (native ETH), so it cannot double as the "unbound" sentinel.
+    struct PolicyAssetBinding {
+        bool    bound;
+        address asset;
+    }
+
+    /// @notice Per-(account, policy) binding pinning a fee-policy instance to the single fee
+    ///         asset it was first used with for that account. Reusing the SAME policy instance
+    ///         with a DIFFERENT asset would leave the policy's persisted high-water mark in
+    ///         stale units, inflating the next performance fee on a one-time over-collection.
+    ///         To change the fee asset, point the account at a fresh policy instance, which
+    ///         carries its own fresh per-account state.
+    mapping(address account => mapping(address policy => PolicyAssetBinding)) private _policyAssetBinding;
+
     // -------------------------------------------------------------------------
     // Protocol references
     // -------------------------------------------------------------------------
@@ -558,6 +574,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown by `_registerAccount` or `setFeePolicy` when the provided fee policy is not
     ///      in governance's trusted allowlist.  Prevents upgradeable/metamorphic policies.
     error UntrustedFeePolicy(address policy);
+
+    /// @dev Thrown by `setFeePolicy` when a fee-policy instance already used for an account
+    ///      with one fee asset is reused with a different asset. Reusing an instance across
+    ///      denominations would leave its persisted high-water mark in stale units. To change
+    ///      the fee asset, point the account at a fresh policy instance.
+    error FeePolicyAssetMismatch(address policy, address expected, address provided);
 
     /// @dev Thrown by `replacePermissions` when `oldPermissions` and `newPermissions` have different lengths.
     error ArrayLengthMismatch();
@@ -1106,6 +1128,24 @@ contract SailKernel is EIP712, ReentrancyGuard {
             sig
         );
         signerNonces[account] = nonce + 1;
+
+        // Pin a policy instance to the single fee asset it is used with for this account, so the
+        // policy's persisted (per-account) high-water mark can never be mixed across denominations.
+        // First lazily bind the currently configured policy (e.g. one set at registration) to its
+        // current asset, so a later swap to a different asset on the SAME instance is caught even
+        // on the first setFeePolicy call.
+        address currentPolicy = configs[account].feePolicy;
+        if (currentPolicy != address(0)) {
+            PolicyAssetBinding storage current = _policyAssetBinding[account][currentPolicy];
+            if (!current.bound) { current.bound = true; current.asset = configs[account].feeAsset; }
+        }
+        // Then enforce the binding for the incoming policy: bind on first use, else require a match.
+        if (newFeePolicy != address(0)) {
+            PolicyAssetBinding storage binding = _policyAssetBinding[account][newFeePolicy];
+            if (!binding.bound) { binding.bound = true; binding.asset = feeAsset; }
+            else if (binding.asset != feeAsset) revert FeePolicyAssetMismatch(newFeePolicy, binding.asset, feeAsset);
+        }
+
         configs[account].feePolicy = newFeePolicy;
         configs[account].feeAsset  = (newFeePolicy == address(0)) ? address(0) : feeAsset;
         emit FeePolicyUpdated(account, newFeePolicy);
