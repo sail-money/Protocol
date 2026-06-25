@@ -30,6 +30,12 @@ import {TimelockController}      from "@openzeppelin/contracts/governance/Timelo
 // Minimal mock Safe that records execTransactionFromModule calls
 // ─────────────────────────────────────────────────────────────────────────────
 contract MockSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     mapping(address => bool) public moduleEnabled;
     bool public execSucceeds = true;
     uint256 public execCallCount;
@@ -87,6 +93,11 @@ contract ReentrancyAttacker {
     constructor(address _kernel) { kernel = SailKernel(_kernel); }
 
     function isModuleEnabled(address) external pure returns (bool) { return true; }
+
+    // Octane group 1a: satisfy registerAccount's #9 singleton check and #4 nonce check.
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+    function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
 
     function setReentryParams(address _account, address _perm2, uint256 _deadline2, bytes calldata _sig2) external {
         account     = _account;
@@ -181,10 +192,12 @@ abstract contract RedTeamBase is Test {
         // (Octane #4a). One seed covers all MockSafe instances (safe2/safe3/newSafe).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Register the Safe account
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         // Deploy a benign always-true permission
         alwaysTrue = new AlwaysTruePermission();
@@ -413,7 +426,7 @@ contract DispatchAbuseTests is RedTeamBase {
         safe2.enableModule(address(kernel));
         vm.deal(address(safe2), 10 ether);
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         // Register alwaysTrue for safe2 too
         uint256 nonce2 = kernel.signerNonces(address(safe2));
@@ -478,7 +491,7 @@ contract SignatureAttackTests is RedTeamBase {
         safe2.enableModule(address(kernel));
         vm.prank(address(safe2));
         // permSigner controls both accounts
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         // Nonces may differ; get sig for safe (account A)
         uint256 nonceA = kernel.signerNonces(address(safe));
@@ -505,7 +518,7 @@ contract SignatureAttackTests is RedTeamBase {
         safe3.enableModule(address(kernel));
         vm.deal(address(safe3), 10 ether);
         vm.prank(address(safe3));
-        kernel.registerAccount(permSigner, address(badManager), address(0), address(0));
+        kernel.registerAccount(permSigner, address(badManager), address(0), address(0), block.timestamp + 1 days, "");
 
         // Register a permission for safe3
         uint256 nonce3 = kernel.signerNonces(address(safe3));
@@ -725,10 +738,12 @@ contract FeeAccountingTests is RedTeamBase {
         // the reentrancy guard (the property under test here, not the codehash gate).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(rAttacker).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Register rAttacker's account (it calls registerAccount as itself)
         vm.prank(address(rAttacker));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         AlwaysTruePermission p1 = new AlwaysTruePermission();
         AlwaysTruePermission p2 = new AlwaysTruePermission();
@@ -1043,14 +1058,14 @@ contract AccountRegistrationTests is RedTeamBase {
         // strictly stronger than the prior "registers themselves, not newSafe" behavior.
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
-        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0), address(0));
+        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0), address(0), block.timestamp + 1 days, "");
 
         assertFalse(kernel.registered(attacker));
         assertFalse(kernel.registered(address(newSafe)));
 
         // newSafe (allowlisted MockSafe codehash, module enabled) can register itself.
         vm.prank(address(newSafe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
         assertTrue(kernel.registered(address(newSafe)));
     }
 
@@ -1060,7 +1075,7 @@ contract AccountRegistrationTests is RedTeamBase {
         // safe is already registered in setUp
         vm.prank(address(safe));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountAlreadyRegistered.selector, address(safe)));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     // ── 10c. Register with zero permissionSigner ──
@@ -1071,6 +1086,6 @@ contract AccountRegistrationTests is RedTeamBase {
 
         vm.prank(address(newSafe));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.registerAccount(address(0), manager, address(0), address(0));
+        kernel.registerAccount(address(0), manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 }

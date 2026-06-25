@@ -91,6 +91,12 @@ contract FaithfulSafeProxy {
 
     function callCount() external view returns (uint256) { return _calls.length; }
     function setSuccess(bool s) external { moduleCallSuccess = s; }
+
+    // Octane group 1a: expose the (allowlisted) singleton and a finalized nonce so registerAccount's
+    // #9 singleton check and #4 setup-not-finalized check pass for a faithfully set-up proxy.
+    function masterCopy() external pure returns (address) { return address(0x5A1E); }
+    function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
 }
 
 /// @dev Faithful Safe proxy factory: deterministic CREATE2 deploy + address prediction
@@ -162,7 +168,7 @@ contract StealthSetup {
     }
 
     function run() external {
-        kernel.registerAccount(ps, mgr, address(0), address(0));
+        kernel.registerAccount(ps, mgr, address(0), address(0), block.timestamp + 1 days, "");
     }
 }
 
@@ -336,14 +342,14 @@ contract CreateAccountTest is Test {
         bytes32 ch = address(mal).codehash;
         vm.prank(address(mal));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, ch));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     function test_RegisterAccount_FromEOA_Reverts() public {
         address eoa = address(0xE0A);
         vm.prank(eoa);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, eoa.codehash));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     // ── 8. registerAccount from Safe with module NOT enabled → ModuleNotEnabled ─
@@ -362,7 +368,7 @@ contract CreateAccountTest is Test {
 
         vm.prank(address(safe));
         vm.expectRevert(SailKernel.ModuleNotEnabled.selector);
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     // ── 9. registerAccount from Safe with module enabled + correct codehash ───
@@ -372,7 +378,7 @@ contract CreateAccountTest is Test {
         assertTrue(safe.isModuleEnabled(address(kernel)));
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         assertTrue(kernel.registered(address(safe)));
         (address ps, address mgr,,,) = kernel.configs(address(safe));

@@ -14,6 +14,12 @@ import {ApproveAndCallBatchPermission}   from "../contracts/templates/ApproveAnd
 // numbers are deterministic regardless of the order forge picks tests in.
 
 contract BenchSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     receive() external payable {}
     function execTransactionFromModule(address to, uint256 value, bytes calldata data, uint8 op)
         external returns (bool)
@@ -113,8 +119,10 @@ contract BatchDispatchBenchmark is Test {
         vm.deal(address(safe), 10 ether);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         token  = new BenchERC20();
         token.mint(address(safe), 10_000 ether);

@@ -99,7 +99,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
         MockSafe otherSafe = new MockSafe();
         vm.prank(address(otherSafe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         bytes memory firstInitData = _initData(address(otherSafe), permSigner);
         uint256 kDeadline = block.timestamp + 1 days;

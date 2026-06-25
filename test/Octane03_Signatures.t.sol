@@ -18,6 +18,12 @@ contract _O3Perm is IPermission {
 }
 
 contract _O3Safe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     function execTransactionFromModule(address, uint256, bytes calldata, uint8)
         external pure returns (bool) { return true; }
     function isModuleEnabled(address) external pure returns (bool) { return true; }
@@ -70,9 +76,11 @@ contract Octane03_Signatures is Test {
         gov.setTrustedFeePolicy(address(feePolicy), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
     }
 
     // ── Signature helpers ─────────────────────────────────────────────────────
