@@ -40,7 +40,7 @@ TimelockController timelock = new TimelockController(
 ```solidity
 SailGovernance governance = new SailGovernance(
     multisigAddress,        // initialGovernance — use a multisig in production; must be the timelock proposer
-    0.001 ether,            // maxPermissionFeeWei — constitutional cap on registration fee (max 0.01 ether)
+    0.001 ether,            // maxPermissionFeeWei — per-deployment immutable cap (≤ 0.01 ether constitutional ceiling)
     emergencyAdmin,         // may pause the kernel for up to 72h without a timelock delay
     0,                      // initialPermissionRegistrationFee — 0 leaves registration free
     timelock                // injected TimelockController (48h delay, multisigAddress as proposer)

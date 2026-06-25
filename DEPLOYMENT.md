@@ -85,7 +85,7 @@ factory deployment step is required.
 | `EMERGENCY_ADMIN` | Can pause kernel (no timelock) | Optional | `DEPLOYER_ADDRESS` | **YES** (§1) |
 | `FEE_MANAGER` | Tunes StandardFeePolicy | Optional | `DEPLOYER_ADDRESS` | **YES** (§1) |
 | `DISTRIBUTOR` | Fee distributor address | Optional | `address(0)` | **YES** (§1) |
-| `MAX_PERMISSION_FEE_WEI` | Constitutional fee cap | Optional | `0.001 ether` (1e15) | **YES** (§1) |
+| `MAX_PERMISSION_FEE_WEI` | Per-deployment immutable fee cap (≤ `0.01 ether` constitutional ceiling) | Optional | `0.001 ether` (1e15) | **YES** (§1) |
 | `INITIAL_PERMISSION_REGISTRATION_FEE` | Initial reg fee | Optional | `0` | **YES** (§1) |
 | `MGMT_FEE_BPS` | Management fee (bps) | Optional | `200` | **YES** (§1) |
 | `PERF_FEE_BPS` | Performance fee (bps) | Optional | `1000` | **YES** (§1) |
