@@ -12,6 +12,9 @@ contract WithdrawMockKernel {
     address public immutable signer;
     constructor(address _signer) { signer = _signer; }
     function registered(address) external pure returns (bool) { return true; }
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) { return regEpoch; }
+    function setRegEpoch(uint256 e) external { regEpoch = e; }
     function configs(address) external view returns (address, address, address, bool) {
         return (signer, address(0), address(0), true);
     }
@@ -43,7 +46,7 @@ contract WithdrawPermissionTest is Test {
         wp.configureDirect(ACCOUNT, abi.encode(tokens, recipient, cap));
     }
     function _ctx(bytes4 sel, uint256 value) internal pure returns (Context memory c) {
-        c = Context(ACCOUNT, address(0), address(0), TOKEN, sel, value, 0, 0);
+        c = Context(ACCOUNT, address(0), address(0), TOKEN, sel, value, 0, 0, 0);
     }
     function _transfer(address to, uint256 amt) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(TRANSFER, to, amt);

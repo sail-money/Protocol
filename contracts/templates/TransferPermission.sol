@@ -71,7 +71,7 @@ contract TransferPermission is ConfigurablePermission, IPermissionIntrospection 
     error EmptyAllowlist();
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "TransferPermission", "1")
+        ConfigurablePermission(_kernel, "TransferPermission", "2")
     {
         author = _author;
     }
@@ -109,6 +109,8 @@ contract TransferPermission is ConfigurablePermission, IPermissionIntrospection 
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         if (ctx.value != 0) return false;
         if (!isAllowedToken[ctx.account][ctx.target]) return false;
         Slot storage s = _slots[ctx.account];

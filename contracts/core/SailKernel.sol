@@ -282,6 +282,18 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         single-op calls simultaneously will cause one to fail due to nonce conflict.
     mapping(address account => uint256) public signerNonces;
 
+    /// @notice Per-(account, permission) registration epoch. A plain monotonic counter, bumped
+    ///         every time a permission LEAVES an account's registry (revoke, the removed side of a
+    ///         replace, or a manager-rotation clear). It is NOT bumped on registration: a freshly
+    ///         registered permission keeps its epoch so the configure-then-register flow (see
+    ///         MandateFactory) stamps the same epoch the dispatch later reads.
+    /// @dev    Pushed into Context/BatchContext at dispatch time so a ConfigurablePermission can
+    ///         compare it against the epoch it stamped at configure() time and fail closed when a
+    ///         stale configuration survives a revoke → re-register cycle (Octane #2 / #8). Distinct
+    ///         from the packed manager/batch nonce epochs (NONCE_EPOCH_INCREMENT) — this is a clean
+    ///         standalone +1 counter per (account, permission).
+    mapping(address account => mapping(address permission => uint256)) public registrationEpoch;
+
     // -------------------------------------------------------------------------
     // Principal tracking
     // -------------------------------------------------------------------------
@@ -941,6 +953,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         );
         signerNonces[account] = nonce + 1;
         _removePermission(account, permission);
+        registrationEpoch[account][permission] += 1;
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
         batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit PermissionRevoked(account, permission);
@@ -988,6 +1001,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
         _permissions[account][idx - 1] = newPermission;
         delete _permissionIndex[account][oldPermission];
         _permissionIndex[account][newPermission] = idx;
+        // Bump the REMOVED side only. newPermission is register-like (its config is applied just
+        // before this call in the bundled flow); bumping it would strand that fresh config.
+        registrationEpoch[account][oldPermission] += 1;
 
         _collectRegistrationFee(fee);
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
@@ -1053,6 +1069,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             _permissions[account][idx - 1] = newPerm;
             delete _permissionIndex[account][oldPerm];
             _permissionIndex[account][newPerm] = idx;
+            registrationEpoch[account][oldPerm] += 1; // bump the removed side only (see replacePermission)
             emit PermissionReplaced(account, oldPerm, newPerm);
         }
 
@@ -1252,6 +1269,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
         for (uint256 i; i < permissions.length; i++) {
             _removePermission(account, permissions[i]);
+            registrationEpoch[account][permissions[i]] += 1;
             emit PermissionRevoked(account, permissions[i]);
         }
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
@@ -1362,7 +1380,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
             selector:       sel,
             value:          value,
             blockTimestamp: block.timestamp,
-            blockNumber:    block.number
+            blockNumber:    block.number,
+            configEpoch:    registrationEpoch[account][permission]
         });
         if (!_evaluatePermission(permission, data, ctx)) revert PermissionDenied(permission);
 
@@ -1490,7 +1509,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
             permission:     permission,
             batchHash:      callsHash,
             blockTimestamp: block.timestamp,
-            blockNumber:    block.number
+            blockNumber:    block.number,
+            configEpoch:    registrationEpoch[account][permission]
         });
         if (!_evaluateBatchPermission(permission, calls, ctx)) revert BatchPermissionDenied();
 
@@ -1617,7 +1637,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
             permission:     permission,
             batchHash:      callsHash,
             blockTimestamp: block.timestamp,
-            blockNumber:    block.number
+            blockNumber:    block.number,
+            configEpoch:    registrationEpoch[account][permission]
         });
 
         if (!_evaluateBatchPermission(permission, calls, ctx)) {
@@ -1850,6 +1871,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         for (uint256 i; i < len;) {
             address perm = perms[i];
             delete _permissionIndex[account][perm];
+            registrationEpoch[account][perm] += 1;
             emit PermissionRevoked(account, perm);
             unchecked { ++i; }
         }

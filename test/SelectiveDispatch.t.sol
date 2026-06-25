@@ -230,12 +230,14 @@ contract SelectiveDispatchTest is Test {
         uint256 deadline
     ) internal view returns (bytes memory) {
         uint256 nonce = template.configNonces(account);
+        uint256 epoch = template.kernel().registrationEpoch(account, address(template));
         bytes32 sh = keccak256(abi.encode(
             template.CONFIGURE_TYPEHASH(),
             account,
             keccak256(params),
             nonce,
-            deadline
+            deadline,
+            epoch
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, template.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

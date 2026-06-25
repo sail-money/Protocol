@@ -12,6 +12,9 @@ contract DepositMockKernel {
     address public immutable signer;
     constructor(address _signer) { signer = _signer; }
     function registered(address) external pure returns (bool) { return true; }
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) { return regEpoch; }
+    function setRegEpoch(uint256 e) external { regEpoch = e; }
     function configs(address) external view returns (address, address, address, bool) {
         return (signer, address(0), address(0), true);
     }
@@ -48,7 +51,7 @@ contract DepositPermissionTest is Test {
         dp.configureDirect(ACCOUNT, abi.encode(targets, tokens, cap));
     }
     function _ctx(address target, bytes4 sel, uint256 value) internal pure returns (Context memory c) {
-        c = Context(ACCOUNT, address(0), address(0), target, sel, value, 0, 0);
+        c = Context(ACCOUNT, address(0), address(0), target, sel, value, 0, 0, 0);
     }
     function _erc4626(bytes4 sel, uint256 amt, address receiver) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(sel, amt, receiver);

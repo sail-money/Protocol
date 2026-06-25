@@ -190,7 +190,8 @@ contract PermissionIntrospectionTest is Test {
             selector:       bytes4(0),
             value:          0,
             blockTimestamp: block.timestamp,
-            blockNumber:    block.number
+            blockNumber:    block.number,
+            configEpoch:    0
         });
 
         // SwapPermission — returns false (router not in allowlist)

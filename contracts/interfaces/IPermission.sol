@@ -21,6 +21,12 @@ struct Context {
     uint256 blockTimestamp;
     /// @dev block.number at dispatch time.
     uint256 blockNumber;
+    /// @dev The kernel's current per-(account, permission) registration epoch, pushed by the
+    ///      kernel at dispatch time. Configurable permissions compare it against the epoch they
+    ///      stamped at configure() time and fail closed on a mismatch, so a configuration left
+    ///      over from a prior registration (e.g. after a revoke → re-register cycle) can never be
+    ///      honoured. Not part of any signed digest — purely a read-only freshness tag.
+    uint256 configEpoch;
 }
 
 /// @title  IPermission

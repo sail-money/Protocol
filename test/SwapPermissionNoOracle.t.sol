@@ -11,6 +11,9 @@ contract NoOracleMockKernel {
     address public immutable signer;
     constructor(address _signer) { signer = _signer; }
     function registered(address) external pure returns (bool) { return true; }
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) { return regEpoch; }
+    function setRegEpoch(uint256 e) external { regEpoch = e; }
     function configs(address) external view returns (address) { return signer; }
 }
 
@@ -116,7 +119,8 @@ contract SwapPermissionNoOracleTest is Test {
         c = Context({
             account: ACCOUNT, manager: address(0), submitter: address(0),
             target: target, selector: selector, value: 0,
-            blockTimestamp: block.timestamp, blockNumber: block.number
+            blockTimestamp: block.timestamp, blockNumber: block.number,
+            configEpoch: 0
         });
     }
 

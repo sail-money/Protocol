@@ -121,12 +121,14 @@ abstract contract FactoryTestBase is Test {
         uint256 signerKey
     ) internal view returns (bytes memory) {
         uint256 nonce = template.configNonces(account);
+        uint256 epoch = kernel.registrationEpoch(account, address(template));
         bytes32 structHash = keccak256(abi.encode(
             template.CONFIGURE_TYPEHASH(),
             account,
             keccak256(params),
             nonce,
-            deadline
+            deadline,
+            epoch
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, template.hashTypedDataV4(structHash));
         return abi.encodePacked(r, s, v);

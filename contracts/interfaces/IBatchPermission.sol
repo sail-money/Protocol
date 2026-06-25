@@ -30,6 +30,10 @@ struct BatchContext {
     uint256 blockTimestamp;
     /// @dev block.number at dispatch time.
     uint256 blockNumber;
+    /// @dev The kernel's current per-(account, permission) registration epoch for the named batch
+    ///      permission, pushed by the kernel at dispatch time. See Context.configEpoch — batch
+    ///      permissions apply the same fail-closed freshness check in evaluateBatch().
+    uint256 configEpoch;
 }
 
 /// @title  IBatchPermission
