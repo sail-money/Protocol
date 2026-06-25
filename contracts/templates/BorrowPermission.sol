@@ -8,6 +8,12 @@ import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// @dev Minimal Compound V2 cToken surface: the underlying ERC-20 a cToken market wraps.
+///      Used to resolve the cToken (the borrow call target) to its underlying borrow asset.
+interface ICErc20 {
+    function underlying() external view returns (address);
+}
+
 /// @title  BorrowPermission — bounded borrow with optional LTV ceiling
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
 ///         This permission is a reference example demonstrating how to express a bounded
@@ -180,9 +186,16 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
         if (ctx.selector == COMPOUND_BORROW) {
             if (txData.length < LEN_COMPOUND) return false;
             uint256 amount = abi.decode(txData[4:], (uint256));
-            if (!isAllowedAsset[ctx.account][ctx.target]) return false;
+            // The Compound borrow target is the cToken, but `amount` and the allowlist/oracle are
+            // denominated in the UNDERLYING asset. Resolve it via cToken.underlying() and key both
+            // the allowlist and the LTV check on the underlying.
+            // Targets that don't expose underlying() (e.g. cETH) resolve nothing and are denied — fail-closed by design.
+            address underlying;
+            try ICErc20(ctx.target).underlying() returns (address u) { underlying = u; }
+            catch { return false; }
+            if (!isAllowedAsset[ctx.account][underlying]) return false;
             if (amount > s.maxAmountPerTx)                return false;
-            return _ltvCheck(s, ctx.target, amount, ctx.account);
+            return _ltvCheck(s, underlying, amount, ctx.account);
         }
 
         return false;
@@ -213,16 +226,25 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
         if (colValue == 0) return false;
         if (borPrice == 0) return false;
 
-        // Normalise the borrow side to a value quantity: borrowScaled = amount * borPrice / 10^borDec.
-        uint256 borrowScaled = Math.mulDiv(amount, borPrice, 10 ** uint256(borDec));
-        // LTV = borrowScaled / (colValue / 10^colDec). Do NOT pre-divide colValue by 10^colDec:
-        // that integer division floors away the fractional collateral and overstates the LTV,
-        // wrongly blocking borrows that are actually within the ceiling. Instead fold 10^colDec into
-        // the numerator — mulDiv carries the (borrowScaled*10_000)*10^colDec product at full
-        // precision in a 512-bit intermediate — and divide by the full-precision colValue exactly
-        // once. colValue == 0 is already guarded above, so the division is safe.
-        uint256 ltvBps = Math.mulDiv(borrowScaled * 10_000, 10 ** uint256(colDec), colValue);
-        return ltvBps <= s.maxLtvBps;
+        // Enforce trueLTV <= maxLtvBps, i.e.
+        //     amount * borPrice / 10^borDec  <=  (maxLtvBps / 10_000) * colValue / 10^colDec
+        // rearranged into the largest borrow amount the ceiling permits:
+        //     maxAmountAllowed = colValue * maxLtvBps * 10^borDec / (10_000 * 10^colDec * borPrice)
+        // and compared against the integer `amount` directly. Two properties matter:
+        //   (1) Fail-CLOSED. Every step floors, all in the borrower's disfavour, so maxAmountAllowed
+        //       never exceeds the true ceiling and an over-LTV borrow can never slip through. This
+        //       also closes the prior bug where pre-flooring the borrow value to whole numeraire
+        //       units (borrowScaled) collapsed any sub-1-unit borrow to 0 and passed ANY ceiling.
+        //   (2) No collateral truncation. The LTV fraction is applied to the full-precision colValue
+        //       mantissa FIRST; only then is the decimal scale collapsed by dividing by 10^colDec.
+        //       Folding 10^colDec in before taking the fraction would floor away fractional
+        //       collateral and over-block borrows that are genuinely within the ceiling.
+        // colValue != 0, borPrice != 0 and decimals <= 77 are all guarded above, so every divisor is
+        // non-zero and 10^colDec / 10^borDec cannot overflow; mulDiv carries each product at full
+        // precision in a 512-bit intermediate.
+        uint256 scaledBound      = Math.mulDiv(colValue, s.maxLtvBps, 10_000);
+        uint256 maxAmountAllowed = Math.mulDiv(scaledBound, 10 ** uint256(borDec), 10 ** uint256(colDec)) / borPrice;
+        return amount <= maxAmountAllowed;
     }
 
     // ── IPermissionIntrospection ──────────────────────────────────────────────

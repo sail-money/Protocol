@@ -31,6 +31,14 @@ contract MockOracle is IOracle {
     }
 }
 
+/// @dev Minimal Compound V2 cToken: exposes the underlying borrow asset, which the Compound
+///      branch resolves via underlying() and keys the allowlist + LTV oracle on.
+contract MockCErc20 {
+    address private immutable _u;
+    constructor(address u) { _u = u; }
+    function underlying() external view returns (address) { return _u; }
+}
+
 /// @notice Regression guards for the reference-template fixes:
 ///         - BorrowPermission: a non-zero-decimals collateral oracle that previously let a borrow
 ///           slip under maxLtvBps (raw-colValue bug) must now correctly DENY.
@@ -42,6 +50,7 @@ contract ReferenceTemplateFixesTest is Test {
     address internal constant AUTHOR  = address(0xA11CE);
     address internal constant ACCOUNT = address(0xACC0);
     address internal constant ROUTER  = address(0x9000); // reused as the Compound cToken target
+    address internal constant UNDER   = address(0xA55E); // the cToken's underlying borrow asset
 
     MockKernelView internal kernel;
     BorrowPermission internal borrow;
@@ -49,6 +58,9 @@ contract ReferenceTemplateFixesTest is Test {
     function setUp() public {
         kernel = new MockKernelView(address(this)); // this contract is the permissionSigner
         borrow = new BorrowPermission(address(kernel), AUTHOR);
+        // The Compound branch resolves the borrow asset via cToken.underlying(); install a cToken
+        // whose underlying is UNDER at the ROUTER cToken-target address.
+        vm.etch(ROUTER, address(new MockCErc20(UNDER)).code);
     }
 
     function _ctx(address target, bytes4 selector) internal view returns (Context memory c) {
@@ -73,9 +85,10 @@ contract ReferenceTemplateFixesTest is Test {
     // ── BorrowPermission: collateral-decimals LTV fix ───────────────────────────
 
     function _configureBorrow(uint256 maxLtvBps, address colOracle, address borOracle) internal {
-        address cToken = ROUTER; // reuse as the Compound cToken (target == asset for Compound)
+        address cToken = ROUTER; // the Compound cToken call target
         address[] memory protocols = new address[](1); protocols[0] = cToken;
-        address[] memory assets    = new address[](1); assets[0]    = cToken;
+        // Post-#11: the Compound path allowlists the UNDERLYING asset, not the cToken.
+        address[] memory assets    = new address[](1); assets[0]    = UNDER;
         bytes memory params = abi.encode(
             protocols, assets,
             uint256(1000 ether), // maxAmountPerTx
