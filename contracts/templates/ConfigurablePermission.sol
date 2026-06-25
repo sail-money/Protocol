@@ -17,6 +17,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 interface ISailKernelView {
     function registered(address account) external view returns (bool);
     function configs(address account) external view returns (address permissionSigner);
+    /// @notice Current per-(account, permission) registration epoch. Bumped by the kernel whenever
+    ///         the permission leaves the account's registry (revoke / replaced-out / manager-rotation
+    ///         clear); NOT bumped on registration. Templates read it for `address(this)` to bind a
+    ///         config to the registration it was signed against.
+    function registrationEpoch(address account, address permission) external view returns (uint256);
 }
 
 /// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
@@ -39,15 +44,22 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
     bytes4 private constant ERC1271_MAGIC = 0x1626ba7e;
 
     bytes32 public constant CONFIGURE_TYPEHASH =
-        keccak256("Configure(address account,bytes32 paramsHash,uint256 nonce,uint256 deadline)");
+        keccak256("Configure(address account,bytes32 paramsHash,uint256 nonce,uint256 deadline,uint256 epoch)");
 
     bytes32 public constant SET_IDENTITY_TYPEHASH =
-        keccak256("SetAgentIdentity(address account,bytes32 identityHash,uint256 nonce,uint256 deadline)");
+        keccak256("SetAgentIdentity(address account,bytes32 identityHash,uint256 nonce,uint256 deadline,uint256 epoch)");
 
     ISailKernelView public immutable kernel;
 
     mapping(address account => uint256) public configNonces;
     mapping(address account => bool)    public isConfigured;
+
+    /// @notice The kernel registration epoch at which `account`'s config bounds were last applied
+    ///         (via configure / configureDirect). Compared in evaluate() against the kernel's current
+    ///         epoch (pushed as ctx.configEpoch) so a config that survived a revoke → re-register
+    ///         cycle fails closed. Only the bound-applying paths write this; the identity paths do
+    ///         NOT, so a fresh identity update cannot revive stale trading bounds.
+    mapping(address account => uint256) public configuredEpoch;
 
     mapping(address account => AgentIdentityRef) private _agentIdentities;
 
@@ -86,13 +98,20 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         // Read nonce before incrementing — nonce is incremented AFTER signature verification
         // succeeds, preventing a failed verify from consuming the nonce.
         uint256 nonce = configNonces[account];
+        // Bind the config to the CURRENT registration epoch. The signer signs `epoch` into the
+        // typed data; the digest is rebuilt here with the on-chain value, so a signature produced
+        // for a prior epoch (e.g. before a revoke that bumped the epoch) cannot verify — closing the
+        // stale-config-signature replay (Octane #8). The domain-version bump invalidates any sig
+        // predating this upgrade outright.
+        uint256 epoch = kernel.registrationEpoch(account, address(this));
         bytes32 paramsHash = keccak256(params);
         bytes32 structHash = keccak256(abi.encode(
             CONFIGURE_TYPEHASH,
             account,
             paramsHash,
             nonce,
-            deadline
+            deadline,
+            epoch
         ));
         bytes32 digest = _hashTypedDataV4(structHash);
 
@@ -103,6 +122,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         configNonces[account] = nonce + 1;
         _applyConfig(account, params);
         isConfigured[account] = true;
+        configuredEpoch[account] = epoch;
         emit Configured(account, nonce, paramsHash);
     }
 
@@ -115,6 +135,9 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         uint256 nonce = configNonces[account]++;
         _applyConfig(account, params);
         isConfigured[account] = true;
+        // No signature to bind, so stamp the current epoch unconditionally — keeps a direct config
+        // current with the kernel's registration epoch.
+        configuredEpoch[account] = kernel.registrationEpoch(account, address(this));
         emit Configured(account, nonce, keccak256(params));
     }
 
@@ -145,8 +168,13 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         if (!kernel.registered(account)) revert AccountNotRegistered(account);
 
         uint256 nonce = configNonces[account];
+        // Bind identity writes to the current epoch too, so a stale identity signature cannot be
+        // replayed across an epoch change. NOTE: identity writes do NOT stamp configuredEpoch —
+        // they apply no trading bounds, so reviving a stale config via an identity update is
+        // impossible by construction.
+        uint256 epoch = kernel.registrationEpoch(account, address(this));
         bytes32 identityHash = keccak256(abi.encode(ref));
-        bytes32 structHash = keccak256(abi.encode(SET_IDENTITY_TYPEHASH, account, identityHash, nonce, deadline));
+        bytes32 structHash = keccak256(abi.encode(SET_IDENTITY_TYPEHASH, account, identityHash, nonce, deadline, epoch));
         bytes32 digest = _hashTypedDataV4(structHash);
 
         address permSigner = kernel.configs(account);
@@ -177,6 +205,18 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
 
     /// @dev Subclasses decode `params` and write to their per-account storage.
     function _applyConfig(address account, bytes calldata params) internal virtual;
+
+    /// @dev Fail-closed freshness gate for evaluate()/evaluateBatch(). Returns true only when
+    ///      `account` has applied config (isConfigured) AND the epoch it was stamped at matches the
+    ///      kernel's current epoch for this permission (pushed by the kernel as `ctxEpoch`).
+    ///      - isConfigured == false covers the never-configured / fresh-account (epoch 0) case.
+    ///      - configuredEpoch != ctxEpoch covers a config left stale by a revoke → re-register cycle
+    ///        (Octane #2 front-run and #8 replay): the re-register keeps the bumped epoch, so the old
+    ///        stamp no longer matches until a fresh configure for the current epoch is applied.
+    ///      Subclasses MUST call this as the first check in every evaluate path.
+    function _configCurrent(address account, uint256 ctxEpoch) internal view returns (bool) {
+        return isConfigured[account] && configuredEpoch[account] == ctxEpoch;
+    }
 
     // ── internal ──────────────────────────────────────────────────────────────
 

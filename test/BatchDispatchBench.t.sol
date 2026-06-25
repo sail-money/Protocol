@@ -156,7 +156,8 @@ contract BatchDispatchBenchmark is Test {
         bytes memory params = abi.encode(cfg);
         uint256 deadline = block.timestamp + 1 hours;
         uint256 n = batchPerm.configNonces(address(safe));
-        bytes32 sh = keccak256(abi.encode(batchPerm.CONFIGURE_TYPEHASH(), address(safe), keccak256(params), n, deadline));
+        uint256 epoch = batchPerm.kernel().registrationEpoch(address(safe), address(batchPerm));
+        bytes32 sh = keccak256(abi.encode(batchPerm.CONFIGURE_TYPEHASH(), address(safe), keccak256(params), n, deadline, epoch));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, batchPerm.hashTypedDataV4(sh));
         batchPerm.configure(address(safe), params, deadline, abi.encodePacked(r, s, v));
     }

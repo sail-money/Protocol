@@ -274,8 +274,9 @@ contract BatchDispatchTest is Test {
         internal view returns (bytes memory)
     {
         uint256 nonce = batchPerm.configNonces(account);
+        uint256 epoch = batchPerm.kernel().registrationEpoch(account, address(batchPerm));
         bytes32 sh = keccak256(abi.encode(
-            batchPerm.CONFIGURE_TYPEHASH(), account, keccak256(params), nonce, deadline
+            batchPerm.CONFIGURE_TYPEHASH(), account, keccak256(params), nonce, deadline, epoch
         ));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PERM_SIGNER_KEY, batchPerm.hashTypedDataV4(sh));
         return abi.encodePacked(r, s, v);

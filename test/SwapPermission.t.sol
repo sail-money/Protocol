@@ -12,6 +12,9 @@ contract OracleSwapMockKernel {
     address public immutable signer;
     constructor(address _signer) { signer = _signer; }
     function registered(address) external pure returns (bool) { return true; }
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) { return regEpoch; }
+    function setRegEpoch(uint256 e) external { regEpoch = e; }
     function configs(address) external view returns (address) { return signer; }
 }
 
@@ -73,7 +76,8 @@ contract SwapPermissionTest is Test {
             selector:       selector,
             value:          0,
             blockTimestamp: block.timestamp,
-            blockNumber:    block.number
+            blockNumber:    block.number,
+            configEpoch:    0
         });
     }
 

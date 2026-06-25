@@ -93,7 +93,7 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     error OracleRequired();
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "SwapPermission", "1")
+        ConfigurablePermission(_kernel, "SwapPermission", "2")
     {
         author = _author;
     }
@@ -162,6 +162,8 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     // ── IPermission ───────────────────────────────────────────────────────────
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // Swaps pull tokenIn via ERC-20 allowance; no supported router call needs native ETH.
         // A payable router (e.g. V3 exactInputSingle) would otherwise let an attached value be
         // forwarded to the router and swept via refundETH — reject nonzero value outright.

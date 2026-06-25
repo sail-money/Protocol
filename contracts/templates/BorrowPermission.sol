@@ -97,7 +97,7 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     error OracleConfigInconsistent();
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "BorrowPermission", "1")
+        ConfigurablePermission(_kernel, "BorrowPermission", "2")
     {
         author = _author;
     }
@@ -159,6 +159,8 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         if (!isAllowedProtocol[ctx.account][ctx.target]) return false;
         Slot storage s = _slots[ctx.account];
 

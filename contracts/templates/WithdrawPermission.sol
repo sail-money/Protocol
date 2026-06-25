@@ -75,7 +75,7 @@ contract WithdrawPermission is ConfigurablePermission, IPermissionIntrospection 
     error EmptyAllowlist();
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "WithdrawPermission", "1")
+        ConfigurablePermission(_kernel, "WithdrawPermission", "2")
     {
         author = _author;
     }
@@ -111,6 +111,8 @@ contract WithdrawPermission is ConfigurablePermission, IPermissionIntrospection 
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // ERC-20 calls carry no ETH.
         if (ctx.value != 0) return false;
         // Token must be on the account's allowlist.

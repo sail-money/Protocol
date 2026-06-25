@@ -177,7 +177,7 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
     address public immutable author;
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "ApproveAndCallBatchPermission", "1")
+        ConfigurablePermission(_kernel, "ApproveAndCallBatchPermission", "2")
     {
         author = _author;
     }
@@ -293,6 +293,8 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         view
         returns (bool)
     {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // Exact 3-call shape required
         if (calls.length != 3) return false;
 

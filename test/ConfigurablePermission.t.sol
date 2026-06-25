@@ -48,6 +48,14 @@ contract MockKernel5Field {
         return true;
     }
 
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) {
+        return regEpoch;
+    }
+    function setRegEpoch(uint256 e) external {
+        regEpoch = e;
+    }
+
     // Full 5-field getter, matching SailKernel's public `configs` mapping getter.
     function configs(address)
         external

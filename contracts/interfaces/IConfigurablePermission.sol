@@ -33,4 +33,9 @@ interface IConfigurablePermission is IPermission {
 
     /// @notice True once any config has been applied for `account`.
     function isConfigured(address account) external view returns (bool);
+
+    /// @notice The kernel registration epoch at which `account`'s config bounds were last applied.
+    ///         Evaluate paths fail closed unless this equals the kernel's current registration epoch
+    ///         for the permission, so a config surviving a revoke → re-register cycle is not honoured.
+    function configuredEpoch(address account) external view returns (uint256);
 }

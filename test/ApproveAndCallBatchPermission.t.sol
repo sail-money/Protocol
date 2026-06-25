@@ -12,6 +12,9 @@ contract BatchMockKernel {
     address public immutable signer;
     constructor(address _signer) { signer = _signer; }
     function registered(address) external pure returns (bool) { return true; }
+    uint256 public regEpoch;
+    function registrationEpoch(address, address) external view returns (uint256) { return regEpoch; }
+    function setRegEpoch(uint256 e) external { regEpoch = e; }
     function configs(address) external view returns (address) { return signer; }
 }
 
@@ -173,6 +176,34 @@ contract ApproveAndCallBatchPermissionTest is Test {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         assertFalse(_eval(ROUTERB, _swapV2(OTHER)), "wrong target denies");
         assertFalse(_eval(ROUTERA, _erc4626(V4626_DEP, OTHER)), "wrong selector denies");
+    }
+
+    // ── Octane #2/#8: epoch-binding guard in evaluateBatch ────────────────────────
+    /// @dev A well-formed batch passes while the config's stamped epoch matches the kernel's
+    ///      current epoch, is denied once a revoke→re-register cycle bumps the epoch (stale config),
+    ///      and passes again only after a fresh configure for the new epoch.
+    function test_ConfigEpoch_StaleBatchConfig_Denied() public {
+        _configure(_pairs1(ROUTERA, SWAP_V2), false, false); // configureDirect stamps configuredEpoch = 0
+
+        // Epoch-current: stored stamp (0) == ctx.configEpoch (0) → the valid batch passes.
+        assertTrue(_eval(ROUTERA, _swapV2(OTHER)), "epoch-current batch should pass");
+
+        // Simulate a revoke → re-register cycle that bumped the kernel epoch to 1, with NO reconfigure.
+        kernel.setRegEpoch(1);
+        BatchContext memory staleCtx;
+        staleCtx.account = ACCOUNT;
+        staleCtx.configEpoch = 1; // kernel now pushes epoch 1; stored stamp is still 0
+        assertFalse(
+            batchPerm.evaluateBatch(_batch(ROUTERA, _swapV2(OTHER)), staleCtx),
+            "stale batch config must be denied on epoch mismatch"
+        );
+
+        // A fresh configure for the new epoch re-stamps configuredEpoch = 1 and re-enables the batch.
+        _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
+        assertTrue(
+            batchPerm.evaluateBatch(_batch(ROUTERA, _swapV2(OTHER)), staleCtx),
+            "re-configured batch should pass at the new epoch"
+        );
     }
 
     // ── T-1 mode ON: recipient must equal the account, per safe-set selector ─────

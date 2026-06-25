@@ -87,7 +87,7 @@ contract DepositPermission is ConfigurablePermission, IPermissionIntrospection {
     error EmptyAllowlist();
 
     constructor(address _kernel, address _author)
-        ConfigurablePermission(_kernel, "DepositPermission", "1")
+        ConfigurablePermission(_kernel, "DepositPermission", "2")
     {
         author = _author;
     }
@@ -125,6 +125,8 @@ contract DepositPermission is ConfigurablePermission, IPermissionIntrospection {
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
+        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // No supported deposit selector is payable — reject native ETH.
         if (ctx.value != 0) return false;
         // Protocol / vault must be on the account's target allowlist.
