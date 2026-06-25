@@ -6,6 +6,7 @@ import {SailKernel}           from "../contracts/core/SailKernel.sol";
 import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
 import {IPermission, Context} from "../contracts/interfaces/IPermission.sol";
+import {IBatchPermission, Call, BatchContext} from "../contracts/interfaces/IBatchPermission.sol";
 import {IFeePolicy}           from "../contracts/interfaces/IFeePolicy.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,6 +16,11 @@ import {IFeePolicy}           from "../contracts/interfaces/IFeePolicy.sol";
 contract _O4Perm is IPermission {
     function evaluate(bytes calldata, Context calldata) external pure returns (bool) { return true; }
     function discriminator() external pure returns (bytes32) { return bytes32(0); }
+}
+
+contract _O4BatchPerm is IBatchPermission {
+    function evaluateBatch(Call[] calldata, BatchContext calldata) external pure returns (bool) { return true; }
+    function isBatchPermission() external pure returns (bool) { return true; }
 }
 
 contract _O4Safe {
@@ -112,6 +118,43 @@ contract Octane04_Session is Test {
             kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonce, deadline
         ));
         kernel.revokeSession(address(safe), deadline, _signerSig(sh));
+    }
+
+    function _activateSession() internal {
+        uint256 deadline = block.timestamp + 1 days;
+        uint256 nonce    = kernel.signerNonces(address(safe));
+        bytes32 sh = keccak256(abi.encode(
+            kernel.ACTIVATE_SESSION_TYPEHASH(), address(safe), nonce, deadline
+        ));
+        kernel.activateSession(address(safe), deadline, _signerSig(sh));
+    }
+
+    /// Build a manager signature over a single Dispatch using the account's CURRENT managerNonce.
+    function _managerDispatchSig(address perm, address target, uint256 deadline)
+        internal view returns (bytes memory)
+    {
+        bytes32 sh = keccak256(abi.encode(
+            kernel.DISPATCH_TYPEHASH(),
+            address(safe), perm, target, uint256(0), keccak256(""),
+            kernel.managerNonces(address(safe)), deadline
+        ));
+        bytes32 digest = kernel.hashTypedDataV4(sh);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(MANAGER_KEY, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// Build a manager signature over a DispatchBatch using the account's CURRENT batchNonce.
+    function _managerBatchSig(address perm, Call[] memory calls, uint256 deadline)
+        internal view returns (bytes memory)
+    {
+        bytes32 sh = keccak256(abi.encode(
+            kernel.DISPATCH_BATCH_TYPEHASH(),
+            address(safe), perm, keccak256(abi.encode(calls)),
+            kernel.batchNonces(address(safe)), deadline
+        ));
+        bytes32 digest = kernel.hashTypedDataV4(sh);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(MANAGER_KEY, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function _registerPerm(address p) internal {
@@ -391,6 +434,100 @@ contract Octane04_Session is Test {
 
         // Caller should have received back the excess
         assertEq(address(this).balance, callerBefore - totalFee, "excess ETH not refunded");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Finding #3 — nonce epochs rotate on session reactivation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// activateSession bumps BOTH manager and batch nonce epochs (mirrors revokeSession).
+    function test_ActivateSession_BumpsNonceEpochs() public {
+        _revokeSession();
+        uint256 mBefore = kernel.managerNonces(address(safe));
+        uint256 bBefore = kernel.batchNonces(address(safe));
+
+        _activateSession();
+
+        uint256 epochInc = 1 << 128;
+        assertEq(kernel.managerNonces(address(safe)), mBefore + epochInc, "managerNonces not bumped on activate");
+        assertEq(kernel.batchNonces(address(safe)),   bBefore + epochInc, "batchNonces not bumped on activate");
+        (, , , , bool active) = kernel.configs(address(safe));
+        assertTrue(active, "session not active after activate");
+    }
+
+    /// A dispatch the manager pre-signs DURING suspension must NOT execute after reactivation:
+    /// the epoch bump on activate invalidates the stale signature.
+    function test_Dispatch_PreSignedDuringSuspension_RejectedAfterActivate() public {
+        _O4Perm perm = new _O4Perm();
+        _registerPerm(address(perm));
+
+        // Operator suspends the session (epoch bump #1, session inactive).
+        _revokeSession();
+
+        // Adversarial manager pre-signs a dispatch in the suspension epoch.
+        uint256 deadline = block.timestamp + 7 days;
+        bytes memory preSig = _managerDispatchSig(address(perm), address(0xCAFE), deadline);
+
+        // Operator reactivates — fix rotates the epoch again, invalidating preSig.
+        _activateSession();
+
+        // The pre-signed message no longer verifies against the live nonce.
+        vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
+        kernel.dispatch(address(safe), address(perm), address(0xCAFE), 0, "", preSig, deadline);
+    }
+
+    /// Same property for dispatchBatch / batchNonces.
+    function test_DispatchBatch_PreSignedDuringSuspension_RejectedAfterActivate() public {
+        _O4BatchPerm perm = new _O4BatchPerm();
+        _registerPerm(address(perm));
+
+        _revokeSession();
+
+        uint256 deadline = block.timestamp + 7 days;
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({target: address(0xCAFE), value: 0, data: ""});
+        bytes memory preSig = _managerBatchSig(address(perm), calls, deadline);
+
+        _activateSession();
+
+        vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
+        kernel.dispatchBatch(address(safe), address(perm), calls, preSig, deadline);
+    }
+
+    /// Legitimate flow is unaffected: revoke → activate → manager signs FRESH (new epoch)
+    /// → dispatch succeeds.
+    function test_Dispatch_FreshSignAfterActivate_Succeeds() public {
+        _O4Perm perm = new _O4Perm();
+        _registerPerm(address(perm));
+
+        _revokeSession();
+        _activateSession();
+
+        // Manager signs AFTER activation, against the rotated nonce.
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory sig = _managerDispatchSig(address(perm), address(0xCAFE), deadline);
+
+        uint256 mNonceBefore = kernel.managerNonces(address(safe));
+        kernel.dispatch(address(safe), address(perm), address(0xCAFE), 0, "", sig, deadline);
+        assertEq(kernel.managerNonces(address(safe)), mNonceBefore + 1, "manager nonce not consumed on success");
+    }
+
+    /// Legitimate batch flow likewise succeeds after a revoke/activate cycle.
+    function test_DispatchBatch_FreshSignAfterActivate_Succeeds() public {
+        _O4BatchPerm perm = new _O4BatchPerm();
+        _registerPerm(address(perm));
+
+        _revokeSession();
+        _activateSession();
+
+        uint256 deadline = block.timestamp + 1 days;
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({target: address(0xCAFE), value: 0, data: ""});
+        bytes memory sig = _managerBatchSig(address(perm), calls, deadline);
+
+        uint256 bNonceBefore = kernel.batchNonces(address(safe));
+        kernel.dispatchBatch(address(safe), address(perm), calls, sig, deadline);
+        assertEq(kernel.batchNonces(address(safe)), bNonceBefore + 1, "batch nonce not consumed on success");
     }
 
     // ── Allow receiving ETH refunds ───────────────────────────────────────────

@@ -1076,6 +1076,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
         );
         signerNonces[account] = nonce + 1;
         configs[account].sessionActive = true;
+        // Rotate manager/batch nonce epochs on reactivation so any dispatch the manager
+        // pre-signed while the session was suspended (current epoch) cannot execute once
+        // the session is live again. Mirrors revokeSession's epoch bump — a session cycle
+        // is a clean kill switch for outstanding signatures in both directions.
+        managerNonces[account] += NONCE_EPOCH_INCREMENT;
+        batchNonces[account]   += NONCE_EPOCH_INCREMENT;
         emit SessionActivated(account);
     }
 

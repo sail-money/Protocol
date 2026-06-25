@@ -350,29 +350,35 @@ contract Octane03_Signatures is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6. No epoch bump on activateSession or registerPermission (#7 related)
-    //    activateSession (a re-enabling op) must NOT advance managerNonces.
-    //    registerPermission (widening scope) must NOT advance managerNonces.
-    //    A dispatch sig signed against the current nonce must still be valid
-    //    after these operations.
+    // 6. Epoch-bump policy on session/registry ops (#3, #7 related)
+    //    activateSession (re-enabling) MUST rotate managerNonces so a dispatch
+    //    the manager pre-signed while suspended cannot execute on reactivation
+    //    (Octane #3). registerPermission (widening scope) must NOT advance
+    //    managerNonces — a sig signed beforehand must still be valid after it.
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_NoBump_ActivateSession_PreserveManagerSig() public {
+    function test_Bump_ActivateSession_InvalidatesPreSignedManagerSig() public {
         _registerPerm(address(perm));
 
-        // Revoke session first to get a bump; then sign a dispatch against the POST-bump nonce.
+        // Revoke session first to get a bump; then sign a dispatch against the POST-bump
+        // (suspension-epoch) nonce — i.e. a manager pre-signing while suspended.
         _revokeSession();
-        uint256 postBumpNonce = kernel.managerNonces(address(safe));
-        uint256 dispDeadline  = block.timestamp + 1 hours;
+        uint256 postRevokeNonce = kernel.managerNonces(address(safe));
+        uint256 dispDeadline    = block.timestamp + 1 hours;
         bytes memory sig = _managerSig(
-            address(safe), address(perm), address(0x1), 0, "", postBumpNonce, dispDeadline
+            address(safe), address(perm), address(0x1), 0, "", postRevokeNonce, dispDeadline
         );
 
-        // activateSession: session re-enabled, nonce must NOT change.
+        // activateSession rotates the epoch again (#3 fix): managerNonces advances.
         _activateSession();
-        assertEq(kernel.managerNonces(address(safe)), postBumpNonce, "managerNonce must not change on activateSession");
+        assertEq(
+            kernel.managerNonces(address(safe)),
+            postRevokeNonce + (1 << 128),
+            "managerNonce must rotate on activateSession"
+        );
 
-        // Dispatch with the pre-signed sig should succeed.
+        // The dispatch pre-signed during suspension must now be rejected.
+        vm.expectRevert(SailKernel.InvalidManagerSignature.selector);
         kernel.dispatch(address(safe), address(perm), address(0x1), 0, "", sig, dispDeadline);
     }
 
