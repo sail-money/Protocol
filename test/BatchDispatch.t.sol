@@ -92,20 +92,27 @@ contract MockERC20 {
 }
 
 // =============================================================================
-// Mock router — consumes an approved token. selector swap(uint256,address)
-// transferFroms `amount` from the caller's-allowance (the Safe) to itself.
+// Mock router — Uniswap V2-style, a member of the template's decodable selector
+// set. swapExactTokensForTokens transferFroms `amountIn` of path[0] (the consumed
+// asset) from the caller's allowance (the Safe) to itself.
 // =============================================================================
 contract MockRouter {
     bool public shouldRevert;
 
     function setShouldRevert(bool v) external { shouldRevert = v; }
 
-    /// @notice selector 0x40d04e30 — matches selector below.
-    function swap(uint256 amount, address token) external {
+    /// @notice selector 0x38ed1739 — Uniswap V2 swapExactTokensForTokens.
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 /* amountOutMin */,
+        address[] calldata path,
+        address /* to */,
+        uint256 /* deadline */
+    ) external {
         if (shouldRevert) revert("router: forced revert");
         // Mock router; revert propagates from the token if transferFrom fails.
         // forge-lint: disable-next-line(erc20-unchecked-transfer)
-        MockERC20(token).transferFrom(msg.sender, address(this), amount);
+        MockERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
     }
 }
 
@@ -183,8 +190,17 @@ contract BatchDispatchTest is Test {
     address internal manager;
 
     // ── consuming-call selector and config defaults ───────────────────────────
-    bytes4 internal constant SWAP_SELECTOR = MockRouter.swap.selector;
+    bytes4 internal constant SWAP_SELECTOR = MockRouter.swapExactTokensForTokens.selector;
     uint256 internal constant DEFAULT_CAP  = 1_000 ether;
+
+    /// @dev V2 consuming calldata: amountIn at word 0 (so requireAmountMatch holds), path[0] is the
+    ///      consumed asset (== approved token), `to` unconstrained (requireRecipientIsAccount off).
+    function _swapData(uint256 amountIn) internal view returns (bytes memory) {
+        address[] memory path = new address[](2);
+        path[0] = address(tokenA);
+        path[1] = address(tokenB);
+        return abi.encodeWithSelector(SWAP_SELECTOR, amountIn, uint256(1), path, address(safe), uint256(0));
+    }
 
     function setUp() public {
         permSigner = vm.addr(PERM_SIGNER_KEY);
@@ -306,11 +322,11 @@ contract BatchDispatchTest is Test {
             value:  0,
             data:   abi.encodeWithSelector(bytes4(0x095ea7b3), address(router), amount)
         });
-        // calls[1] router.swap(amount, tokenA)
+        // calls[1] router.swapExactTokensForTokens(amount, 1, [tokenA, tokenB], safe, 0)
         calls[1] = Call({
             target: address(router),
             value:  0,
-            data:   abi.encodeWithSelector(SWAP_SELECTOR, amount, address(tokenA))
+            data:   _swapData(amount)
         });
         // calls[2] approve(router, 0) reset
         calls[2] = Call({
@@ -431,8 +447,8 @@ contract BatchDispatchTest is Test {
 
     function test_Reject_AmountMismatch() public {
         Call[] memory calls = _buildHappyBatch(100 ether);
-        // Make consuming-call amount different from approve amount
-        calls[1].data = abi.encodeWithSelector(SWAP_SELECTOR, uint256(99 ether), address(tokenA));
+        // Make consuming-call amountIn (word 0) different from approve amount
+        calls[1].data = _swapData(99 ether);
         _expectBatchDenied(calls);
     }
 
