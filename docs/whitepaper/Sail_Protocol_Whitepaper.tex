@@ -127,7 +127,7 @@ In Sail, the mandate is the set of permissions registered for an SMA---contracts
 
 When the Manager submits a transaction, the signature names one registered permission as the authorizer. The kernel calls \texttt{evaluate()} on that permission alone and dispatches the call to the Safe only if it returns true. If the manager attempts to swap on an unallowed router, transfer to an unallowed recipient, borrow above the configured LTV, or call any function outside the registered permission set, the transaction reverts before any state change occurs. Figure~\ref{fig:model} shows the full relationship.
 
-\begin{figure}[H]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
   node distance=11mm and 14mm,
@@ -248,6 +248,7 @@ struct Context {
     uint256 value;           // msg.value
     uint256 blockTimestamp;
     uint256 blockNumber;
+    uint256 configEpoch;
 }
 \end{lstlisting}
 
@@ -314,6 +315,7 @@ interface IConfigurablePermission is IPermission {
     function configureDirect(address account, bytes calldata params) external;
     function configNonces(address account) external view returns (uint256);
     function isConfigured(address account) external view returns (bool);
+    function configuredEpoch(address account) external view returns (uint256);
 }
 \end{lstlisting}
 
@@ -351,7 +353,7 @@ Account addresses inherit the property. When an account is created, the kernel d
 \end{center}
 The Safe initializer references only the kernel and the module enabler---both chain-identical---so the same owner, permission signer, manager, fee policy, and salt nonce produce the same SMA address on every supported chain. Binding the principals into the salt also means a counterfactual address cannot be front-run with different principals: a deployment supplying a different manager or signer lands at a different address.
 
-The consequence is chain portability: across chains that share identical core construction, both the trusted core and each SMA resolve to one address, and assets sent there reach the same account whether or not the Safe has been deployed on that chain yet. The property holds only where the construction arguments match. One such argument is the per-permission registration-fee ceiling, denominated in the chain's native token (Section~\ref{sec:governance}); a chain whose native token differs materially may be deployed with a different ceiling, in which case its core and accounts resolve to different addresses. The protocol is deployed on Ethereum, Base, Arbitrum, and Unichain.
+The consequence is chain portability: across chains that share identical core construction, both the trusted core and each SMA resolve to one address, and assets sent there reach the same account whether or not the Safe has been deployed on that chain yet. The property holds only where the construction arguments match. One such argument is the per-permission registration-fee ceiling, denominated in the chain's native token (Section~\ref{sec:governance}); a chain whose native token differs materially may be deployed with a different ceiling, in which case its core and accounts resolve to different addresses.
 
 % ---------------------------------------------------------------
 % 6. Fee Model
@@ -396,7 +398,7 @@ Two bounds are fixed in the source code. No governance procedure can raise them.
 \begin{itemize}
   \itemsep0.1em
   \item The maximum protocol cut on manager-collected fees: $\texttt{MAX\_PROTOCOL\_CUT\_BPS} = 2{,}500$ (25\%).
-  \item The maximum permission registration fee: a constitutional ceiling of $0.01$ of the chain's native token (0.01~ETH on Ethereum and ETH-denominated chains) that the immutable \texttt{MAX\_PERMISSION\_FEE\_WEI}, set per deployment, can never exceed.
+  \item The maximum permission registration fee: a constitutional ceiling of $0.01$ of the chain's native token (0.01~ETH on ETH-denominated chains) that the immutable \texttt{MAX\_PERMISSION\_FEE\_WEI}, set per deployment, can never exceed.
 \end{itemize}
 These bounds are properties of the deployed bytecode. A future governance under any control structure---multisig, token, DAO---cannot raise them. Lowering the active parameter inside these bounds remains possible. Because this ceiling is denominated in the native token and fixed in the bytecode, a chain with a materially different native token may carry a different cap---the construction difference behind the cross-chain address variation in Section~\ref{sec:deployment}.
 
