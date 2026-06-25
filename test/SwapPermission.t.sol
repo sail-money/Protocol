@@ -77,6 +77,11 @@ contract SwapPermissionTest is Test {
         });
     }
 
+    function _ctxVal(address target, bytes4 selector, uint256 value) internal view returns (Context memory c) {
+        c = _ctx(target, selector);
+        c.value = value;
+    }
+
     function _v3(address tokenIn, address tokenOut, address recipient, uint256 amtIn, uint256 amtOutMin)
         internal view returns (bytes memory)
     {
@@ -219,6 +224,17 @@ contract SwapPermissionTest is Test {
 
     function test_UnknownSelector_Denies() public view {
         assertFalse(swap.evaluate(_v3(TOKIN, TOKOUT, ACCOUNT, 100e18, 196e18), _ctx(ROUTER, 0xdeadbeef)));
+    }
+
+    // ── ctx.value guard: an otherwise-valid swap carrying ETH is denied ──────────
+
+    function test_NonzeroValue_Denies() public view {
+        // Identical to test_Normal_WithinBand_Allows_V3, but with ETH attached. The router is
+        // payable; forwarding this value would let it be swept via refundETH. Must deny.
+        bytes memory data = _v3(TOKIN, TOKOUT, ACCOUNT, 100e18, 196e18);
+        assertFalse(swap.evaluate(data, _ctxVal(ROUTER, EXACT_INPUT_SINGLE_V1, 90 ether)));
+        // The same swap with value == 0 still passes — the guard does not over-block.
+        assertTrue(swap.evaluate(data, _ctxVal(ROUTER, EXACT_INPUT_SINGLE_V1, 0)));
     }
 
     function test_SlippageBpsTooLarge_RevertsAtConfigure() public {
