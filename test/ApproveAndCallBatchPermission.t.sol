@@ -15,6 +15,22 @@ contract BatchMockKernel {
     function configs(address) external view returns (address) { return signer; }
 }
 
+/// @dev Minimal ERC-20 used as the approved token: exposes allowance() (default 0) so the
+///      template's pre-batch allowance==0 staticcall resolves, plus a setter to stage stale state.
+contract MockERC20 {
+    mapping(address => mapping(address => uint256)) public allowance;
+    function setAllowance(address owner, address spender, uint256 amount) external {
+        allowance[owner][spender] = amount;
+    }
+}
+
+/// @dev Minimal ERC-4626 vault used as the consuming target for deposit/mint: exposes asset()
+///      so the template can bind the consumed underlying to the approved token.
+contract MockVault {
+    address public asset;
+    constructor(address _asset) { asset = _asset; }
+}
+
 /// @notice Covers the (target, selector) pair binding and the optional output-recipient mode of
 ///         ApproveAndCallBatchPermission. The batch is evaluated directly via evaluateBatch with a
 ///         constructed BatchContext (no kernel dispatch needed for a view check).
@@ -33,7 +49,6 @@ contract ApproveAndCallBatchPermissionTest is Test {
     address internal constant AUTHOR  = address(0xA11CE);
     address internal constant ACCOUNT = address(0xACC0);
     address internal constant TOKEN   = address(0x7000);
-    address internal constant SPENDER = address(0x5111);
     address internal constant ROUTERA = address(0xAA01);
     address internal constant ROUTERB = address(0xBB02);
     address internal constant OTHER   = address(0xBEEF);
@@ -43,10 +58,16 @@ contract ApproveAndCallBatchPermissionTest is Test {
 
     BatchMockKernel                  internal kernel;
     ApproveAndCallBatchPermission    internal batchPerm;
+    MockVault                        internal vault; // ERC-4626 consuming target; asset() == TOKEN
 
     function setUp() public {
         kernel    = new BatchMockKernel(address(this));
         batchPerm = new ApproveAndCallBatchPermission(address(kernel), AUTHOR);
+        // Put real ERC-20 code at TOKEN so the template's pre-batch allowance() staticcall resolves
+        // (a code-less token would fail closed). Fresh storage ⇒ allowance defaults to zero.
+        vm.etch(TOKEN, address(new MockERC20()).code);
+        // ERC-4626 target whose underlying is the approved token.
+        vault = new MockVault(TOKEN);
     }
 
     // ── config helpers ────────────────────────────────────────────────────────
@@ -60,9 +81,12 @@ contract ApproveAndCallBatchPermissionTest is Test {
         bool reqAmount,
         bool reqRecipient
     ) internal {
+        // The approved spender must equal the consuming target (#7). Allowlist every target a test
+        // may consume on (the two router-like addresses and the ERC-4626 vault) as a spender.
         ApproveAndCallBatchPermission.Config memory cfg;
         cfg.tokens = new address[](1);             cfg.tokens[0] = TOKEN;
-        cfg.spenders = new address[](1);           cfg.spenders[0] = SPENDER;
+        cfg.spenders = new address[](3);
+        cfg.spenders[0] = ROUTERA; cfg.spenders[1] = ROUTERB; cfg.spenders[2] = address(vault);
         cfg.consumingPairs = pairs;
         cfg.maxApprovalAmounts = new uint256[](1); cfg.maxApprovalAmounts[0] = CAP;
         cfg.requireAmountMatch = reqAmount;
@@ -78,10 +102,11 @@ contract ApproveAndCallBatchPermissionTest is Test {
     // ── batch builders ──────────────────────────────────────────────────────────
 
     function _batch(address consumingTarget, bytes memory consumingData) internal pure returns (Call[] memory calls) {
+        // Approve and reset the consuming target itself: the approved spender must be the call's target.
         calls = new Call[](3);
-        calls[0] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, SPENDER, AMOUNT)});
+        calls[0] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, consumingTarget, AMOUNT)});
         calls[1] = Call({target: consumingTarget, value: 0, data: consumingData});
-        calls[2] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, SPENDER, uint256(0))});
+        calls[2] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, consumingTarget, uint256(0))});
     }
 
     function _ctx() internal pure returns (BatchContext memory c) {
@@ -109,6 +134,14 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function _erc4626(bytes4 sel, address receiver) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(sel, uint256(AMOUNT), receiver);
     }
+    // Variants that consume an arbitrary asset (≠ the approved token) — for the #7 stale-allowance shapes.
+    function _swapV2Asset(address tokenIn, address to) internal pure returns (bytes memory) {
+        address[] memory path = new address[](2); path[0] = tokenIn; path[1] = OTHER;
+        return abi.encodeWithSelector(SWAP_V2, uint256(AMOUNT), uint256(1), path, to, uint256(0));
+    }
+    function _aaveAsset(bytes4 sel, address asset, address onBehalfOf) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(sel, asset, uint256(AMOUNT), onBehalfOf, uint16(0));
+    }
 
     // ── introspection ───────────────────────────────────────────────────────────
 
@@ -121,18 +154,19 @@ contract ApproveAndCallBatchPermissionTest is Test {
     // ── T-2: pair binding closes the cartesian leak ──────────────────────────────
 
     function test_PairBinding_IntendedPairsPass_CrossPairsDeny() public {
+        address vaultAddr = address(vault);
         ApproveAndCallBatchPermission.ConsumingPair[] memory pairs = new ApproveAndCallBatchPermission.ConsumingPair[](2);
         pairs[0] = _pair(ROUTERA, SWAP_V2);
-        pairs[1] = _pair(ROUTERB, V4626_DEP);
+        pairs[1] = _pair(vaultAddr, V4626_DEP);
         _configure(pairs, false, false);
 
         // intended pairs pass
-        assertTrue(_eval(ROUTERA, _swapV2(OTHER)),            "(routerA, swap) should pass");
-        assertTrue(_eval(ROUTERB, _erc4626(V4626_DEP, OTHER)), "(routerB, deposit) should pass");
+        assertTrue(_eval(ROUTERA, _swapV2(OTHER)),               "(routerA, swap) should pass");
+        assertTrue(_eval(vaultAddr, _erc4626(V4626_DEP, OTHER)), "(vault, deposit) should pass");
 
         // cross pairs (the cartesian leak) must now DENY
         assertFalse(_eval(ROUTERA, _erc4626(V4626_DEP, OTHER)), "(routerA, deposit) must deny");
-        assertFalse(_eval(ROUTERB, _swapV2(OTHER)),             "(routerB, swap) must deny");
+        assertFalse(_eval(vaultAddr, _swapV2(OTHER)),           "(vault, swap) must deny");
     }
 
     function test_UnboundPair_Denies() public {
@@ -174,15 +208,16 @@ contract ApproveAndCallBatchPermissionTest is Test {
     }
 
     function test_RecipientMode_Erc4626Deposit() public {
-        _configure(_pairs1(ROUTERA, V4626_DEP), false, true);
-        assertTrue(_eval(ROUTERA, _erc4626(V4626_DEP, ACCOUNT)));
-        assertFalse(_eval(ROUTERA, _erc4626(V4626_DEP, OTHER)));
+        // ERC-4626 consuming target must be the vault (spender == target; asset() == approved token).
+        _configure(_pairs1(address(vault), V4626_DEP), false, true);
+        assertTrue(_eval(address(vault), _erc4626(V4626_DEP, ACCOUNT)));
+        assertFalse(_eval(address(vault), _erc4626(V4626_DEP, OTHER)));
     }
 
     function test_RecipientMode_Erc4626Mint() public {
-        _configure(_pairs1(ROUTERA, V4626_MNT), false, true);
-        assertTrue(_eval(ROUTERA, _erc4626(V4626_MNT, ACCOUNT)));
-        assertFalse(_eval(ROUTERA, _erc4626(V4626_MNT, OTHER)));
+        _configure(_pairs1(address(vault), V4626_MNT), false, true);
+        assertTrue(_eval(address(vault), _erc4626(V4626_MNT, ACCOUNT)));
+        assertFalse(_eval(address(vault), _erc4626(V4626_MNT, OTHER)));
     }
 
     // ── T-1 mode ON: non-decodable selector fails closed ─────────────────────────
@@ -217,7 +252,7 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function test_WrongShape_NotThreeCalls_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = new Call[](2);
-        calls[0] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, SPENDER, AMOUNT)});
+        calls[0] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, ROUTERA, AMOUNT)});
         calls[1] = Call({target: ROUTERA, value: 0, data: _swapV2(OTHER)});
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
@@ -225,14 +260,14 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function test_NonZeroReset_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[2].data = abi.encodeWithSelector(APPROVE, SPENDER, uint256(1)); // reset must be 0
+        calls[2].data = abi.encodeWithSelector(APPROVE, ROUTERA, uint256(1)); // reset must be 0
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
     function test_AmountAboveCap_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[0].data = abi.encodeWithSelector(APPROVE, SPENDER, CAP + 1);
+        calls[0].data = abi.encodeWithSelector(APPROVE, ROUTERA, CAP + 1);
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
@@ -281,10 +316,12 @@ contract ApproveAndCallBatchPermissionTest is Test {
     }
 
     function test_RecipientMode_ShortPayload_Erc4626_FailsClosed() public {
-        _configure(_pairs1(ROUTERA, V4626_DEP), false, true);
+        // Use the vault as target so the asset binds (asset() == token) and the short payload is
+        // caught by the recipient word-1 guard, not the asset decode.
+        _configure(_pairs1(address(vault), V4626_DEP), false, true);
         // deposit needs >= 68 bytes to read receiver (word 1); this payload is 36 bytes.
         bytes memory tooShort = abi.encodeWithSelector(V4626_DEP, uint256(AMOUNT));
-        assertFalse(_eval(ROUTERA, tooShort));
+        assertFalse(_eval(address(vault), tooShort));
     }
 
     // ── structural denials on each of the three calls ────────────────────────────
@@ -299,14 +336,14 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function test_Approve_WrongSelector_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[0].data = abi.encodeWithSelector(bytes4(0xdeadbeef), SPENDER, AMOUNT);
+        calls[0].data = abi.encodeWithSelector(bytes4(0xdeadbeef), ROUTERA, AMOUNT);
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
     function test_Approve_WrongLength_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[0].data = abi.encodeWithSelector(APPROVE, SPENDER); // 36 bytes, not 68
+        calls[0].data = abi.encodeWithSelector(APPROVE, ROUTERA); // 36 bytes, not 68
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
@@ -327,7 +364,7 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function test_Approve_ZeroAmount_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[0].data = abi.encodeWithSelector(APPROVE, SPENDER, uint256(0));
+        calls[0].data = abi.encodeWithSelector(APPROVE, ROUTERA, uint256(0));
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
@@ -361,14 +398,14 @@ contract ApproveAndCallBatchPermissionTest is Test {
     function test_Reset_WrongLength_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[2].data = abi.encodeWithSelector(APPROVE, SPENDER); // 36 bytes
+        calls[2].data = abi.encodeWithSelector(APPROVE, ROUTERA); // 36 bytes
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
     function test_Reset_WrongSelector_Denies() public {
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
         Call[] memory calls = _batch(ROUTERA, _swapV2(OTHER));
-        calls[2].data = abi.encodeWithSelector(bytes4(0xdeadbeef), SPENDER, uint256(0));
+        calls[2].data = abi.encodeWithSelector(bytes4(0xdeadbeef), ROUTERA, uint256(0));
         assertFalse(batchPerm.evaluateBatch(calls, _ctx()));
     }
 
@@ -388,5 +425,67 @@ contract ApproveAndCallBatchPermissionTest is Test {
         // Single-dispatch evaluate is never authorised for this batch-only template.
         Context memory c;
         assertFalse(batchPerm.evaluate("", c));
+    }
+
+    // ── #7: bind consumed asset + spender to the approved (token, spender) ─────────
+
+    // Shape 1 — Uniswap V2 stale-allowance theft: approve A=TOKEN to the router, but the swap pulls a
+    // DIFFERENT token (path[0] = OTHER) to an attacker via a stale OTHER->router allowance.
+    function test_Sec7_V2_ConsumedAssetMismatch_Denies() public {
+        _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
+        // Sanity: same-asset swap to an arbitrary recipient still passes with the mode OFF.
+        assertTrue(_eval(ROUTERA, _swapV2Asset(TOKEN, OTHER)), "consumed asset == approved token passes");
+        // Wrong consumed asset → denied even though the (target, selector) pair is allowlisted.
+        assertFalse(_eval(ROUTERA, _swapV2Asset(OTHER, OTHER)), "consumed asset != approved token must deny");
+    }
+
+    // Shape 2 — Aave supply stale-allowance theft: approve A=TOKEN to the pool, but supply asset=OTHER
+    // with onBehalfOf=attacker, pulling OTHER via a stale OTHER->pool allowance.
+    function test_Sec7_Aave_ConsumedAssetMismatch_Denies() public {
+        _configure(_pairs1(ROUTERA, AAVE_SUP), false, false);
+        assertTrue(_eval(ROUTERA, _aaveAsset(AAVE_SUP, TOKEN, OTHER)), "asset == approved token passes");
+        assertFalse(_eval(ROUTERA, _aaveAsset(AAVE_SUP, OTHER, OTHER)), "asset != approved token must deny");
+    }
+
+    // Shape 3 — aggregator / opaque consuming selector: the consumed asset cannot be located, so the
+    // call is denied (fail closed) even with requireRecipientIsAccount OFF — not just under the mode.
+    function test_Sec7_NonDecodableSelector_FailsClosed_ModeOff() public {
+        _configure(_pairs1(ROUTERA, EXACT_INPUT), false, false);
+        bytes memory opaque = abi.encodeWithSelector(EXACT_INPUT, ACCOUNT, ACCOUNT, ACCOUNT, ACCOUNT, ACCOUNT);
+        assertFalse(_eval(ROUTERA, opaque), "non-decodable consuming selector must fail closed");
+    }
+
+    // Spender binding — the consuming call must hit the very spender approved in calls[0].
+    function test_Sec7_ConsumingTargetNotApprovedSpender_Denies() public {
+        // Allowlist the swap pair on BOTH routers so the pair check passes and we isolate the spender bind.
+        ApproveAndCallBatchPermission.ConsumingPair[] memory pairs = new ApproveAndCallBatchPermission.ConsumingPair[](2);
+        pairs[0] = _pair(ROUTERA, SWAP_V2);
+        pairs[1] = _pair(ROUTERB, SWAP_V2);
+        _configure(pairs, false, false);
+
+        // approve TOKEN -> ROUTERA, but consume on ROUTERB (consumed asset == TOKEN, pair allowlisted).
+        Call[] memory calls = new Call[](3);
+        calls[0] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, ROUTERA, AMOUNT)});
+        calls[1] = Call({target: ROUTERB, value: 0, data: _swapV2Asset(TOKEN, OTHER)});
+        calls[2] = Call({target: TOKEN, value: 0, data: abi.encodeWithSelector(APPROVE, ROUTERA, uint256(0))});
+        assertFalse(batchPerm.evaluateBatch(calls, _ctx()), "consuming target != approved spender must deny");
+    }
+
+    // Bundled Medium — a pre-existing stale allowance on the SAME (token, spender) pair must deny:
+    // otherwise a non-reverting false approve could leave it consumable beyond the bracket.
+    function test_Sec7Medium_StalePreBatchAllowance_Denies() public {
+        _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
+        // With zero pre-batch allowance the bracket passes.
+        assertTrue(_eval(ROUTERA, _swapV2Asset(TOKEN, OTHER)), "zero pre-batch allowance passes");
+        // Stage a residual allowance on the exact (token, spender) pair the batch uses → must deny.
+        MockERC20(TOKEN).setAllowance(ACCOUNT, ROUTERA, 1);
+        assertFalse(_eval(ROUTERA, _swapV2Asset(TOKEN, OTHER)), "non-zero pre-batch allowance must deny");
+    }
+
+    // Happy path under full binding — correct bracket with asset == token, recipient == account, and
+    // zero pre-batch allowance still PASSES (guards against over-blocking).
+    function test_Sec7_FullBinding_HappyPath_Passes() public {
+        _configure(_pairs1(ROUTERA, SWAP_V2), false, true);
+        assertTrue(_eval(ROUTERA, _swapV2Asset(TOKEN, ACCOUNT)), "fully-bound correct bracket passes");
     }
 }

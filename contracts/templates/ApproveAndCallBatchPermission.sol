@@ -29,11 +29,17 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///         third party.
 ///
 ///         WHAT IT ENFORCES. For every batch: the exact 3-call shape; the approved token, spender,
-///         and amount (≤ a per-token cap); that the consuming call's (target, selector) is an
-///         allowlisted PAIR — a selector is valid only on the specific target it was authorized
-///         with, never on any other allowlisted target; optionally that the consuming call's
-///         leading uint256 argument equals the approved amount (requireAmountMatch); and that
-///         calls[2] resets the same token/spender allowance to zero.
+///         and amount (≤ a per-token cap); that the pre-batch allowance on the approved (token,
+///         spender) pair is already zero (no stale allowance can be consumed beyond the bracket);
+///         that the consuming call's (target, selector) is an allowlisted PAIR — a selector is valid
+///         only on the specific target it was authorized with, never on any other allowlisted target;
+///         that the consuming call targets the very spender approved in calls[0] AND pulls the very
+///         token approved in calls[0] — the consumed asset is decoded for the standard-ABI selector
+///         set below and any selector whose consumed asset cannot be located safely is denied (fail
+///         closed); optionally that the consuming call's leading uint256 argument equals the approved
+///         amount (requireAmountMatch); and that calls[2] resets the same token/spender allowance to
+///         zero. Because the consumed asset must be decodable, the consuming selector is restricted to
+///         the decodable set below regardless of requireRecipientIsAccount.
 ///
 ///         OUTPUT RECIPIENT (requireRecipientIsAccount). The consuming call's output destination
 ///         is, by default, NOT constrained — see the honest boundary below. The OPTIONAL
@@ -57,11 +63,13 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///
 ///         HONEST BOUNDARY — what it does NOT do. With requireRecipientIsAccount OFF (the default),
 ///         the output recipient of the consuming call is UNCONSTRAINED: the bracket bounds how much
-///         the spender may pull (≤ the cap) and guarantees the allowance is reset to zero, but it
-///         does NOT constrain where the consuming call delivers its output. With the mode ON, only
-///         the decodable selector set above is covered; any other consuming selector is denied, and
-///         the operator must still understand which consuming calls they authorize. This template
-///         does not inspect token balances or post-conditions.
+///         the spender may pull (≤ the cap), binds that pull to the approved (token, spender), and
+///         guarantees the allowance is reset to zero, but it does NOT constrain where the consuming
+///         call delivers its output. With the mode ON, the output recipient is additionally pinned to
+///         the account. Either way the consuming selector must be in the decodable set above (so the
+///         consumed asset can be bound); any other selector is denied, and the operator must still
+///         understand which consuming calls they authorize. This template does not inspect token
+///         balances or post-conditions.
 ///
 /// @dev    Decoding philosophy: every decode is bounds-checked. A consuming payload too short to
 ///         hold the field being read fails closed (denies) rather than reading out of bounds.
@@ -108,6 +116,13 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
     uint256 private constant LEN_RECIPIENT_WORD3 = 132; // 4 + 4*32
     uint256 private constant LEN_RECIPIENT_WORD2 = 100; // 4 + 3*32
     uint256 private constant LEN_RECIPIENT_WORD1 = 68;  // 4 + 2*32
+
+    /// @dev `IERC20.allowance(address,address)` selector — read pre-batch allowance via staticcall.
+    bytes4 private constant ALLOWANCE_SELECTOR = 0xdd62ed3e;
+
+    /// @dev `IERC4626.asset()` selector — the only consumed-asset that is not in the calldata and
+    ///      must be read from the vault (the consuming target) directly.
+    bytes4 private constant ERC4626_ASSET_SELECTOR = 0x38d52e0f;
 
     // -------------------------------------------------------------------------
     // Configuration
@@ -263,14 +278,16 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
     /// @inheritdoc IBatchPermission
     ///
     /// @dev Validates the strict 3-call shape:
-    ///        calls[0] = approve(spender, amount)           on an allowlisted token
-    ///        calls[1] = <selector>(amount, ...)            on an allowlisted (target, selector) pair
+    ///        calls[0] = approve(spender, amount)           on an allowlisted token, pre-batch allowance 0
+    ///        calls[1] = <selector>(amount, ...)            on an allowlisted (target, selector) pair,
+    ///                                                      target == spender, consumed asset == token
     ///        calls[2] = approve(spender, 0)                same token, same spender, amount==0
     ///
-    ///      Any deviation — wrong length, wrong token/spender, unauthorised (target, selector)
-    ///      pair, amount above cap, amount mismatch (when configured), recipient not the account
-    ///      (when requireRecipientIsAccount is on), non-zero reset, malformed calldata — causes the
-    ///      function to return false or revert (kernel treats either as denial).
+    ///      Any deviation — wrong length, wrong token/spender, non-zero pre-batch allowance,
+    ///      unauthorised (target, selector) pair, consuming target != spender, consumed asset != token,
+    ///      non-decodable consuming selector, amount above cap, amount mismatch (when configured),
+    ///      recipient not the account (when requireRecipientIsAccount is on), non-zero reset, malformed
+    ///      calldata — causes the function to return false or revert (kernel treats either as denial).
     function evaluateBatch(Call[] calldata calls, BatchContext calldata ctx)
         external
         view
@@ -296,6 +313,12 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         if (approveAmount == 0) return false;
         if (approveAmount > cap) return false;
 
+        // A residual (stale) allowance on the SAME (token, spender) pair could be consumed beyond the
+        // bracket this batch establishes — e.g. a token whose nonzero approve returns false without
+        // reverting leaves the prior allowance in place. Require the pre-batch allowance to be zero so
+        // the consuming call can only ever draw the allowance this batch grants and then resets.
+        if (!_allowanceIsZero(token, account, spender)) return false;
+
         // ── calls[1] ── consuming call on an allowlisted (target, selector) PAIR ──────
         Call calldata c1 = calls[1];
         if (c1.value != 0) return false;
@@ -307,6 +330,21 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         // with. Two independent allowlists would form a cartesian product (any selector on any
         // target); the pair key prevents that.
         if (!isConsumingPair[account][_pairKey(c1.target, sel)]) return false;
+
+        // ── Bind the consuming call to the approved (token, spender) ──────────────────
+        // Two bindings, both unconditional (independent of requireRecipientIsAccount):
+        //   (i)  the consuming call must hit the exact spender approved in calls[0]. Combined with
+        //        the pre-batch allowance==0 check above, the ONLY allowance this call can draw is the
+        //        one this batch grants (≤ cap) and resets — never a stale allowance to some other
+        //        puller/router.
+        //   (ii) the asset the call pulls must be the token approved in calls[0]. The consumed asset
+        //        is decoded for the same standard-ABI selector set the recipient pin uses; a selector
+        //        whose consumed asset cannot be located safely (aggregators, the Universal Router,
+        //        opaque command blobs) is denied (fail closed) rather than left unbound.
+        if (c1.target != spender) return false;
+        (bool assetDecodable, address consumedAsset) = _decodeConsumedAsset(sel, c1.data, c1.target);
+        if (!assetDecodable) return false;
+        if (consumedAsset != token) return false;
 
         if (_cfg[account].requireAmountMatch) {
             uint256 consumedAmount = _decodeFirstUint256(c1.data);
@@ -391,6 +429,57 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         }
         // Unknown selector: recipient cannot be located without guessing → not decodable.
         return (false, address(0));
+    }
+
+    /// @dev Decode the asset the consuming call pulls from the account, for the same decodable
+    ///      selector set the recipient pin uses. Returns (true, asset) when it can be located safely;
+    ///      (false, 0) otherwise, so the caller denies (fail closed). Mirrors how each protocol reads
+    ///      the asset, so the bound asset is exactly the one the call will move.
+    function _decodeConsumedAsset(bytes4 sel, bytes calldata data, address target)
+        internal
+        view
+        returns (bool decodable, address asset)
+    {
+        // Head word 0 (bytes [4:36]): Uniswap V3 exactInputSingle `tokenIn` (the params struct is all
+        // static, so it is encoded inline) and Aave supply/deposit `asset` both occupy the first
+        // argument slot. data.length >= CONSUMING_MIN_LEN (36) is guaranteed by the caller.
+        if (sel == EXACT_INPUT_SINGLE || sel == EXACT_INPUT_SINGLE_02 || sel == AAVE_V3_SUPPLY || sel == AAVE_V2_DEPOSIT) {
+            return (true, address(uint160(uint256(bytes32(data[4:36])))));
+        }
+        // Uniswap V2 swapExactTokensForTokens: the pulled asset is path[0]. `path` is dynamic, so its
+        // elements live at the offset declared in head word 2. Follow that offset — exactly as the
+        // router's own abi.decode does, which permits a non-canonical offset — instead of assuming
+        // 0xa0, and bounds-check every read so a malformed payload fails closed.
+        if (sel == SWAP_EXACT_TOKENS_FOR_TOKENS) {
+            if (data.length < LEN_RECIPIENT_WORD2) return (false, address(0)); // need head word 2
+            uint256 off = uint256(bytes32(data[68:100]));         // offset of `path`, relative to args
+            if (off > data.length) return (false, address(0));    // out of bounds → deny
+            uint256 lenPos = 4 + off;                              // path length word position
+            if (data.length < lenPos + 64) return (false, address(0)); // need length word + path[0]
+            if (uint256(bytes32(data[lenPos:lenPos + 32])) == 0) return (false, address(0)); // empty path
+            uint256 elemPos = lenPos + 32;
+            return (true, address(uint160(uint256(bytes32(data[elemPos:elemPos + 32])))));
+        }
+        // ERC-4626 deposit/mint: the pulled asset is the vault's underlying, which is not in the
+        // calldata. The vault is the consuming target (== the approved spender, enforced by the
+        // caller), so read it via a bounded asset() staticcall; any failure / short return denies.
+        if (sel == ERC4626_DEPOSIT || sel == ERC4626_MINT) {
+            (bool ok, bytes memory ret) = target.staticcall(abi.encodeWithSelector(ERC4626_ASSET_SELECTOR));
+            if (!ok || ret.length < 32) return (false, address(0));
+            return (true, abi.decode(ret, (address)));
+        }
+        // Any other selector: the consumed asset cannot be located safely → not decodable.
+        return (false, address(0));
+    }
+
+    /// @dev True iff the pre-batch ERC-20 allowance on (token, spender) is zero. Read via a bounded
+    ///      staticcall so a code-less or misbehaving token denies (fail closed) rather than reverting
+    ///      the whole evaluation.
+    function _allowanceIsZero(address token, address account, address spender) internal view returns (bool) {
+        (bool ok, bytes memory ret) =
+            token.staticcall(abi.encodeWithSelector(ALLOWANCE_SELECTOR, account, spender));
+        if (!ok || ret.length < 32) return false;
+        return abi.decode(ret, (uint256)) == 0;
     }
 
     // ── IPermissionIntrospection ──────────────────────────────────────────────

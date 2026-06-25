@@ -49,10 +49,17 @@ contract BenchERC20 {
 }
 
 contract BenchRouter {
-    function swap(uint256 amount, address token) external {
+    // Uniswap V2-style: a member of the template's decodable selector set (asset = path[0]).
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 /* amountOutMin */,
+        address[] calldata path,
+        address /* to */,
+        uint256 /* deadline */
+    ) external {
         // Mock router; revert propagates from the token if transferFrom fails.
         // forge-lint: disable-next-line(erc20-unchecked-transfer)
-        BenchERC20(token).transferFrom(msg.sender, address(this), amount);
+        BenchERC20(path[0]).transferFrom(msg.sender, address(this), amountIn);
     }
 }
 
@@ -84,7 +91,15 @@ contract BatchDispatchBenchmark is Test {
     address internal manager;
 
     bytes4  internal constant APPROVE_SEL = 0x095ea7b3;
-    bytes4  internal constant SWAP_SEL    = BenchRouter.swap.selector;
+    bytes4  internal constant SWAP_SEL    = BenchRouter.swapExactTokensForTokens.selector;
+
+    /// @dev V2 consuming calldata: amountIn at word 0 (requireAmountMatch), path[0] == approved token.
+    function _swapData(uint256 amountIn) internal view returns (bytes memory) {
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(0xBEEF);
+        return abi.encodeWithSelector(SWAP_SEL, amountIn, uint256(1), path, address(safe), uint256(0));
+    }
 
     function setUp() public {
         permSigner = vm.addr(PERM_SIGNER_KEY);
@@ -152,7 +167,7 @@ contract BatchDispatchBenchmark is Test {
     function _build3Call(uint256 amount) internal view returns (Call[] memory calls) {
         calls = new Call[](3);
         calls[0] = Call(address(token),  0, abi.encodeWithSelector(APPROVE_SEL, address(router), amount));
-        calls[1] = Call(address(router), 0, abi.encodeWithSelector(SWAP_SEL,    amount, address(token)));
+        calls[1] = Call(address(router), 0, _swapData(amount));
         calls[2] = Call(address(token),  0, abi.encodeWithSelector(APPROVE_SEL, address(router), uint256(0)));
     }
 
@@ -176,7 +191,7 @@ contract BatchDispatchBenchmark is Test {
         Call[] memory calls = new Call[](8);
         for (uint256 i = 0; i < 4; i++) {
             calls[i*2]   = Call(address(token), 0, abi.encodeWithSelector(APPROVE_SEL, address(router), uint256(1 ether)));
-            calls[i*2+1] = Call(address(router), 0, abi.encodeWithSelector(SWAP_SEL, uint256(1 ether), address(token)));
+            calls[i*2+1] = Call(address(router), 0, _swapData(uint256(1 ether)));
         }
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signBatch(address(allowPerm), calls, 0, deadline);
