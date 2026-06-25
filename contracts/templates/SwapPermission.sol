@@ -9,15 +9,18 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title  SwapPermission — oracle-gated bounded swap (recommended default)
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         This permission is a reference example demonstrating how to express a bounded
-///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
-///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
-///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
-///         evaluates any permission safely under staticcall + a gas cap + fail-closed
-///         semantics, but it does NOT verify that this permission's logic correctly
-///         enforces what its NatSpec claims. Anyone registering this permission is
-///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
+///         trusted core. This is one of the seven launch templates Octane is auditing
+///         post-freeze: it is hardened and documented with the honest boundaries below
+///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
+///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
+///         a bug here cannot reach the kernel or accounts that have not registered it. The
+///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly enforces
+///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
+///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         audit-scope documentation.
 ///
 ///         WHAT IT IS. The recommended default swap template. One deployment serves any number
 ///         of accounts; each account stores its own routers, token allowlists, per-tx amount cap,
@@ -40,11 +43,25 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         aggregators (1inch/Matcha/CoW): those carry swap parameters inside an opaque
 ///         command/bytes payload that cannot be decoded at a fixed offset.
 ///
-///         HONEST BOUNDARY — what it does NOT do. The slippage band is only as good as the
-///         configured oracle's honesty and freshness; it does NOT protect against a manipulated or
-///         compromised oracle. The amount cap is per-transaction, NOT cumulative — a manager may
-///         make many at-cap trades. The template constrains the swap shape, not the wisdom of the
-///         trade.
+///         HONEST BOUNDARY — what it does NOT do. The slippage band is only as strong as the
+///         configured feed: it is only as good as the configured oracle's honesty and freshness and
+///         does NOT protect against a manipulated or compromised oracle. The amount cap is
+///         per-transaction, NOT cumulative — a manager may make many at-cap trades. The template
+///         constrains the swap shape, not the wisdom of the trade.
+///
+///         NATIVE VALUE REJECTED. A dispatch carrying ctx.value != 0 is denied: this is an
+///         allowance-based ERC-20 → ERC-20 template, so no ETH is ever forwarded to a router
+///         (closing the payable-router / refundETH() ETH-sweep vector — Octane #1).
+///
+///         GAS BUDGET (operator note). This template's own evaluate cost is light — one oracle read
+///         plus a decode and a couple of mulDivs — but the whole evaluation runs under the kernel's
+///         150k PERMISSION_GAS_CAP. A heavy operator-supplied oracle adapter can push the evaluation
+///         over that cap, which fails closed (deny). Operators must budget their adapter's gas.
+///
+///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
+///         its stored config epoch equals the kernel's current registration epoch for this
+///         (account, permission). A configuration left over from a prior registration — e.g. after a
+///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
 ///
 /// @dev    Config blob:
 ///             abi.encode(

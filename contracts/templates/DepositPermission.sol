@@ -7,15 +7,18 @@ import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
 /// @title  DepositPermission — bounded ERC-20 deposit credited to the account
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         This permission is a reference example demonstrating how to express a bounded
-///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
-///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
-///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
-///         evaluates any permission safely under staticcall + a gas cap + fail-closed
-///         semantics, but it does NOT verify that this permission's logic correctly
-///         enforces what its NatSpec claims. Anyone registering this permission is
-///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
+///         trusted core. This is one of the seven launch templates Octane is auditing
+///         post-freeze: it is hardened and documented with the honest boundaries below
+///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
+///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
+///         a bug here cannot reach the kernel or accounts that have not registered it. The
+///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly enforces
+///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
+///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         audit-scope documentation.
 ///
 ///         WHAT IT IS. A reference deposit template. One deployment serves any number of accounts;
 ///         each account stores its own target (protocol/vault) allowlist, token allowlist, and
@@ -42,11 +45,20 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         token. For the Aave-style paths the asset is a calldata argument and is allowlisted
 ///         directly.
 ///
-///         HONEST BOUNDARY — what it does NOT do. The cap on mint() is denominated in SHARES, not
-///         underlying assets — its asset/USD value floats with the share price, and these templates
-///         are oracle-free, so an operator sizing a mint cap must account for that. The cap is
-///         per-transaction, NOT cumulative. An allowlisted-but-malicious vault or pool is not vetted
-///         here; the template constrains the deposit shape and destination, not the venue's honesty.
+///         HONEST BOUNDARY — what it does NOT do. The cap on the mint(shares) path is denominated in
+///         SHARES, not underlying assets — by design: deposit(assets) and both Aave paths cap the
+///         asset amount directly, while mint(shares) bounds shares. The mint cap's asset/USD value
+///         floats with the share price, and these templates are oracle-free, so an operator sizing a
+///         mint cap must account for that; an asset cap on the mint path would reintroduce a vault
+///         price-read into a deliberately oracle-free template (shares stay bounded — no drain). The
+///         cap is per-transaction, NOT cumulative. An allowlisted-but-malicious vault or pool is not
+///         vetted here; the template constrains the deposit shape and destination, not the venue's
+///         honesty.
+///
+///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
+///         its stored config epoch equals the kernel's current registration epoch for this
+///         (account, permission). A configuration left over from a prior registration — e.g. after a
+///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
 ///
 /// @dev    Config blob:
 ///             abi.encode(

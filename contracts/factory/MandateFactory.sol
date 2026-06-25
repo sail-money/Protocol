@@ -188,7 +188,7 @@ contract MandateFactory is ReentrancyGuard {
     //
     // For standalone (single-account) templates that use initialize() instead of
     // configure(). The caller supplies:
-    //   - impl:      the logic contract address (from deployments/<chainId>/templates.standalone.json)
+    //   - impl:      the logic contract address of the standalone template to clone
     //   - salt:      caller-chosen entropy; the factory namespaces it internally as
     //                keccak256(abi.encode(msg.sender, account, salt)). Binding both the
     //                caller and the target account mirrors the kernel's bound-salt doctrine

@@ -6,7 +6,7 @@
  
 Sail is a minimal account-abstraction primitive for onchain Separately Managed Accounts. The protocol does five things: it instantiates Safe accounts from any signer setup; it registers permission modules deployed by users; it gates a delegated manager's transactions through those permissions; it charges fees per permission deployed; and it tracks principal while routing manager-collected fees through a protocol-enforced split with a hard 25% cap. All permission logic, valuation math, and fee schedules live in user-deployed contracts outside the core. The protocol separates three roles — Owner, Permission Signer, Manager — and is governed by a contract initially held by the team multisig, transferable later.
  
-The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account without protocol approval. Governance allowlists apply only to trusted infrastructure — the Safe factory, the Safe singleton, the proxy codehash, and fee policies — not to permissions. The trusted core is roughly 1,150 lines of Solidity (the kernel itself ~820), small enough to audit in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
+The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account, deploy an SMA, and operate as a manager — all without protocol approval. The permissionless surface is bounded by a small set of governance-curated, safety-critical infrastructure allowlists — the Safe factory, the Safe singleton, the proxy codehash, the fee policies, and the `Safe.setup` module-setup helpers — which are curated precisely because trusting the wrong value there would compromise account custody itself. Permissions and managers are never curated; the infrastructure inputs are. "Fully permissionless" should be read with that distinction in mind. The trusted core is roughly 1,150 lines of Solidity (the kernel itself ~820), small enough to audit in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
  
 ## Design Principles
  
@@ -53,11 +53,18 @@ interface IPermission {
 struct Context {
     address account;        // the Safe
     address manager;        // the delegated signer
+    address submitter;      // msg.sender of the dispatch (may be a relayer/paymaster/bundler)
     address target;         // the call target
     bytes4  selector;       // the call selector
     uint256 value;          // msg.value
+    uint256 blockTimestamp; // block.timestamp at dispatch (for time-based gates)
+    uint256 blockNumber;    // block.number at dispatch
+    uint256 configEpoch;    // kernel's current registration epoch for (account, permission);
+                            // read-only freshness tag, not part of any signed digest
 }
 ```
+
+The `submitter` is surfaced to permissions but never constrained by the kernel — authority comes from the manager signature alone, which is what makes Sail compatible with relayers, paymasters, and ERC-4337 bundlers. `configEpoch` lets a configurable permission fail closed on a stale configuration (see *EIP-712 Authorization Surface* and the config-epoch binding below).
  
 Permissions are called via `staticcall` with a gas cap. Reentrancy is structurally impossible — staticcall prohibits state changes. Gas DOS is bounded — the per-permission cap means a runaway permission reverts without affecting the kernel. A permission that exceeds its gas cap or reverts is treated as a `false` result.
  
@@ -75,6 +82,43 @@ Permissions are called via `staticcall` with a gas cap. Reentrancy is structural
 Two levels of revocation:
 - *Revoke a single permission* — narrows the manager's authority.
 - *Revoke the entire session* — cuts off the manager completely; all permissions inactive at once.
+### EIP-712 Authorization Surface
+
+Every authority-bearing action is an EIP-712 typed signature. The live type strings are:
+
+**Dispatch (selective authorization).** A manager dispatch names exactly one registered permission as the authorizer; that `permission` is bound into the digest, so the signature authorizes one named permission per dispatch and the kernel evaluates that permission alone:
+
+```
+Dispatch(address account,address permission,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)
+```
+
+**Batch dispatch.** The batch path authorizes one batch-aware permission over a sequence of calls (`callsHash = keccak256(abi.encode(calls))`):
+
+```
+DispatchBatch(address account,address permission,bytes32 callsHash,uint256 nonce,uint256 deadline)
+```
+
+`dispatch` and `dispatchBatch` consume independent nonce namespaces (`managerNonces` vs `batchNonces`) so the two paths cannot replay across each other.
+
+**Self-registration.** `registerAccount` is gated by a Safe owner-set + threshold signature over:
+
+```
+RegisterAccount(address account,address permissionSigner,address manager,address feePolicy,address feeAsset,uint256 deadline)
+```
+
+There is no nonce — registration is one-shot (`registered[account]` never clears); the EIP-712 domain pins `chainId` against cross-chain replay.
+
+**Template configuration (epoch-bound).** A `ConfigurablePermission` template binds the kernel's current registration epoch into the configure and identity digests, so a configure signature cannot be replayed across a revoke/re-register cycle:
+
+```
+Configure(address account,bytes32 paramsHash,uint256 nonce,uint256 deadline,uint256 epoch)
+SetAgentIdentity(address account,bytes32 identityHash,uint256 nonce,uint256 deadline,uint256 epoch)
+```
+
+The template EIP-712 **domain version is `"2"`**. The `"1"` → `"2"` bump invalidates all outstanding configure/identity signatures at deploy (no live mandates pre-launch); off-chain signers must read `kernel.registrationEpoch(account, template)`, include the `epoch` field, and use domain version `"2"`.
+
+The remaining kernel registry operations (`RegisterPermission`, `RevokePermission`, `ReplacePermission`, the `*Permissions` batch variants, `RevokeSession`, `ActivateSession`, `SetFeePolicy`) are each their own typehash over `(account, …, nonce, deadline)`; they share the `signerNonces` namespace, which is independent of the manager dispatch nonces.
+
 ### Parameterisation
  
 Templates use the factory + EIP-1167 minimal proxy pattern. Logic deployed once; users get cheap proxy instances (~45 bytes on-chain) with their own parameters. Each canonical template ships with its own factory.
@@ -160,7 +204,7 @@ This architecture provides three security properties:
  
 ## Canonical Templates
  
-The protocol ships with a reference set of permission templates covering common patterns. They are swappable defaults — any contract implementing `IPermission` can be registered instead:
+The protocol ships with a reference set of seven launch permission templates covering common patterns. This is the **reference set Octane is auditing post-freeze** — hardened, with honest "what this cannot protect against" boundaries documented in each contract's NatSpec header; it is *not* an "unaudited example" set (that loud framing is reserved for the future experimental set, currently empty). They remain outside the trusted core — a bug in one affects only accounts that registered it — and they are swappable defaults: any contract implementing `IPermission` can be registered instead. Every launch template fails closed on a stale or absent configuration: evaluation denies unless the account is configured *and* its stamped config epoch matches the kernel's current registration epoch for that `(account, permission)`. The launch set:
  
 - **SwapPermission** / **SwapPermissionNoOracle** — gate DEX swaps with router and token allowlists, a size cap, output paid to the account, and a slippage floor (against an independent oracle, or the reference pool's own live price).
 - **BorrowPermission** — gates lending borrows with protocol and asset allowlists, a size cap, the position credited to the account, and an optional LTV ceiling.
