@@ -715,6 +715,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         INVOCATION: owners sign the RegisterAccount digest off-chain; an owner-approved Safe
     ///         `execTransaction` then calls this function (so msg.sender == the Safe, satisfying the
     ///         codehash gate) carrying that signature. msg.sender == account is preserved.
+    /// @dev    `checkSignatures` is called with empty `data`, which suits EOA and approved-hash owners.
+    ///         A Safe owner that is itself a contract relying on the legacy v==0 contract-signature path
+    ///         would require non-empty `data` (keccak256(data)==digest) — a nested-Safe-owner edge case.
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
@@ -733,32 +736,36 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // exact length is undefined and a minimum-length check would not catch a +20-byte fallback
         // relay. The owner-signature requirement closes the W1 fallback vector for this function
         // directly — a relay cannot produce the owners' signature over the digest.
-        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
+        // 1. Codehash (cheap/static; uses extcodehash, not an ISafe method call). Pins genuine
+        //    SafeProxy bytecode before any call into the proxy.
         bytes32 codehash;
         assembly { codehash := extcodehash(caller()) }
         if (!governance.trustedSafeProxyCodehash(codehash)) revert UntrustedProxyCodehash(codehash);
 
-        // #4 defense-in-depth: setup() never bumps the Safe nonce; execTransaction increments it
-        // before the inner call runs. A value of 0 therefore flags a not-yet-finalized Safe. This is
-        // forgeable by a setup-delegatecall helper (nonce lives in slot 5), so it is NOT the gate —
-        // the owner signature below is. Kept as a cheap early reject.
-        if (ISafe(msg.sender).nonce() == 0) revert SetupNotFinalized();
-
-        if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
-
-        // #9: the codehash check only pins genuine SafeProxy bytecode — a genuine proxy can still
-        // delegate to a hostile singleton that forges module execution/return data. Pin the singleton
-        // to a governance-trusted Safe implementation, giving the self-registration path parity with
-        // createAccount. The proxy intercepts masterCopy() in its own fallback and returns storage
-        // slot 0, so a malicious singleton cannot forge this value.
+        // 2. #9 trusted singleton — checked BEFORE any other ISafe method runs. The codehash above
+        //    only pins proxy bytecode; a genuine proxy can still delegate to a hostile singleton that
+        //    forges module execution/return data. masterCopy() is the one ISafe call that may precede
+        //    this check: the proxy answers 0xa619486e from storage slot 0 in its own fallback, so a
+        //    malicious singleton cannot forge it. Confirming the singleton here means nonce(),
+        //    isModuleEnabled(), and checkSignatures() below are never invoked on an unverified singleton.
         address singleton = ISafe(msg.sender).masterCopy();
         if (!governance.trustedSafeSingleton(singleton)) revert UntrustedSingleton(singleton);
 
-        // #4 owner authorisation (the robust gate). Bind the principals to an owner-set+threshold
-        // signature so a setup helper — which holds no owner keys — cannot register. chainId is in
-        // the EIP-712 domain; no nonce is needed because registration is one-shot (`registered[]`
-        // never clears, so a replay reverts AccountAlreadyRegistered in _registerAccount).
+        // 3. #4 defense-in-depth: setup() never bumps the Safe nonce; execTransaction increments it
+        //    before the inner call runs. A value of 0 therefore flags a not-yet-finalized Safe. This is
+        //    forgeable by a setup-delegatecall helper (nonce lives in slot 5), so it is NOT the gate —
+        //    the owner signature below is. Kept as a cheap early reject.
+        if (ISafe(msg.sender).nonce() == 0) revert SetupNotFinalized();
+
+        // 4. Module must be enabled.
+        if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
+
+        // 5. #4 owner authorisation (the robust gate). Bind the principals to an owner-set+threshold
+        //    signature so a setup helper — which holds no owner keys — cannot register. chainId is in
+        //    the EIP-712 domain; no nonce is needed because registration is one-shot (`registered[]`
+        //    never clears, so a replay reverts AccountAlreadyRegistered in _registerAccount).
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
             REGISTER_ACCOUNT_TYPEHASH,
             msg.sender,
