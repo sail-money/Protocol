@@ -31,12 +31,14 @@ contract SailGovernance {
     uint256 public immutable MAX_PERMISSION_FEE_WEI;
 
     /// @notice Hard ceiling on the number of permissions an account may register.
-    ///         Bounds the maximum gas cost of the kernel's dispatch loop across all future
-    ///         governance decisions. No governance action can raise the live limit above this.
+    ///         Bounds account registry size (and its per-account storage), not per-dispatch gas.
+    ///         No governance action can raise the live limit above this.
     ///
-    ///         Gas budget at the cap: 100 × PERMISSION_GAS_CAP (100 000) = 10 000 000 gas.
-    ///         Feasible on all L2s; expensive but not impossible on Ethereum mainnet for
-    ///         large managed positions.
+    ///         Under selective authorization the kernel never loops over an account's registered
+    ///         permissions: each dispatch evaluates exactly the one permission named in the manager's
+    ///         signature under PERMISSION_GAS_CAP = 150_000 (a batch evaluates one batch-aware
+    ///         permission under BATCH_EVAL_GAS_CAP = 1_000_000). So per-dispatch evaluation gas is
+    ///         bounded by the cap regardless of how many permissions an account has registered.
     uint256 public constant MAX_PERMISSIONS_CAP = 100;
 
     // -------------------------------------------------------------------------
@@ -54,9 +56,9 @@ contract SailGovernance {
 
     /// @notice Live limit on the number of permissions per account.
     ///         Governance may adjust this between 1 and MAX_PERMISSIONS_CAP (100).
-    ///         Increasing the limit raises the maximum gas cost of every future dispatch call
-    ///         by up to PERMISSION_GAS_CAP gas per additional slot — operators should account
-    ///         for this when sizing positions on gas-expensive networks.
+    ///         Under selective authorization this bounds how many permissions an account can attach,
+    ///         not per-dispatch gas: each dispatch evaluates only the one named permission under
+    ///         PERMISSION_GAS_CAP, so registering more permissions does not raise per-dispatch cost.
     uint256 public maxPermissionsPerAccount;
 
     // -------------------------------------------------------------------------
@@ -610,9 +612,9 @@ contract SailGovernance {
     }
 
     /// @notice Set the live limit on the number of permissions per account.
-    /// @dev    Raising this limit increases the maximum dispatch gas cost by up to
-    ///         PERMISSION_GAS_CAP gas per additional slot. Operators on gas-expensive
-    ///         networks should account for this before registering up to the new limit.
+    /// @dev    Bounds registry size only. Under selective authorization each dispatch evaluates a
+    ///         single named permission under PERMISSION_GAS_CAP, so raising this limit does NOT raise
+    ///         per-dispatch gas cost; it caps how many permissions an account can attach.
     ///         Lowering the limit does NOT retroactively revoke permissions on accounts
     ///         that are already at or above the new limit — it only prevents further
     ///         registrations until those accounts fall below the live limit again.

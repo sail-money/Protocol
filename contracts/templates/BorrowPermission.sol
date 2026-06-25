@@ -15,15 +15,18 @@ interface ICErc20 {
 }
 
 /// @title  BorrowPermission — bounded borrow with optional LTV ceiling
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         This permission is a reference example demonstrating how to express a bounded
-///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
-///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
-///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
-///         evaluates any permission safely under staticcall + a gas cap + fail-closed
-///         semantics, but it does NOT verify that this permission's logic correctly
-///         enforces what its NatSpec claims. Anyone registering this permission is
-///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
+///         trusted core. This is one of the seven launch templates Octane is auditing
+///         post-freeze: it is hardened and documented with the honest boundaries below
+///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
+///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
+///         a bug here cannot reach the kernel or accounts that have not registered it. The
+///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly enforces
+///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
+///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         audit-scope documentation.
 ///
 ///         WHAT IT IS. A reference borrow permission. One deployment serves any number of accounts;
 ///         each stores its own protocol and asset allowlists, a per-tx amount cap, an LTV ceiling,
@@ -53,6 +56,30 @@ interface ICErc20 {
 ///         NOT bound the cumulative LTV of a position built across multiple borrows (e.g. a leverage
 ///         loop). For cumulative-position safety, rely on the lending protocol's own health factor
 ///         and/or a separate position-monitoring permission.
+///
+///         LTV CEILING (fail-closed, amount-based). When both oracles are configured the ceiling is
+///         enforced as an amount-based bound: the maximum borrow amount is derived by applying
+///         maxLtvBps to the full-precision collateral value and collapsing the decimal scale last,
+///         then the borrow is required to be at or under that amount. A borrow worth less than one
+///         numeraire unit no longer rounds its value to zero and slips an LTV ceiling — the prior
+///         fail-open behaviour (Octane #6) is closed. Missing/zero prices, out-of-range decimals, or
+///         a stale feed all deny.
+///
+///         ASSET RESOLUTION. The operator allowlists the UNDERLYING borrow asset. On the Compound
+///         path the call target is the cToken, but the amount and the allowlist/LTV are
+///         underlying-denominated, so the template resolves cToken.underlying() and keys both on the
+///         underlying. Targets with no underlying() (e.g. cETH) resolve nothing and are denied —
+///         fail-closed by design (Octane #11).
+///
+///         GAS BUDGET (operator note). This template's own evaluate cost is light, but the whole
+///         evaluation runs under the kernel's 150k PERMISSION_GAS_CAP. A heavy operator-supplied
+///         oracle adapter can push the evaluation over that cap, which fails closed (deny). Operators
+///         must budget their adapter's gas.
+///
+///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
+///         its stored config epoch equals the kernel's current registration epoch for this
+///         (account, permission). A configuration left over from a prior registration — e.g. after a
+///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
 ///
 /// @dev    Config blob:
 ///             abi.encode(

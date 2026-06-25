@@ -8,15 +8,18 @@ import {SailCapabilities}                     from "../interfaces/SailCapabiliti
 import {ConfigurablePermission}                 from "./ConfigurablePermission.sol";
 
 /// @title  ApproveAndCallBatchPermission — atomic approve / consume / reset bracket
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         This permission is a reference example demonstrating how to express a bounded
-///         mandate against the Sail kernel. It is provided as-is, is NOT covered by the
-///         protocol audit of the trusted core (SailKernel, SailGovernance, MandateFactory,
-///         StandardFeePolicy, SafeModuleEnabler), and carries no warranty. The kernel
-///         evaluates any permission safely under staticcall + a gas cap + fail-closed
-///         semantics, but it does NOT verify that this permission's logic correctly
-///         enforces what its NatSpec claims. Anyone registering this permission is
-///         responsible for reviewing it. See docs/SECURITY.md for the audit-scope documentation.
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
+///         trusted core. This is one of the seven launch templates Octane is auditing
+///         post-freeze: it is hardened and documented with the honest boundaries below
+///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
+///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
+///         a bug here cannot reach the kernel or accounts that have not registered it. The
+///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
+///         semantics, but it does NOT verify that this permission's logic correctly enforces
+///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
+///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         audit-scope documentation.
 ///
 ///         WHAT IT IS. A shared multi-tenant batch permission for the canonical
 ///         "approve / consuming-call / reset-to-zero" pattern. The batch shape it authorises
@@ -70,6 +73,11 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///         consumed asset can be bound); any other selector is denied, and the operator must still
 ///         understand which consuming calls they authorize. This template does not inspect token
 ///         balances or post-conditions.
+///
+///         CONFIG FRESHNESS (fail-closed). evaluateBatch denies unless this account is configured AND
+///         its stored config epoch equals the kernel's current registration epoch for this
+///         (account, permission). A configuration left over from a prior registration — e.g. after a
+///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
 ///
 /// @dev    Decoding philosophy: every decode is bounds-checked. A consuming payload too short to
 ///         hold the field being read fails closed (denies) rather than reading out of bounds.
