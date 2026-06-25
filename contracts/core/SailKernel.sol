@@ -40,6 +40,16 @@ interface ISafe {
         returns (bool success, bytes memory returnData);
 
     function isModuleEnabled(address module) external view returns (bool);
+
+    /// @notice The Safe's transaction nonce. Incremented by `execTransaction` (before the inner
+    ///         call runs) and never by `setup` — so a value of 0 proves the Safe has not yet
+    ///         executed an owner-approved transaction (used to reject setup-time registration).
+    function nonce() external view returns (uint256);
+
+    /// @notice The Safe singleton (master copy) the proxy delegates to. On a genuine SafeProxy
+    ///         v1.4.1 this is intercepted by the proxy's own fallback (selector 0xa619486e) and
+    ///         read from storage slot 0, so it cannot be forged by a hostile singleton.
+    function masterCopy() external view returns (address);
 }
 
 /// @title  SailKernel
@@ -457,6 +467,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Thrown when `createAccount` deploys a Safe that does not have this kernel enabled as a module.
     error ModuleNotEnabled();
 
+    /// @dev Thrown by `registerAccount` when the caller Safe has not finalized setup (nonce == 0),
+    ///      blocking a setup-delegatecall helper from registering attacker-chosen principals (Octane #4).
+    error SetupNotFinalized();
+
+    /// @dev Thrown by Safe-authorized functions (`registerAccount`, `setManager`, `collectFees`) when
+    ///      msg.data is not the exact static length — a Safe fallback relay appends the caller's 20
+    ///      bytes, so a length mismatch flags a fallbackHandler-relayed call (Octane W1).
+    error UnexpectedCalldataLength();
+
     /// @dev Thrown by `createAccount` when the provided Safe factory is not in governance's trusted allowlist.
     error UntrustedFactory(address factory);
 
@@ -651,9 +670,32 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
     /// @param  feeAsset          Canonical fee settlement token; address(0) = native ETH.
     function registerAccount(address permissionSigner, address manager, address feePolicy, address feeAsset) external {
+        // W1: a genuine direct call is exactly selector + 4 static args = 132 bytes. Safe's
+        // FallbackManager relays unknown calls via CALL with msg.sender == the Safe and the
+        // original caller's 20 bytes appended, which Solidity tolerates. Rejecting any length
+        // other than 132 closes the msg.sender==Safe authorization bypass that arises when a
+        // Safe sets its fallbackHandler to this kernel.
+        if (msg.data.length != 132) revert UnexpectedCalldataLength();
+
         bytes32 codehash;
         assembly { codehash := extcodehash(caller()) }
         if (!governance.trustedSafeProxyCodehash(codehash)) revert UntrustedProxyCodehash(codehash);
+
+        // #9: the codehash check above only pins genuine SafeProxy bytecode — a genuine proxy can
+        // still delegate to a hostile singleton that forges module execution/return data. Pin the
+        // singleton to a governance-trusted Safe implementation, giving the self-registration path
+        // parity with createAccount (which validates the singleton argument). The proxy intercepts
+        // masterCopy() in its own fallback and returns storage slot 0, so a malicious singleton
+        // cannot forge this value.
+        address singleton = ISafe(msg.sender).masterCopy();
+        if (!governance.trustedSafeSingleton(singleton)) revert UntrustedSingleton(singleton);
+
+        // #4: registration must be finalized by an owner-approved Safe transaction, not stealthily
+        // performed during Safe.setup's delegatecall. setup() never bumps the Safe nonce, whereas
+        // execTransaction increments it before the inner call runs — so a legitimate self-registration
+        // always observes nonce >= 1, while a setup-time helper that enables the module and calls
+        // back here observes nonce == 0.
+        if (ISafe(msg.sender).nonce() == 0) revert SetupNotFinalized();
 
         if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
 
@@ -706,6 +748,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newManager New address authorised to sign dispatches. Must be non-zero and
     ///                    different from the current manager.
     function setManager(address newManager) external nonReentrant {
+        // W1: reject Safe-fallback-relayed calls (see registerAccount). A direct call is exactly
+        // selector + 1 static arg = 36 bytes; a fallback relay appends the caller's 20 bytes.
+        if (msg.data.length != 36) revert UnexpectedCalldataLength();
         address account = msg.sender;
         _requireRegistered(account);
         if (newManager == address(0)) revert ZeroAddress();
@@ -1491,6 +1536,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 currentNav,
         address feeToken
     ) external nonReentrant whenNotPaused {
+        // W1: reject Safe-fallback-relayed calls (see registerAccount). collectFees also accepts
+        // msg.sender == account, so a fallbackHandler==kernel Safe could otherwise force its own
+        // fee outflows. A direct call is exactly selector + 4 static args = 132 bytes.
+        if (msg.data.length != 132) revert UnexpectedCalldataLength();
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);

@@ -91,6 +91,11 @@ contract FaithfulSafeProxy {
 
     function callCount() external view returns (uint256) { return _calls.length; }
     function setSuccess(bool s) external { moduleCallSuccess = s; }
+
+    // Octane group 1a: expose the (allowlisted) singleton and a finalized nonce so registerAccount's
+    // #9 singleton check and #4 setup-not-finalized check pass for a faithfully set-up proxy.
+    function masterCopy() external pure returns (address) { return address(0x5A1E); }
+    function nonce() external pure returns (uint256) { return 1; }
 }
 
 /// @dev Faithful Safe proxy factory: deterministic CREATE2 deploy + address prediction

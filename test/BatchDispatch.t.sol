@@ -16,6 +16,11 @@ import {TransferPermission}        from "../contracts/templates/TransferPermissi
 // Hard-rejects operation == 1 (DELEGATECALL) to fail loudly if it ever appears.
 // =============================================================================
 contract ForwardingMockSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     struct Entry {
         address to;
         uint256 value;
@@ -202,6 +207,8 @@ contract BatchDispatchTest is Test {
         // for all ForwardingMockSafe instances, so this covers safeB created in later tests.
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Register account with the forwarding Safe.
         vm.prank(address(safe));

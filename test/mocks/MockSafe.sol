@@ -10,6 +10,11 @@ pragma solidity 0.8.26;
 ///         Self-contained — imports nothing — so the kernel-guarantee suite has zero dependency
 ///         on the example templates.
 contract MockSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     bool    public moduleEnabled = true;
     uint256 public callCount;
     address public lastTo;

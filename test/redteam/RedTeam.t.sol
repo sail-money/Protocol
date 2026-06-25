@@ -30,6 +30,11 @@ import {TimelockController}      from "@openzeppelin/contracts/governance/Timelo
 // Minimal mock Safe that records execTransactionFromModule calls
 // ─────────────────────────────────────────────────────────────────────────────
 contract MockSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     mapping(address => bool) public moduleEnabled;
     bool public execSucceeds = true;
     uint256 public execCallCount;
@@ -87,6 +92,10 @@ contract ReentrancyAttacker {
     constructor(address _kernel) { kernel = SailKernel(_kernel); }
 
     function isModuleEnabled(address) external pure returns (bool) { return true; }
+
+    // Octane group 1a: satisfy registerAccount's #9 singleton check and #4 nonce check.
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+    function nonce() external pure returns (uint256) { return 1; }
 
     function setReentryParams(address _account, address _perm2, uint256 _deadline2, bytes calldata _sig2) external {
         account     = _account;
@@ -181,6 +190,8 @@ abstract contract RedTeamBase is Test {
         // (Octane #4a). One seed covers all MockSafe instances (safe2/safe3/newSafe).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Register the Safe account
         vm.prank(address(safe));
@@ -725,6 +736,8 @@ contract FeeAccountingTests is RedTeamBase {
         // the reentrancy guard (the property under test here, not the codehash gate).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(rAttacker).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Register rAttacker's account (it calls registerAccount as itself)
         vm.prank(address(rAttacker));

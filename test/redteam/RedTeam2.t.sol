@@ -37,6 +37,11 @@ import {TimelockController}          from "@openzeppelin/contracts/governance/Ti
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract MockSafe2 {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     mapping(address => bool) public moduleEnabled;
     bool public execSucceeds = true;
     uint256 public execCallCount;
@@ -141,6 +146,8 @@ abstract contract RedTeamBase2 is Test {
         // covers all MockSafe2 instances (targetSafe/newSafe/unregisteredSafe).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0), address(0));

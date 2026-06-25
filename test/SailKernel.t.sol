@@ -16,6 +16,11 @@ import {SwapPermission}          from "../contracts/templates/SwapPermission.sol
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract MockSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     struct Call {
         address to;
         uint256 value;
@@ -230,6 +235,8 @@ contract SailKernelTest is Test {
         // safe2/safe3/newSafe accounts created across the tests below.
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));

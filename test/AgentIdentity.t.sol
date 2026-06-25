@@ -19,6 +19,11 @@ import {MockAgentIdentityPermission,
 // Minimal Safe stub — records module calls, returns true.
 // ─────────────────────────────────────────────────────────────────────────────
 contract AgentTestSafe {
+    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
+    function nonce() external pure returns (uint256) { return 1; }
+    function masterCopy() external pure returns (address) { return address(0x5AFE); }
+
     uint256 public callCount;
     bool    public moduleCallSuccess = true;
 
@@ -71,6 +76,8 @@ contract AgentIdentityTest is Test {
 
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
+        vm.prank(address(gov.timelock()));
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0), address(0));
