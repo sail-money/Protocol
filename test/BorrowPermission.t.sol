@@ -33,6 +33,19 @@ contract BorrowOracle is IOracle {
     }
 }
 
+/// @dev Minimal Compound V2 cToken: exposes underlying() like a cErc20 market.
+contract MockCToken {
+    address private immutable _u;
+    constructor(address u) { _u = u; }
+    function underlying() external view returns (address) { return _u; }
+}
+
+/// @dev A cToken-shaped market with NO underlying() (models Compound's native cETH market):
+///      resolving underlying() reverts, exercising the fail-closed try/catch deny.
+contract MockCEther {
+    function isCToken() external pure returns (bool) { return true; }
+}
+
 /// @notice Tests for BorrowPermission: the matched-oracle-pair requirement at configure() (a
 ///         single oracle is rejected), the full-precision LTV math (no collateral truncation), and
 ///         the standard decode / allowlist / cap / pin / oracle-health denials.
@@ -61,6 +74,9 @@ contract BorrowPermissionTest is Test {
         borrow    = new BorrowPermission(address(kernel), AUTHOR);
         colOracle = new BorrowOracle();
         borOracle = new BorrowOracle();
+        // The Compound branch resolves the borrow asset via cToken.underlying(); install a cToken
+        // whose underlying is ASSET at the CTOKEN test address so CTOKEN.underlying() == ASSET.
+        vm.etch(CTOKEN, address(new MockCToken(ASSET)).code);
     }
 
     // ── config helpers ────────────────────────────────────────────────────────
@@ -190,6 +206,65 @@ contract BorrowPermissionTest is Test {
         borOracle.set(ASSET, address(0), 1, 0);
         _configure(7500, address(colOracle), address(borOracle), 3600);
         assertFalse(borrow.evaluate(_aave(ASSET, 120, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    // ── #6: sub-1-unit borrow no longer bypasses the LTV ceiling (fail-closed) ────
+
+    /// @notice A sub-1-numeraire-unit borrow that the OLD truncating math APPROVED (the borrow
+    ///         value floored to borrowScaled = 0 → ltvBps = 0 → passed ANY ceiling) is now correctly
+    ///         DENIED when its true value exceeds the per-step LTV. colValue = 1 numeraire unit
+    ///         (dec 0); borPrice = 1 at 18 decimals, so each base unit is worth 1e-18 numeraire;
+    ///         maxLtv = 5000 (50%) → ceiling = 0.5 numeraire. A borrow of 9e17 base units is worth
+    ///         0.9 numeraire > 0.5 → DENY. The old code floored 0.9 → 0 and ALLOWED it.
+    function test_SubUnitBorrow_ExceedingLtv_Denies_OldWouldAllow() public {
+        colOracle.set(ACCOUNT, address(0), 1, 0);   // 1 numeraire unit of collateral
+        borOracle.set(ASSET, address(0), 1, 18);    // 1 base unit = 1e-18 numeraire
+        _configure(5000, address(colOracle), address(borOracle), 3600);
+        assertFalse(borrow.evaluate(_aave(ASSET, 9e17, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    /// @notice Marginal over-ceiling borrow (true LTV just above maxLtvBps) is DENIED. The old
+    ///         floor-rounding could let it slip; the amount-based form rounds against the borrower.
+    ///         colValue = 1000 (dec 0), borPrice = 1 (dec 0), maxLtv = 5000 (50%) → ceiling 500 units.
+    function test_MarginalOverCeiling_Denies() public {
+        colOracle.set(ACCOUNT, address(0), 1000, 0);
+        borOracle.set(ASSET, address(0), 1, 0);
+        _configure(5000, address(colOracle), address(borOracle), 3600);
+        assertFalse(borrow.evaluate(_aave(ASSET, 501, ACCOUNT), _ctx(AAVE, AAVE_BORROW))); // 50.1%
+    }
+
+    /// @notice A borrow exactly AT the ceiling still PASSES — the fail-closed form does not
+    ///         over-block legitimate borrows into uselessness. Same setup: ceiling = 500 units.
+    function test_ExactlyAtCeiling_Allows() public {
+        colOracle.set(ACCOUNT, address(0), 1000, 0);
+        borOracle.set(ASSET, address(0), 1, 0);
+        _configure(5000, address(colOracle), address(borOracle), 3600);
+        assertTrue(borrow.evaluate(_aave(ASSET, 500, ACCOUNT), _ctx(AAVE, AAVE_BORROW))); // 50.0%
+    }
+
+    // ── #11: Compound borrow resolves the cToken to its underlying ────────────────
+
+    /// @notice With the cToken's UNDERLYING allowlisted and priced (not the cToken), a Compound
+    ///         borrow resolves CTOKEN.underlying() == ASSET, keys both the allowlist and the borrow
+    ///         oracle on ASSET, and the LTV check prices it correctly → ALLOW. (The old code keyed
+    ///         on the cToken, for which the borrow oracle has no entry → price 0 → wrongful deny.)
+    function test_Compound_UnderlyingAllowlisted_WithOracles_Allows() public {
+        colOracle.set(ACCOUNT, address(0), 10_000, 0);
+        borOracle.set(ASSET, address(0), 1, 0); // borrow oracle keyed on the UNDERLYING (ASSET)
+        _configure(7500, address(colOracle), address(borOracle), 3600);
+        assertTrue(borrow.evaluate(_compound(5_000), _ctx(CTOKEN, COMPOUND_BORROW)));
+    }
+
+    /// @notice A cToken-shaped target with no underlying() (Compound's native cETH market) reverts
+    ///         the resolution staticcall and is denied fail-closed.
+    function test_Compound_NoUnderlyingFn_Denies() public {
+        MockCEther cEther = new MockCEther();
+        address[] memory protocols = _three(AAVE, MORPHO, address(cEther));
+        address[] memory assets    = _two(ASSET, address(cEther));
+        borrow.configureDirect(
+            ACCOUNT, abi.encode(protocols, assets, CAP, uint256(0), address(0), address(0), uint256(0))
+        );
+        assertFalse(borrow.evaluate(_compound(100), _ctx(address(cEther), COMPOUND_BORROW)));
     }
 
     // ── decode paths: each selector, happy path (zero-oracle to isolate decode) ───
