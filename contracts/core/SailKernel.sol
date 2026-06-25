@@ -30,6 +30,10 @@ interface ISafeFactory {
 }
 
 /// @dev Minimal Safe module interface — used for executing transactions and fee transfers.
+/// @dev DEPLOY ASSUMPTION: only Safe v1.4.1-style proxies may be governance-codehash-allowlisted —
+///      i.e. proxies that (a) intercept masterCopy() (0xa619486e) from storage slot 0 in their own
+///      fallback, (b) expose nonce(), and (c) implement Safe-core checkSignatures(bytes32,bytes,bytes).
+///      registerAccount's #9 singleton pin and #4 owner-signature gate rely on all three.
 interface ISafe {
     function execTransactionFromModule(address to, uint256 value, bytes calldata data, uint8 operation)
         external
@@ -50,6 +54,13 @@ interface ISafe {
     ///         v1.4.1 this is intercepted by the proxy's own fallback (selector 0xa619486e) and
     ///         read from storage slot 0, so it cannot be forged by a hostile singleton.
     function masterCopy() external view returns (address);
+
+    /// @notice Validate `signatures` over `dataHash` against the Safe's owner set and threshold.
+    ///         Safe-core method (not the fallback handler's ERC-1271 entrypoint), so it carries no
+    ///         dependency on which fallbackHandler is configured. Reverts (GS0xx) on any failure;
+    ///         returns nothing on success. `data` is only consulted for legacy contract-signature
+    ///         (v==0) entries (requires keccak256(data)==dataHash); empty for EOA / approved-hash.
+    function checkSignatures(bytes32 dataHash, bytes calldata data, bytes calldata signatures) external view;
 }
 
 /// @title  SailKernel
@@ -109,6 +120,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
+
+    /// @dev Exact calldata length of `setManager(address)`: selector (4) + 1 static arg (32).
+    ///      Used by the W1 fallback-relay guard — a Safe FallbackManager relay appends the
+    ///      original caller's 20 bytes, so any deviation from this length flags a relayed call.
+    uint256 private constant SET_MANAGER_CALLDATA_LEN  = 36;
+
+    /// @dev Exact calldata length of `collectFees(address,uint256,uint256,address)`:
+    ///      selector (4) + 4 static args (128). See `SET_MANAGER_CALLDATA_LEN` for the W1 rationale.
+    uint256 private constant COLLECT_FEES_CALLDATA_LEN = 132;
 
     // -------------------------------------------------------------------------
     // EIP-712 type hashes
@@ -184,6 +204,17 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         `callsHash` = keccak256(abi.encode(calls)) — see `dispatchBatch` for the encoding.
     bytes32 public constant DISPATCH_BATCH_TYPEHASH = keccak256(
         "DispatchBatch(address account,address permission,bytes32 callsHash,uint256 nonce,uint256 deadline)"
+    );
+
+    /// @notice EIP-712 type hash for owner-authorised self-registration via `registerAccount`.
+    ///         Type string: "RegisterAccount(address account,address permissionSigner,address manager,address feePolicy,address feeAsset,uint256 deadline)"
+    /// @dev    The owner-set+threshold signature over this struct is the robust gate for the
+    ///         self-registration path: it cannot be produced by a Safe.setup delegatecall helper
+    ///         (which has no owner keys). No nonce field — registration is one-shot (the
+    ///         `registered[account]` latch is never cleared, so a replayed signature reverts with
+    ///         AccountAlreadyRegistered) and the EIP-712 domain pins chainId against cross-chain replay.
+    bytes32 public constant REGISTER_ACCOUNT_TYPEHASH = keccak256(
+        "RegisterAccount(address account,address permissionSigner,address manager,address feePolicy,address feeAsset,uint256 deadline)"
     );
 
     // -------------------------------------------------------------------------
@@ -663,41 +694,82 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    MUST be called by the Safe itself (msg.sender == Safe). The caller must be a
     ///         genuine Safe proxy (verified by runtime codehash against the trusted allowlist,
     ///         blocking arbitrary-contract self-registration — finding #4a) and must already
-    ///         have this kernel enabled as a module (blocking stealth pre-registration during
-    ///         Safe.setup's delegatecall, when no module is yet enabled — finding #4b).
+    ///         have this kernel enabled as a module.
+    ///
+    ///         #4 OWNER AUTHORISATION (the robust gate): registration is bound to an EIP-712
+    ///         signature over the principals, verified through the Safe's own owner-set+threshold
+    ///         check (`checkSignatures`). This defeats the Safe.setup-delegatecall attack that a
+    ///         view-only heuristic could not: during setup every Safe-storage signal (nonce, module
+    ///         state, slot-0 singleton) is attacker-forgeable, but a setup helper cannot produce the
+    ///         owners' signatures over this digest. If an attacker rewrites the owner set to sign with
+    ///         their own key, they own the Safe — there is no victim. (The same setup-controlling
+    ///         attacker could also enable a draining module of their own, so this boundary is the most
+    ///         a registration check can defend; see the PR notes.) The `nonce()==0` check below is
+    ///         kept purely as cheap defense-in-depth on top of the signature.
+    ///
+    ///         createAccount does NOT carry an owner signature: it routes through the internal
+    ///         `_registerAccount` (never this public function), is kernel-orchestrated, validates the
+    ///         singleton/factory/setup-target against governance allowlists, and binds the principals
+    ///         into the CREATE2 salt — so it is protected by construction and unaffected by this gate.
+    ///
+    ///         INVOCATION: owners sign the RegisterAccount digest off-chain; an owner-approved Safe
+    ///         `execTransaction` then calls this function (so msg.sender == the Safe, satisfying the
+    ///         codehash gate) carrying that signature. msg.sender == account is preserved.
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
     /// @param  feeAsset          Canonical fee settlement token; address(0) = native ETH.
-    function registerAccount(address permissionSigner, address manager, address feePolicy, address feeAsset) external {
-        // W1: a genuine direct call is exactly selector + 4 static args = 132 bytes. Safe's
-        // FallbackManager relays unknown calls via CALL with msg.sender == the Safe and the
-        // original caller's 20 bytes appended, which Solidity tolerates. Rejecting any length
-        // other than 132 closes the msg.sender==Safe authorization bypass that arises when a
-        // Safe sets its fallbackHandler to this kernel.
-        if (msg.data.length != 132) revert UnexpectedCalldataLength();
+    /// @param  deadline          Unix timestamp after which the owner signature is invalid.
+    /// @param  ownerSig          Safe owner-set+threshold signature(s) over the RegisterAccount digest.
+    function registerAccount(
+        address permissionSigner,
+        address manager,
+        address feePolicy,
+        address feeAsset,
+        uint256 deadline,
+        bytes calldata ownerSig
+    ) external {
+        // No exact-length W1 guard here (cf. setManager/collectFees): `ownerSig` is dynamic, so an
+        // exact length is undefined and a minimum-length check would not catch a +20-byte fallback
+        // relay. The owner-signature requirement closes the W1 fallback vector for this function
+        // directly — a relay cannot produce the owners' signature over the digest.
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
 
         bytes32 codehash;
         assembly { codehash := extcodehash(caller()) }
         if (!governance.trustedSafeProxyCodehash(codehash)) revert UntrustedProxyCodehash(codehash);
 
-        // #9: the codehash check above only pins genuine SafeProxy bytecode — a genuine proxy can
-        // still delegate to a hostile singleton that forges module execution/return data. Pin the
-        // singleton to a governance-trusted Safe implementation, giving the self-registration path
-        // parity with createAccount (which validates the singleton argument). The proxy intercepts
-        // masterCopy() in its own fallback and returns storage slot 0, so a malicious singleton
-        // cannot forge this value.
-        address singleton = ISafe(msg.sender).masterCopy();
-        if (!governance.trustedSafeSingleton(singleton)) revert UntrustedSingleton(singleton);
-
-        // #4: registration must be finalized by an owner-approved Safe transaction, not stealthily
-        // performed during Safe.setup's delegatecall. setup() never bumps the Safe nonce, whereas
-        // execTransaction increments it before the inner call runs — so a legitimate self-registration
-        // always observes nonce >= 1, while a setup-time helper that enables the module and calls
-        // back here observes nonce == 0.
+        // #4 defense-in-depth: setup() never bumps the Safe nonce; execTransaction increments it
+        // before the inner call runs. A value of 0 therefore flags a not-yet-finalized Safe. This is
+        // forgeable by a setup-delegatecall helper (nonce lives in slot 5), so it is NOT the gate —
+        // the owner signature below is. Kept as a cheap early reject.
         if (ISafe(msg.sender).nonce() == 0) revert SetupNotFinalized();
 
         if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
+
+        // #9: the codehash check only pins genuine SafeProxy bytecode — a genuine proxy can still
+        // delegate to a hostile singleton that forges module execution/return data. Pin the singleton
+        // to a governance-trusted Safe implementation, giving the self-registration path parity with
+        // createAccount. The proxy intercepts masterCopy() in its own fallback and returns storage
+        // slot 0, so a malicious singleton cannot forge this value.
+        address singleton = ISafe(msg.sender).masterCopy();
+        if (!governance.trustedSafeSingleton(singleton)) revert UntrustedSingleton(singleton);
+
+        // #4 owner authorisation (the robust gate). Bind the principals to an owner-set+threshold
+        // signature so a setup helper — which holds no owner keys — cannot register. chainId is in
+        // the EIP-712 domain; no nonce is needed because registration is one-shot (`registered[]`
+        // never clears, so a replay reverts AccountAlreadyRegistered in _registerAccount).
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            REGISTER_ACCOUNT_TYPEHASH,
+            msg.sender,
+            permissionSigner,
+            manager,
+            feePolicy,
+            feeAsset,
+            deadline
+        )));
+        // Reverts (GS0xx) unless `ownerSig` satisfies the Safe's owner set + threshold.
+        ISafe(msg.sender).checkSignatures(digest, "", ownerSig);
 
         _registerAccount(msg.sender, permissionSigner, manager, feePolicy, feeAsset);
     }
@@ -748,9 +820,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newManager New address authorised to sign dispatches. Must be non-zero and
     ///                    different from the current manager.
     function setManager(address newManager) external nonReentrant {
-        // W1: reject Safe-fallback-relayed calls (see registerAccount). A direct call is exactly
-        // selector + 1 static arg = 36 bytes; a fallback relay appends the caller's 20 bytes.
-        if (msg.data.length != 36) revert UnexpectedCalldataLength();
+        // W1: reject Safe-fallback-relayed calls. A direct call is exactly selector + 1 static arg;
+        // a fallback relay appends the caller's 20 bytes (see SET_MANAGER_CALLDATA_LEN).
+        if (msg.data.length != SET_MANAGER_CALLDATA_LEN) revert UnexpectedCalldataLength();
         address account = msg.sender;
         _requireRegistered(account);
         if (newManager == address(0)) revert ZeroAddress();
@@ -1536,10 +1608,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 currentNav,
         address feeToken
     ) external nonReentrant whenNotPaused {
-        // W1: reject Safe-fallback-relayed calls (see registerAccount). collectFees also accepts
-        // msg.sender == account, so a fallbackHandler==kernel Safe could otherwise force its own
-        // fee outflows. A direct call is exactly selector + 4 static args = 132 bytes.
-        if (msg.data.length != 132) revert UnexpectedCalldataLength();
+        // W1: reject Safe-fallback-relayed calls. collectFees also accepts msg.sender == account,
+        // so a fallbackHandler==kernel Safe could otherwise force its own fee outflows. A direct
+        // call is exactly selector + 4 static args (see COLLECT_FEES_CALLDATA_LEN).
+        if (msg.data.length != COLLECT_FEES_CALLDATA_LEN) revert UnexpectedCalldataLength();
         _requireRegistered(account);
         AccountConfig storage cfg = configs[account];
         if (!cfg.sessionActive) revert SessionInactive(account);

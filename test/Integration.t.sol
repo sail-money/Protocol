@@ -29,6 +29,7 @@ contract MockSafe {
     // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
 
     struct Call {
@@ -153,7 +154,7 @@ contract IntegrationTest is Test {
 
         // 6. Register MockSafe with the kernel (must be called by the Safe itself)
         vm.prank(address(mockSafe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         // 6b. Configure SwapPermission for this account: only ROUTER, WETH→USDC, 10 ETH cap.
         //     SwapPermission now requires an oracle; these dispatch/fee tests are not about the
@@ -204,7 +205,7 @@ contract IntegrationTest is Test {
         // Fresh account for a clean signerNonce
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         uint256 fee = _calcFee(address(swap));
         uint256 treasuryBefore = TREASURY.balance;
@@ -222,7 +223,7 @@ contract IntegrationTest is Test {
     function test_Fee_InsufficientFeeReverts() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         uint256 fee = _calcFee(address(swap));
         uint256 regDeadline = block.timestamp + 1 days;
@@ -235,7 +236,7 @@ contract IntegrationTest is Test {
     function test_Fee_ExcessRefundedToCaller() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         uint256 fee = _calcFee(address(swap));
         uint256 overpay = fee + 1 ether;

@@ -10,23 +10,45 @@ import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 ///      Stores its singleton in regular storage (not immutable / not in code), so every instance
 ///      shares one runtime codehash — exactly like a real SafeProxy — letting a single codehash
 ///      seed cover the trusted- and untrusted-singleton instances alike. `nonce` and module-enabled
-///      are settable so a test can reproduce the setup-time (nonce == 0) attack shape.
+///      are settable so a test can reproduce the setup-time (nonce == 0) shape.
+///
+///      checkSignatures faithfully mirrors Safe-core for a single-owner, threshold-1 Safe: it
+///      ECDSA-recovers `dataHash` and reverts unless the signer is the configured owner — so the
+///      #4 owner-signature gate is exercised for real (valid sig succeeds; forged-nonce-without-sig
+///      and non-owner sig revert).
 contract ConfigurableSafe {
     address private _singleton;
     uint256 private _nonce = 1;          // a finalized Safe has nonce >= 1
     bool    private _moduleEnabled = true;
+    address public  owner;               // single owner whose signature authorises registration
 
-    constructor(address singleton_) { _singleton = singleton_; }
+    constructor(address singleton_, address owner_) { _singleton = singleton_; owner = owner_; }
 
     function masterCopy() external view returns (address) { return _singleton; }
     function nonce() external view returns (uint256) { return _nonce; }
     function isModuleEnabled(address) external view returns (bool) { return _moduleEnabled; }
-
     function setNonce(uint256 n) external { _nonce = n; }
     function setModuleEnabled(bool v) external { _moduleEnabled = v; }
 
-    /// @dev Forward `data` to `kernel`, then mimic Safe's FallbackManager by appending the
-    ///      original caller's 20 bytes — reproducing a fallbackHandler==kernel relay (W1).
+    /// @dev Mirrors Safe-core checkSignatures for one owner / threshold 1: revert unless `signatures`
+    ///      is a valid ECDSA signature over `dataHash` by `owner`. Reverts (like the real Safe) rather
+    ///      than returning a flag.
+    function checkSignatures(bytes32 dataHash, bytes calldata, bytes calldata signatures) external view {
+        require(signatures.length >= 65, "GS020");
+        bytes32 r;
+        bytes32 s;
+        uint8   v;
+        assembly {
+            r := calldataload(signatures.offset)
+            s := calldataload(add(signatures.offset, 0x20))
+            v := byte(0, calldataload(add(signatures.offset, 0x40)))
+        }
+        address rec = ecrecover(dataHash, v, r, s);
+        require(rec != address(0) && rec == owner, "GS026");
+    }
+
+    /// @dev Forward `data` to `kernel`, appending the original caller's 20 bytes — reproducing a
+    ///      Safe FallbackManager relay when fallbackHandler == kernel (W1).
     function relayWithTrailingBytes(address kernel, bytes calldata data, address originalCaller)
         external
         returns (bool ok, bytes memory ret)
@@ -51,15 +73,20 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     address constant TRUSTED_SINGLETON   = address(0x600D);
     address constant UNTRUSTED_SINGLETON = address(0x0BAD);
 
+    uint256 constant OWNER_KEY    = 0xB00C;
+    uint256 constant ATTACKER_KEY = 0xBAD5;
+    address owner;
+
     address permSigner = address(0x5161);
     address manager    = address(0x6A11);
 
     function setUp() public {
+        owner  = vm.addr(OWNER_KEY);
         gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, TimelockDeployer.deploy(TEAM));
         kernel = new SailKernel(address(gov), TREASURY);
 
         // One codehash seed covers every ConfigurableSafe instance.
-        ConfigurableSafe seed = new ConfigurableSafe(TRUSTED_SINGLETON);
+        ConfigurableSafe seed = new ConfigurableSafe(TRUSTED_SINGLETON, owner);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(seed).codehash, true);
         vm.prank(address(gov.timelock()));
@@ -67,73 +94,125 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     }
 
     function _newSafe(address singleton) internal returns (ConfigurableSafe s) {
-        s = new ConfigurableSafe(singleton);
+        s = new ConfigurableSafe(singleton, owner);
     }
 
-    // ── #4: setup-not-finalized (nonce == 0) ────────────────────────────────────
+    /// @dev Build an owner signature over the RegisterAccount digest for `account`, signed with `key`.
+    function _ownerSig(address account, address fp, address fa, uint256 deadline, uint256 key)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(abi.encode(
+            kernel.REGISTER_ACCOUNT_TYPEHASH(), account, permSigner, manager, fp, fa, deadline
+        ));
+        bytes32 digest = kernel.hashTypedDataV4(structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+        return abi.encodePacked(r, s, v);
+    }
 
-    /// A registration attempted while the Safe nonce is still 0 (the Safe.setup-delegatecall
-    /// attack shape) is rejected; a finalized Safe (nonce >= 1) registers normally.
-    function test_Reg4_NonceZero_Rejected() public {
+    function _register(ConfigurableSafe safe, address fp, address fa) internal {
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory sig = _ownerSig(address(safe), fp, fa, deadline, OWNER_KEY);
+        vm.prank(address(safe));
+        kernel.registerAccount(permSigner, manager, fp, fa, deadline, sig);
+    }
+
+    // ── #4 owner-signature gate ─────────────────────────────────────────────────
+
+    /// A valid owner signature registers the account.
+    function test_Reg4_OwnerSig_Valid_Registers() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
-        safe.setNonce(0);
-        vm.prank(address(safe));
-        vm.expectRevert(SailKernel.SetupNotFinalized.selector);
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
-    }
-
-    function test_Reg4_NonceFinalized_Registers() public {
-        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON); // nonce defaults to 1
-        vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        _register(safe, address(0), address(0));
         assertTrue(kernel.registered(address(safe)));
         (address ps, address mgr,,,) = kernel.configs(address(safe));
         assertEq(ps, permSigner);
         assertEq(mgr, manager);
     }
 
-    // ── #9: trusted-singleton check ─────────────────────────────────────────────
+    /// THE case the old nonce-only guard let through: a setup helper forges nonce -> 1 (here the
+    /// mock simply reports nonce 1) and calls registerAccount WITHOUT a valid owner signature.
+    /// Now rejected — the owner-sig is unforgeable by a helper holding no owner keys.
+    function test_Reg4_ForgedNonce_NoOwnerSig_Rejected() public {
+        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON); // nonce == 1, module on, trusted singleton
+        vm.prank(address(safe));
+        vm.expectRevert(bytes("GS020")); // checkSignatures: empty/short signature
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
+        assertFalse(kernel.registered(address(safe)));
+    }
 
-    /// A genuine proxy (trusted codehash) that delegates to an UNtrusted singleton is rejected.
+    /// A signature from a non-owner key is rejected by the Safe's owner check.
+    function test_Reg4_NonOwnerSig_Rejected() public {
+        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory badSig = _ownerSig(address(safe), address(0), address(0), deadline, ATTACKER_KEY);
+        vm.prank(address(safe));
+        vm.expectRevert(bytes("GS026")); // checkSignatures: recovered signer is not an owner
+        kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, badSig);
+        assertFalse(kernel.registered(address(safe)));
+    }
+
+    /// Defense-in-depth: nonce == 0 is rejected before the owner-sig is even checked.
+    function test_Reg4_NonceZero_DiD_Rejected() public {
+        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
+        safe.setNonce(0);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory sig = _ownerSig(address(safe), address(0), address(0), deadline, OWNER_KEY); // even a valid sig
+        vm.prank(address(safe));
+        vm.expectRevert(SailKernel.SetupNotFinalized.selector);
+        kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, sig);
+    }
+
+    /// A registration whose deadline has passed is rejected.
+    function test_Reg4_DeadlineExpired_Rejected() public {
+        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
+        vm.warp(1_000_000);
+        uint256 deadline = block.timestamp - 1;
+        bytes memory sig = _ownerSig(address(safe), address(0), address(0), deadline, OWNER_KEY);
+        vm.prank(address(safe));
+        vm.expectRevert(abi.encodeWithSelector(SailKernel.DeadlineExpired.selector, deadline, block.timestamp));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, sig);
+    }
+
+    // ── #9: trusted-singleton check (unchanged; runs before the owner-sig) ───────
+
     function test_Reg9_UntrustedSingleton_Rejected() public {
         ConfigurableSafe safe = _newSafe(UNTRUSTED_SINGLETON);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory sig = _ownerSig(address(safe), address(0), address(0), deadline, OWNER_KEY);
         vm.prank(address(safe));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedSingleton.selector, UNTRUSTED_SINGLETON));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, sig);
     }
 
     function test_Reg9_TrustedSingleton_Registers() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
-        vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        _register(safe, address(0), address(0));
         assertTrue(kernel.registered(address(safe)));
     }
 
-    // ── W1: exact-calldata-length guards ────────────────────────────────────────
+    // ── W1: fallback relay ──────────────────────────────────────────────────────
 
-    /// A fallback-relayed registerAccount (calldata + 20 trailing bytes) is rejected; the
-    /// exact-length direct call registers.
-    function test_RegW1_RegisterAccount_FallbackShape_Rejected() public {
+    /// registerAccount no longer carries an exact-length guard (its owner-sig arg is dynamic).
+    /// The owner-signature requirement itself closes the fallback vector: a relay sets
+    /// msg.sender == Safe but cannot supply the owners' signature, so registration is rejected.
+    function test_RegW1_RegisterAccount_FallbackRelay_NoOwnerSig_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
+        uint256 deadline = block.timestamp + 1 days;
+        // Attacker-controlled (non-owner) signature, delivered via the Safe fallback relay (+20 bytes).
+        bytes memory badSig = _ownerSig(address(safe), address(0), address(0), deadline, ATTACKER_KEY);
         bytes memory data = abi.encodeWithSelector(
-            kernel.registerAccount.selector, permSigner, manager, address(0), address(0)
+            kernel.registerAccount.selector, permSigner, manager, address(0), address(0), deadline, badSig
         );
-        (bool ok, bytes memory ret) = safe.relayWithTrailingBytes(address(kernel), data, address(0xA77ACC));
-        assertFalse(ok, "fallback-shaped call must revert");
-        assertEq(bytes4(ret), SailKernel.UnexpectedCalldataLength.selector);
-        assertFalse(kernel.registered(address(safe)), "must not register via fallback relay");
-
-        // Exact-length direct call still works.
-        (bool ok2,) = safe.relayExact(address(kernel), data);
-        assertTrue(ok2, "exact-length direct call must succeed");
-        assertTrue(kernel.registered(address(safe)));
+        (bool ok,) = safe.relayWithTrailingBytes(address(kernel), data, address(0xA77ACC));
+        assertFalse(ok, "fallback relay without a valid owner signature must revert");
+        assertFalse(kernel.registered(address(safe)));
     }
 
-    /// setManager via fallback shape is rejected; exact-length call works (after registration).
+    /// setManager keeps its exact-length guard: a fallback-shaped call is rejected; exact works.
     function test_RegW1_SetManager_FallbackShape_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
-        vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        _register(safe, address(0), address(0));
 
         bytes memory data = abi.encodeWithSelector(kernel.setManager.selector, address(0xBEEF));
         (bool ok, bytes memory ret) = safe.relayWithTrailingBytes(address(kernel), data, address(0xA77ACC));
@@ -146,13 +225,11 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         assertEq(kernel.getManager(address(safe)), address(0xBEEF));
     }
 
-    /// collectFees via fallback shape is rejected by the length guard (the first check), before
-    /// any auth/policy logic; an exact-length call passes the guard (and fails later for a
-    /// different, non-length reason — proving the guard itself did not fire).
+    /// collectFees keeps its exact-length guard: a fallback-shaped call is rejected by the length
+    /// guard (first check); an exact-length call clears it and reverts later for a different reason.
     function test_RegW1_CollectFees_FallbackShape_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
-        vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        _register(safe, address(0), address(0));
 
         bytes memory data = abi.encodeWithSelector(
             kernel.collectFees.selector, address(safe), uint256(1), uint256(1), address(0)
@@ -161,8 +238,6 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         assertFalse(ok);
         assertEq(bytes4(ret), SailKernel.UnexpectedCalldataLength.selector);
 
-        // Exact-length call clears the length guard; it reverts later (no fee policy set), which
-        // is a DIFFERENT selector — proving the calldata-length guard did not reject it.
         (bool ok2, bytes memory ret2) = safe.relayExact(address(kernel), data);
         assertFalse(ok2);
         assertTrue(bytes4(ret2) != SailKernel.UnexpectedCalldataLength.selector, "must pass length guard");

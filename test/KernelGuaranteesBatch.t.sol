@@ -54,7 +54,7 @@ contract KernelGuaranteesBatchTest is Test {
         gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(account);
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

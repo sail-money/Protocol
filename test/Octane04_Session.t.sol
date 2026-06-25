@@ -21,6 +21,7 @@ contract _O4Safe {
     // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
 
     function execTransactionFromModule(address, uint256, bytes calldata, uint8)
@@ -84,7 +85,7 @@ contract Octane04_Session is Test {
         gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         // Fund the safe with ETH so fee transfers can execute
         vm.deal(address(safe), 100 ether);

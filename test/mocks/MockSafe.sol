@@ -13,6 +13,7 @@ contract MockSafe {
     // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
 
     bool    public moduleEnabled = true;

@@ -19,6 +19,7 @@ contract MockSafe {
     // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
 
     struct Call {
@@ -240,7 +241,7 @@ contract SailKernelTest is Test {
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -333,27 +334,27 @@ contract SailKernelTest is Test {
     function test_RegisterAccount_RevertsIfAlreadyRegistered() public {
         vm.prank(address(safe));
         vm.expectRevert(abi.encodeWithSelector(SailKernel.AccountAlreadyRegistered.selector, address(safe)));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     function test_RegisterAccount_RevertsOnZeroPermissionSigner() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.registerAccount(address(0), manager, address(0), address(0));
+        kernel.registerAccount(address(0), manager, address(0), address(0), block.timestamp + 1 days, "");
     }
 
     function test_RegisterAccount_RevertsOnZeroManager() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.registerAccount(permSigner, address(0), address(0), address(0));
+        kernel.registerAccount(permSigner, address(0), address(0), address(0), block.timestamp + 1 days, "");
     }
 
     function test_RegisterAccount_CallerBecomesAccount() public {
         MockSafe newSafe = new MockSafe();
         vm.prank(address(newSafe));
-        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
         assertTrue(kernel.registered(address(newSafe)));
         (address ps,,,, ) = kernel.configs(address(newSafe));
         assertEq(ps, permSigner);
@@ -365,10 +366,10 @@ contract SailKernelTest is Test {
         MockSafe safe3 = new MockSafe();
 
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         vm.prank(address(safe3));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         assertTrue(kernel.registered(address(safe2)));
         assertTrue(kernel.registered(address(safe3)));
@@ -944,7 +945,7 @@ contract SailKernelTest is Test {
     function test_CollectFees_RevertsIfNoPolicySet() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         vm.prank(manager);
         vm.expectRevert(SailKernel.FeePolicyNotSet.selector);
@@ -1433,7 +1434,7 @@ contract SailKernelTest is Test {
         // Register new safe with the contract as manager
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         // Register a permission
         uint256 sigNonce = kernel.signerNonces(address(safe2));
@@ -1462,7 +1463,7 @@ contract SailKernelTest is Test {
 
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0));
+        kernel.registerAccount(permSigner, address(contractManager), address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         uint256 sigNonce = kernel.signerNonces(address(safe2));
         uint256 regDeadline2 = block.timestamp + 1 days;
@@ -1488,7 +1489,7 @@ contract SailKernelTest is Test {
         // Register new safe with the contract as permissionSigner
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(address(contractSigner), manager, address(feePolicy), address(0));
+        kernel.registerAccount(address(contractSigner), manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
 
         // Register permission using backing EOA sig verified by ERC1271
         uint256 sigNonce = kernel.signerNonces(address(safe2));
@@ -1561,7 +1562,7 @@ contract SailKernelTest is Test {
     function test_SetManager_OnlyAffectsCallersOwnAccount() public {
         MockSafe safe2 = new MockSafe();
         vm.prank(address(safe2));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         address newManager = vm.addr(0xCAFE);
         vm.prank(address(safe2));

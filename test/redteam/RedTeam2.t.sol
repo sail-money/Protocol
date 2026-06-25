@@ -40,6 +40,7 @@ contract MockSafe2 {
     // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
+    function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
 
     mapping(address => bool) public moduleEnabled;
@@ -150,7 +151,7 @@ abstract contract RedTeamBase2 is Test {
         gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
 
         vm.prank(address(safe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         alwaysTrue = new AlwaysTruePerm2();
     }
@@ -571,7 +572,7 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
-        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0), address(0));
+        kernel.registerAccount(address(0xDEAD), address(0xBEEF), address(0), address(0), block.timestamp + 1 days, "");
 
         assertFalse(kernel.registered(attacker));
     }
@@ -585,14 +586,14 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         // Attacker EOA cannot register anything — codehash gate rejects it.
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, attacker.codehash));
-        kernel.registerAccount(address(0x111), address(0x222), address(0), address(0));
+        kernel.registerAccount(address(0x111), address(0x222), address(0), address(0), block.timestamp + 1 days, "");
 
         assertFalse(kernel.registered(attacker));
         assertFalse(kernel.registered(address(targetSafe)));
 
         // Now targetSafe (allowlisted MockSafe2 codehash, module enabled) registers itself.
         vm.prank(address(targetSafe));
-        kernel.registerAccount(permSigner, manager, address(0), address(0));
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
         assertTrue(kernel.registered(address(targetSafe)));
     }
 
@@ -622,7 +623,7 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         // Manager is an EOA — codehash gate (Octane #4a) rejects its registration attempt.
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, manager.codehash));
-        kernel.registerAccount(permSigner, address(0x1234), address(0), address(0));
+        kernel.registerAccount(permSigner, address(0x1234), address(0), address(0), block.timestamp + 1 days, "");
 
         assertFalse(kernel.registered(manager));
         assertFalse(kernel.registered(address(newSafe)));

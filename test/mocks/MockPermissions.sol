@@ -75,7 +75,7 @@ contract MockPermissionStateMutator {
 }
 
 interface IKernelReenter {
-    function registerAccount(address permissionSigner, address manager, address feePolicy, address feeAsset) external;
+    function registerAccount(address permissionSigner, address manager, address feePolicy, address feeAsset, uint256 deadline, bytes calldata ownerSig) external;
 }
 
 /// @notice Attempts to re-enter the kernel with a state-changing call during evaluate. Under
@@ -86,7 +86,7 @@ contract MockPermissionReenters {
     address public immutable kernel;
     constructor(address _kernel) { kernel = _kernel; }
     function evaluate(bytes calldata, Context calldata) external returns (bool) {
-        IKernelReenter(kernel).registerAccount(address(this), address(this), address(0), address(0));
+        IKernelReenter(kernel).registerAccount(address(this), address(this), address(0), address(0), block.timestamp + 1 days, "");
         return true;
     }
     function discriminator() external pure returns (bytes32) { return keccak256("MockPermissionReenters"); }
