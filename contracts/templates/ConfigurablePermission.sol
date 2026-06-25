@@ -24,14 +24,22 @@ interface ISailKernelView {
     function registrationEpoch(address account, address permission) external view returns (uint256);
 }
 
-/// @notice UNAUDITED EXAMPLE — NOT PART OF THE TRUSTED CORE.
-///         Base class for the unaudited reference example permissions (SwapPermission,
-///         BorrowPermission, TransferPermission, ApproveAndCallBatchPermission,
-///         DepositPermission, WithdrawPermission). It is NOT part of the trusted core
-///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler),
-///         is not covered by the protocol audit of that core, and carries no warranty.
-///         Anyone deploying a subclass is responsible for reviewing it. See docs/SECURITY.md
-///         for the audit-scope documentation.
+/// @notice Shared base for Sail's REFERENCE LAUNCH TEMPLATE set — the seven templates Octane
+///         audits post-freeze (SwapPermission, SwapPermissionNoOracle, BorrowPermission,
+///         TransferPermission, DepositPermission, WithdrawPermission, ApproveAndCallBatchPermission).
+///         This abstract base is never deployed on its own; the concrete subclasses are the audited
+///         launch set, documented with honest boundaries in their own headers and in docs/TEMPLATES.md.
+///         The base and its subclasses sit OUTSIDE the trusted core (SailKernel, SailGovernance,
+///         MandateFactory, StandardFeePolicy, SafeModuleEnabler): a bug here cannot reach the kernel
+///         or accounts that have not registered the subclass. Registrants remain responsible for
+///         reviewing the subclass they register. The loud "UNAUDITED EXAMPLE" banner is reserved for
+///         the future experimental template set (currently empty), not this hardened launch set.
+///         See docs/SECURITY.md for the audit-scope documentation.
+///
+///         This base carries the per-account, multi-tenant config lifecycle the launch set inherits:
+///         configuration is permissionSigner-authorised (EIP-712 signature, epoch-bound) and
+///         evaluation is fail-closed — see `_configCurrent`, which subclasses MUST call first in every
+///         evaluate path so a config left stale by a revoke → re-register cycle can never be honoured.
 ///
 ///         Abstract base for shared, multi-account permission templates.
 ///         One deployed instance serves any number of accounts; per-account config
