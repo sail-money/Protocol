@@ -1,88 +1,223 @@
-# Sail Permission Templates — Operator Guide
+# Sail Permission Templates — A First-Principles Guide
 
-This is the operator-facing companion to the permission templates that ship with Sail. It explains what each template is for, what you configure, and — just as importantly — what each one does **not** guarantee. For source-level detail, read each contract's header NatSpec in `contracts/templates/`; for the protocol's security model, see [`SECURITY.md`](./SECURITY.md).
+This guide explains the seven permission templates that ship with Sail at launch: what each one is for, what you configure on it, **how it actually decides** whether to allow a transaction (branch by branch, in plain language), and — just as importantly — what it **cannot** protect against.
 
-The launch set is **seven user-facing templates**, plus one shared base they all inherit (`ConfigurablePermission`, not deployed on its own). They are reference implementations: swappable defaults you are responsible for reviewing against your own use, and any contract implementing `IPermission` can be registered instead.
+It is written to be understandable without reading Solidity. For the exact source, each template's header NatSpec in `contracts/templates/` is the canonical boundary text and this guide expands on it; for the kernel and governance security model, see [`SECURITY.md`](./SECURITY.md) and [`spec.md`](./spec.md).
+
+---
+
+## What a permission template *is* (and is not)
+
+A **permission** is a small contract the Sail kernel calls on every transaction a manager proposes, to answer one yes/no question: *is this specific call allowed for this account right now?* It returns **allow** or **deny** and nothing else. It never moves funds, never holds funds, and cannot change any on-chain state — custody stays in the account's Safe the whole time. (The kernel calls it with `staticcall`, which makes state changes physically impossible.)
+
+A **template** is a permission written to be **reused**: one deployment per chain serves *every* account that registers it, with each account's own limits stored separately. You don't deploy your own copy — you register the shared contract and configure your bounds on it.
+
+Two framings matter, and they are easy to confuse:
+
+- **The protocol is permissionless.** Sail does not bless a fixed menu of permissions. Anyone can write and deploy their own permission contract for any venue, and the kernel will register and dispatch through *any* contract that implements the `IPermission` interface. The seven templates below are not "the protocol" — they are a **curated starting set**.
+- **These seven are the audited reference set.** They are the launch templates Octane is auditing post-freeze: hardened, and documented here with honest limits. They are **not** marked "UNAUDITED EXAMPLE" — that label is reserved for the future *experimental* set (see the end of this document), which is currently empty. "Outside the trusted core" (which they are) is a statement about *blast radius* — a bug in one template can only affect accounts that registered that template, never the kernel or other accounts — not a statement that they are unreviewed.
 
 ---
 
 ## The shared model (read this once)
 
-**What a permission template is.** A template is a contract the kernel calls on **every dispatch**, via `staticcall`, to decide whether the manager's proposed transaction is allowed. It returns allow/deny only — it **never moves funds** and **cannot change state** (custody stays in the Safe). Evaluation is **fail-closed**: a revert, an out-of-gas, or a `false` return all mean *deny*. A single-dispatch `evaluate` runs under a fixed **150,000-gas cap** (a batch template's `evaluateBatch` runs under **1,000,000**), and each dispatch is gated by **one** named permission the manager selects (selective authorization) — so the bounds you register are exactly the bounds that apply.
+All seven templates inherit the same configuration-and-evaluation spine from a shared base, `ConfigurablePermission` (which is abstract — never deployed on its own). Understanding it once means you only have to read the *differences* in each section below.
 
-**What that buys the operator.** Every bound below is enforced **on-chain, in Solidity, at call time**. A compromised or buggy manager can only ever act *within* the bounds of a registered template — it cannot exceed them. The owner can **revoke a permission in a single block**. Nothing here depends on off-chain trust in the manager.
+**Multi-tenant by design.** One template contract serves any number of accounts. Each account's allowlists and caps live in per-account storage, keyed by the account address. Your configuration never affects anyone else's, and theirs never affects yours.
 
-**Configuration & multi-tenancy.** One template contract serves **any number of accounts**: each account stores its own bounds. You set those bounds with `configure(...)`, authorized by an **EIP-712 signature from the account's permission signer** (or `configureDirect` when the signer calls directly). All seven inherit this config/auth spine from `ConfigurablePermission`; reconfiguring replaces an account's bounds.
+**You configure with a signed message.** You set an account's bounds by calling `configure(...)`, authorized by an **EIP-712 signature from that account's permission signer** (the role that decides which permissions and bounds apply — see [`spec.md`](./spec.md)). There is also `configureDirect(...)`, usable when the permission signer is the one sending the transaction itself. Reconfiguring **replaces** the account's bounds wholesale. Signatures are single-use (nonce-tracked) and carry a deadline.
 
-**The honest caveat.** These templates enforce a **shape and bounds** — which selector, which token/router/recipient, how much per call, output pinned to the account — **not the honesty of the venue** they point at. Allowlisting a malicious or buggy router/vault/pool is not something a template can catch. A template is only as good as its configuration and the keys behind the permission signer and manager. Read each template's "does NOT" section before relying on it.
+**Evaluation is fail-closed.** Deny is the default. A template denies on a `false` return, *and* on any revert or out-of-gas — the kernel treats all three identically as "deny." There is no way for an error to accidentally allow a transaction.
 
-**Oracle adapters and the gas cap.** Oracle-backed templates (`SwapPermission`, `BorrowPermission`) read their configured `IOracle` adapter inside `evaluate`, which runs under the 150,000-gas cap. A heavy adapter — one that performs multiple external reads or expensive math — can exhaust that budget, and `evaluate` then fails closed (deny), blocking otherwise-valid dispatches. Budget the adapter's read cost against the cap and test the heaviest adapter you intend to allowlist end-to-end before relying on it in production.
+**The first check is always "is this configuration current?"** Every template's first decision is a freshness gate: it denies unless the account is configured **and** the configuration it has matches the *current registration epoch* for that account-and-template. In plain terms: if a permission was revoked and re-registered, any configuration left over from before is treated as stale and ignored until you configure again. This closes a class of attacks where an old, broader configuration could be revived. The mechanism (the config↔registration-epoch binding) is described in [`SECURITY.md`](./SECURITY.md); you don't need to re-derive it here — just know that **a stale or absent configuration always denies.**
 
----
+**Gas is bounded, and one permission decides each dispatch.** A single transaction is gated by exactly **one** permission that the manager names in their signature (selective authorization); the kernel does not consult every permission you've registered. That one permission's `evaluate` runs under a fixed **150,000-gas** cap (`PERMISSION_GAS_CAP`). The one batch-aware template runs its `evaluateBatch` under a larger **1,000,000-gas** cap (`BATCH_EVAL_GAS_CAP`), and a batch may contain at most **16** sub-calls (`MAX_BATCH_LENGTH`). If a permission runs out of gas, that is a deny.
 
-## SwapPermission — oracle-gated swap *(recommended default)*
-
-Gates DEX swaps to allowlisted tokens/routers, within a size cap, with a slippage band measured against an independent price oracle.
-
-- **You configure:** `routers[]`, `tokensIn[]`, `tokensOut[]` (allowlists); `maxAmountPerTx` (per-trade input cap); `maxSlippageBps` (tolerance vs the oracle, 0–9_999); `priceOracle` (an injected `IOracle` adapter — **required**); `maxPriceAgeSec` (freshness bound). Validated at configure: slippage ≤ 9_999, an oracle must be set (else `OracleRequired`), and a non-zero freshness bound is required.
-- **Enforces:** input/output tokens and router allowlisted · `amountIn ≤ cap` · **output recipient == the account** · oracle fresh and non-zero · `amountOutMin ≥ oracleMinOut` (the band); if the derived floor rounds to zero, it **denies** rather than waving the trade through.
-- **Compatibility:** standard router ABIs only — V2 `swapExactTokensForTokens` and V3/SwapRouter02 `exactInputSingle`. These are shared byte-for-byte by Uniswap and its forks (PancakeSwap, SushiSwap, etc.) — coverage comes from the **router allowlist**, not per-protocol code. **Not covered:** Universal Router, Uniswap V4, or DEX aggregators (1inch/CoW/etc.) — their parameters live in an opaque blob this template won't decode.
-- **Does NOT:** protect against a manipulated or compromised oracle (the band is only as good as the feed); bound *cumulative* trading — the cap is per-transaction; judge whether a trade is wise.
-
-## SwapPermissionNoOracle — pool-referenced hallucination guard for tokens without an oracle
-
-A pool-referenced hallucination guard for tokens that have **no oracle** — no independent, manipulation-resistant feed. It is the non-oracle tier; for manipulation-resistant price protection use the oracle-gated `SwapPermission`.
-
-- **You configure:** `routers[]`, `tokensIn[]`, `tokensOut[]`, `maxAmountPerTx`, and — per pair — a **reference pool**: its address, an operator-declared **kind** (`V2` or `V3`), and a per-pair **tolerance band** (bps, capped at 50%). Validated strictly at configure: every tradeable `(tokenIn, tokenOut)` pair must have a reference pool whose `token0`/`token1` match the pair (orientation is fixed then), each tolerance ≤ 50%, and each pool non-zero — otherwise `configure()` reverts.
-- **Enforces:** input/output tokens and router allowlisted · `amountIn ≤ cap` · **output recipient == the account** · `amountOutMin` non-zero · **the sanity band** — it reads the named reference pool's **live** price (V2 reserves / V3 `sqrtPriceX96`) and rejects the swap if `amountOutMin` is more than the pair's tolerance below the output that price implies. Fail-closed: it denies if the reference pool is missing, unreadable, illiquid, or does not correspond to the pair, or if the tolerance-adjusted floor rounds to zero.
-- **Compatibility:** same selector/venue scope as `SwapPermission` — V2 `swapExactTokensForTokens` and V3/SwapRouter02 `exactInputSingle`; not the Universal Router, Uniswap V4, or aggregators. The reference pool is a V2 pair or a V3 pool, declared per pair.
-- **Does NOT:** protect against price **manipulation**. The reference is a **single pool's live spot price**, which any party can move within the same transaction — a sandwich/MEV bot, a malicious manager, or a compromised agent can flash-loan the pool to a price of their choosing right before the gated swap. Against that threat this band provides **no protection** and is **not a slippage defense**. It is a **hallucination guard**: it catches an *honest* agent's price mistake, because a confused agent is not also manipulating the pool. The named pool is a convenience reference, **not** a trusted or manipulation-resistant source. For manipulation-resistant price protection, use `SwapPermission`.
-
-## BorrowPermission — bounded borrow with optional LTV ceiling
-
-Gates borrows on allowlisted lending protocols/assets, within a size cap, optionally under an LTV ceiling.
-
-- **You configure:** `protocols[]`, `assets[]`, `maxAmountPerTx`, `maxLtvBps`, `collateralOracle`, `borrowOracle`, `maxPriceAgeSec`. Validated at configure: `maxLtvBps ≤ 10_000`; oracles must be a **matched pair** — zero or both, never exactly one (`OracleConfigInconsistent`); a freshness bound is required when oracles are set.
-- **Enforces:** protocol (call target) and asset allowlisted · `amount ≤ cap` · the position is **credited to the account** (`onBehalfOf`/`receiver` == account) · with both oracles set, resulting **LTV ≤ `maxLtvBps`** (computed at full precision, no truncation).
-- **Compatibility:** Aave V3 `borrow`, Morpho `borrow`, and Compound V2 `borrow` selectors.
-- **Does NOT:** apply an LTV ceiling at all when **zero oracles** are configured — that mode is **size-cap-only** (the `maxLtvBps` value is stored but unused). The LTV check is **per-call, not cumulative**: it bounds each borrow step against collateral at that moment, but does not bound the cumulative LTV of a position built across multiple borrows (e.g. a leverage loop). It is checked at borrow time only, not ongoing health, and cannot protect against a dishonest feed. For cumulative-position safety rely on the lending protocol's own health factor and/or a separate monitoring permission.
-
-## TransferPermission — ERC-20 transfer to an allowlisted recipient set
-
-Gates ERC-20 sends to a pre-approved **set** of recipients.
-
-- **You configure:** `allowedRecipients[]`, `allowedTokens[]`, `maxAmountPerTx`. Validated at configure: each list ≤ 50 entries, non-empty, no zero addresses.
-- **Enforces:** token (call target) allowlisted · `amount ≤ cap` · destination in the recipient allowlist · on `transferFrom`, `from == the account` (so the manager can't pull tokens a third party approved to the account) · native ETH rejected (`msg.value != 0` denies).
-- **Compatibility:** ERC-20 `transfer` and `transferFrom` only; any other selector (including `approve`) is denied. This is a plain token-transfer gate — it does **not** interpret vault/pool/router calldata.
-- **Does NOT:** vet the recipients — they're an open set the permission signer controls; a malicious-but-allowlisted recipient isn't caught. The cap is per-transaction, not cumulative. A `maxAmountPerTx` of 0 blocks every non-zero transfer (fail-closed).
-
-## DepositPermission — ERC-20 deposit credited to the account
-
-Gates deposits into allowlisted vaults/lending pools, always crediting the account.
-
-- **You configure:** `targets[]` (protocols/vaults), `tokens[]`, `maxAmountPerTx`. Validated at configure: each list ≤ 50, non-empty, no zero addresses.
-- **Enforces:** target allowlisted · deposited token/asset allowlisted · `amount ≤ cap` · the **position recipient** (`receiver` for ERC-4626, `onBehalfOf` for Aave-style) **== the account** · native ETH rejected.
-- **Compatibility:** ERC-4626 `deposit(assets,receiver)` / `mint(shares,receiver)` and Aave-style `deposit`/`supply(asset,amount,onBehalfOf,uint16)`; any other selector is denied. **Vault-allowlist note:** the ERC-4626 paths do **not** carry the underlying token in calldata — only the vault. Since a vault accepts exactly one fixed underlying, you allowlist the **vault address itself** in `tokens[]` (as well as `targets[]`); that authorizes deposits of that one token. Aave-style paths carry the asset in calldata and allowlist it directly.
-- **Does NOT:** size the `mint()` cap in underlying assets — it caps **shares**, whose value floats with the share price (size it accordingly). The cap is per-transaction, not cumulative. An allowlisted-but-malicious vault/pool is not vetted.
-
-## WithdrawPermission — ERC-20 move to a single pinned recipient
-
-Gates ERC-20 movements so funds only ever reach **one configured recipient** (typically the owner's own Safe — e.g. safe-to-safe consolidation).
-
-- **You configure:** `tokens[]`, a single `allowedRecipient`, `maxAmountPerTx`. Validated at configure: token list ≤ 50 and non-empty, recipient non-zero, no zero-address tokens.
-- **Enforces:** token allowlisted · `amount ≤ cap` · destination **== the single `allowedRecipient`** · on `transferFrom`, `from == the account` · native ETH rejected.
-- **Compatibility:** ERC-20 `transfer` and `transferFrom` only; any other selector (including `approve`) is denied. This moves ERC-20s to a pinned address — it is **not** a protocol-withdraw interface (no vault/pool redeem/withdraw). To redeem from a vault, pair it with a separate permission.
-- **Does NOT:** make the recipient immutable — it is whatever the latest configuration set, and the permission signer can change it by reconfiguring (the pin is only as trustworthy as that key). The cap is per-transaction, not cumulative. A `maxAmountPerTx` of 0 blocks every non-zero withdrawal (fail-closed).
-
-## ApproveAndCallBatchPermission — atomic approve / consume / reset
-
-Authorizes exactly the three-call pattern **approve → consuming call → reset-to-zero**, so an allowance exists only for the lifetime of one batch.
-
-- **You configure:** `tokens[]` with index-parallel `maxApprovalAmounts[]`; `spenders[]`; `consumingPairs[]` (each a bound `(target, selector)`); `requireAmountMatch` (bool); `requireRecipientIsAccount` (bool, default off). Validated at configure: lists ≤ 50, non-empty, no zero entries.
-- **Enforces:** `calls[0]` is `approve(spender, amount)` on an allowlisted token, `0 < amount ≤ cap`, spender allowlisted · `calls[1]` is on an **allowlisted `(target, selector)` pair** — a selector is valid only on the target it was paired with, never on any other allowlisted target · optional: the consuming call's leading amount must equal the approve amount (`requireAmountMatch`) · `calls[2]` resets the same token/spender allowance to exactly zero.
-- **Optional recipient pinning (`requireRecipientIsAccount`):** when on, the consuming call's output recipient is decoded and must equal the account, for a fixed set of standard selectors whose recipient sits at a known calldata offset (Uniswap V2/V3 swaps, Aave `supply`/`deposit`, ERC-4626 `deposit`/`mint`); **any other selector is denied** (fail closed). Prefer turning it **on** whenever every consuming selector you authorize is in that set.
-- **Does NOT:** with recipient pinning **off** (the default), constrain where the consuming call sends its output — the bracket bounds the *allowance*, not the destination. It does not vet the venue behind an allowlisted `(target, selector)` pair.
+**The honest caveat that applies to all seven.** A template enforces a **shape and bounds** — which selector, which token/router/recipient, how much per call, output pinned to the account. It does **not** vet the *honesty of the venue* you point it at. Allowlisting a malicious or buggy router, vault, or pool is not something any template can catch. A template is only as strong as its configuration and the keys behind the permission signer and the manager.
 
 ---
 
-*Substantive change to any template requires re-review. This guide describes the current launch set; if a template's logic changes, update this file alongside it.*
+## How to read each template section
+
+Each of the seven follows the same four-part structure:
+
+1. **Purpose** — the one venue/action it gates.
+2. **What you configure** — the bounds you set, and what each choice means for safety.
+3. **How evaluation decides** — the deny/allow checks **in the order the code runs them.** This is the part to read closely: it is the literal decision the contract makes.
+4. **What it cannot protect against** — the honest boundary, expanded from the contract's own header.
+
+---
+
+## 1. SwapPermission — oracle-gated swap *(recommended default)*
+
+**Purpose.** Gate DEX swaps to allowlisted tokens and routers, within a size cap, with a slippage floor measured against an **independent price oracle** (not the pool being traded).
+
+**What you configure.**
+- `routers[]`, `tokensIn[]`, `tokensOut[]` — the allowlists of which router contracts and which input/output tokens are permitted.
+- `maxAmountPerTx` — the cap on the input amount per single trade. (Per trade, not cumulative.)
+- `maxSlippageBps` — how far below the oracle-implied output the trade's minimum-out may sit, in basis points (0–9,999). `0` means "exact oracle price or better" — the strictest setting, never a bypass.
+- `priceOracle` — an injected `IOracle` adapter. **Mandatory:** configuring without one reverts (`OracleRequired`). This is deliberately *not* the pool being traded, so the price reference is independent of the spot price an attacker could move.
+- `maxPriceAgeSec` — how old the oracle's price may be before it is rejected. Must be non-zero whenever an oracle is set (a zero would silently accept arbitrarily stale prices).
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if the account isn't configured for the current registration epoch.
+2. **Any ETH attached?** Deny if `value != 0`. These swaps pull the input token via ERC-20 allowance; no supported router call needs ETH, and allowing it would let value be forwarded to a payable router and swept back out. (This is the Octane #1 fix.)
+3. **Router allowlisted?** Deny if the call target isn't in `routers[]`.
+4. **Recognized swap shape?** It decodes exactly three standard ABIs — Uniswap V2 `swapExactTokensForTokens`, and V3 `exactInputSingle` in both the SwapRouter (with deadline) and SwapRouter02 (no deadline) layouts. Anything else: deny. For the matched shape it then checks, in order:
+   - input token allowlisted → else deny;
+   - output token allowlisted → else deny;
+   - the swap's recipient is **the account itself** → else deny;
+   - input amount ≤ `maxAmountPerTx` → else deny;
+   - finally the **oracle band**.
+5. **The oracle band.** It reads the configured oracle for the (tokenIn, tokenOut) price. It denies if the price is stale (older than `maxPriceAgeSec`), zero, or reports an implausible decimals value. It computes the oracle-implied output, lowers it by `maxSlippageBps` to get a floor, and **allows only if the trade's own minimum-out is at least that floor.** If the floor math rounds down to zero (a dust-sized trade), it **denies** rather than wave through a zero minimum.
+
+**What it cannot protect against.** The band is **only as strong as the configured oracle feed** — it does not protect against a manipulated or compromised oracle. The cap is **per-transaction, not cumulative**: a manager can make many at-cap trades. It only decodes standard router ABIs — it does **not** cover the Universal Router, Uniswap V4, or DEX aggregators (1inch/CoW/Matcha), whose parameters live in an opaque blob it won't decode; coverage of forks (PancakeSwap, SushiSwap, etc.) comes from the *router allowlist*, since those share the same ABIs byte-for-byte. And it does not judge whether a trade is *wise* — only whether it is within shape and bounds. Note also (shared with all oracle-backed templates) that a **heavy oracle adapter can exhaust the 150,000-gas cap**, which fails closed — budget your adapter's read cost.
+
+---
+
+## 2. SwapPermissionNoOracle — pool-referenced sanity band for tokens with no oracle
+
+**Purpose.** Gate swaps for tokens that have **no independent price feed**, using a sanity band measured against an operator-named **reference pool's live price**. This is the non-oracle tier; for manipulation-resistant pricing use `SwapPermission` instead. It is **not** zero protection, and it is **not** a slippage defense — read the boundary carefully.
+
+**What you configure.**
+- `routers[]`, `tokensIn[]`, `tokensOut[]`, `maxAmountPerTx` — same meaning as `SwapPermission`.
+- A **reference pool per tradeable pair** — each entry is the pool's address, an operator-declared kind (`V2` or `V3`), and a per-pair tolerance band in basis points (capped at 50%). Configuration is strict: every tradeable (tokenIn, tokenOut) pair must have a reference pool whose two tokens actually match the pair (orientation is fixed at configure time), each tolerance ≤ 50%, and each pool non-zero — otherwise `configure()` reverts. Surfacing a gap at configure time is clearer than silent denials later.
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Any ETH attached?** Deny if `value != 0` (same reasoning as `SwapPermission`).
+3. **Router allowlisted?** Deny if the target isn't in `routers[]`.
+4. **Recognized swap shape?** Same three standard ABIs as `SwapPermission`. For the matched shape: input token allowlisted, output token allowlisted, recipient is the account, input amount ≤ cap — each a deny if it fails — then the **sanity band**.
+5. **The sanity band.** It reads the named reference pool's **live** price (V2 reserves, or V3 `sqrtPriceX96`), computes the implied output, and denies if the trade's minimum-out is more than the pair's tolerance below that. It fails closed if the reference pool is missing, unreadable, illiquid, doesn't correspond to the pair, or if the tolerance-adjusted floor rounds to zero.
+
+**What it cannot protect against.** **Price manipulation — completely.** The reference is a *single pool's live spot price*, which any party can move within the same transaction: a sandwich/MEV bot, a malicious manager, or a compromised agent can flash-loan the pool to any price right before the gated swap. Against that, this band provides **no protection** and must not be relied on as slippage defense. What it *is*: a **hallucination guard** — it catches an *honest* manager or agent that tries to trade at a wildly wrong price (a misparsed quote, a fabricated number), because a confused agent is not also manipulating the pool. The named pool is a convenience reference, not a trusted source. Same venue scope and per-transaction cap caveats as `SwapPermission`; ETH is rejected.
+
+---
+
+## 3. BorrowPermission — bounded borrow with an optional LTV ceiling
+
+**Purpose.** Gate borrows on allowlisted lending protocols and assets, within a size cap, optionally under a loan-to-value (LTV) ceiling enforced with a pair of price oracles.
+
+**What you configure.**
+- `protocols[]`, `assets[]` — allowlists of lending-protocol targets and the **underlying** borrow assets.
+- `maxAmountPerTx` — per-borrow size cap.
+- `maxLtvBps` — the LTV ceiling in basis points (≤ 10,000).
+- `collateralOracle`, `borrowOracle` — the price feeds for each side. They must be configured as a **matched pair**: either *both* set (LTV enforced) or *neither* (size-cap-only). Exactly one is rejected at configure time (`OracleConfigInconsistent`), because an LTV ratio needs both sides priced.
+- `maxPriceAgeSec` — freshness bound, mandatory when oracles are set.
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Protocol allowlisted?** Deny if the call target isn't in `protocols[]`.
+3. **Recognized borrow shape?** It decodes three selectors — Aave V3 `borrow`, Morpho `borrow`, and Compound V2 `borrow`. Anything else: deny. For each:
+   - the borrow **asset** must be allowlisted — for Compound, the call target is the cToken, so it resolves the **underlying** via `underlying()` and allowlists *that*; a target with no `underlying()` (e.g. cETH) resolves nothing and is **denied** (fail-closed);
+   - amount ≤ `maxAmountPerTx` → else deny;
+   - the position is credited to **the account** (`onBehalfOf` / `receiver` == account) → else deny;
+   - then the **LTV check**.
+4. **The LTV check.** If no oracles are configured, this step passes (size-cap-only mode). If both are set: it reads collateral value and borrow price, denies on a stale or zero/implausible reading, and computes the **largest borrow amount the ceiling permits**, comparing the requested amount against it. The math is **fail-closed and amount-based**: it applies the LTV fraction to the full-precision collateral value first and collapses decimal scale last, flooring in the borrower's disfavour at every step — so a borrow over the ceiling can never slip through, and the prior bug where a sub-1-unit borrow rounded to zero LTV is closed (Octane #6/#11).
+
+**What it cannot protect against.** With **zero oracles**, there is **no LTV ceiling at all** — only the size cap applies (the stored `maxLtvBps` is unused in that mode). The LTV check is **per-call, not cumulative**: it bounds each borrow step against collateral at that instant, not the cumulative LTV of a position built across many borrows (a leverage loop). It is checked only at borrow time, not ongoing position health, and cannot detect a dishonest feed. For cumulative-position safety, rely on the lending protocol's own health factor and/or a separate monitoring permission. As with `SwapPermission`, a heavy oracle adapter can exhaust the gas cap and fail closed.
+
+---
+
+## 4. TransferPermission — ERC-20 transfer to an allowlisted recipient set
+
+**Purpose.** Gate ERC-20 sends so funds move only to a pre-approved **set** of recipients, in approved tokens, within a per-transaction cap.
+
+**What you configure.**
+- `allowedRecipients[]` — the set of addresses funds may be sent to.
+- `allowedTokens[]` — the tokens that may be moved.
+- `maxAmountPerTx` — per-transfer cap. Each list is capped at 50 entries, must be non-empty, and may not contain the zero address. (A `maxAmountPerTx` of 0 is allowed and blocks every non-zero transfer — fail-closed.)
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Any ETH attached?** Deny if `value != 0` (ERC-20 calls carry no ETH).
+3. **Token allowlisted?** Deny if the call target (the token) isn't in `allowedTokens[]`.
+4. **Recognized transfer shape?** It decodes exactly `transfer(to, amount)` and `transferFrom(from, to, amount)`; any other selector — including `approve` — is denied. Then:
+   - amount ≤ `maxAmountPerTx` → else deny;
+   - the destination `to` must be in `allowedRecipients[]` → else deny;
+   - on `transferFrom`, additionally `from` must be **the account itself**, so the manager cannot pull tokens a third party has approved to the account.
+
+**What it cannot protect against.** It does **not vet the recipients** — they are an open set the permission signer controls, and an allowlisted-but-malicious recipient contract is not caught here. The cap is per-transaction, not cumulative. It is a plain token-transfer gate: it does **not** interpret vault/pool/router calldata of any kind.
+
+---
+
+## 5. DepositPermission — ERC-20 deposit credited to the account
+
+**Purpose.** Gate deposits into allowlisted vaults and lending pools, always crediting the resulting position to the account.
+
+**What you configure.**
+- `targets[]` — the vault/protocol addresses you may deposit into.
+- `tokens[]` — the allowlisted assets (see the vault note below).
+- `maxAmountPerTx` — per-deposit cap. Lists capped at 50, non-empty, no zero addresses.
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Any ETH attached?** Deny if `value != 0` (no supported deposit selector is payable; wrap to WETH first).
+3. **Target allowlisted?** Deny if the call target isn't in `targets[]`.
+4. **Recognized deposit shape?** It decodes four selectors — ERC-4626 `deposit(assets, receiver)` and `mint(shares, receiver)`, and Aave-style `deposit`/`supply(asset, amount, onBehalfOf, uint16)`. Anything else: deny. For each:
+   - the asset must be token-allowlisted. **Important:** the two ERC-4626 paths do *not* carry the underlying token in calldata — only the vault address. Since a vault accepts exactly one fixed underlying, you allowlist the **vault address itself** in `tokens[]` (in addition to `targets[]`), which authorizes deposits of that one token. The Aave-style paths carry the asset in calldata and allowlist it directly.
+   - amount (or shares — see below) ≤ `maxAmountPerTx` → else deny;
+   - the position recipient (`receiver` for ERC-4626, `onBehalfOf` for Aave-style) is **the account** → else deny.
+
+**What it cannot protect against.** On the `mint(shares, receiver)` path, the cap is denominated in **shares, not underlying assets** — by design. The `deposit(assets, ...)` path and both Aave paths cap the *asset* amount directly; `mint` bounds *shares*, whose asset/USD value floats with the share price. These templates are intentionally oracle-free, so an asset cap on the mint path would reintroduce a vault price-read; shares stay bounded, so there is no drain, but an operator sizing a mint cap must account for the share price. The cap is per-transaction, not cumulative, and an allowlisted-but-malicious vault is not vetted.
+
+---
+
+## 6. WithdrawPermission — ERC-20 move to a single pinned recipient
+
+**Purpose.** Gate ERC-20 movements so funds can only ever reach **one configured recipient** — typically the owner's own Safe (e.g. safe-to-safe consolidation).
+
+**What you configure.**
+- `tokens[]` — allowlisted tokens (≤ 50, non-empty, no zero addresses).
+- `allowedRecipient` — the **single** address funds may go to (non-zero).
+- `maxAmountPerTx` — per-move cap (0 allowed; blocks all non-zero withdrawals — fail-closed).
+
+**How evaluation decides** (in order):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Any ETH attached?** Deny if `value != 0`.
+3. **Token allowlisted?** Deny if the call target isn't in `tokens[]`.
+4. **Recognized transfer shape?** Exactly `transfer` and `transferFrom`; any other selector (including `approve`) denied. Then:
+   - amount ≤ `maxAmountPerTx` → else deny;
+   - the destination must equal **the single `allowedRecipient`** (not an open set) → else deny;
+   - on `transferFrom`, `from` must be **the account itself**.
+
+**What it cannot protect against.** The recipient is **not immutable** — it is whatever the latest configuration set, and the permission signer can change it by reconfiguring, so the pin is only as trustworthy as that key. The cap is per-transaction, not cumulative. It moves ERC-20s to a pinned address — it is **not** a protocol-withdraw interface and does not recognize vault/pool redeem or withdraw calls; to redeem from a vault, pair it with a separate permission.
+
+---
+
+## 7. ApproveAndCallBatchPermission — atomic approve / consume / reset
+
+**Purpose.** Authorize exactly one three-step pattern — **approve → consuming call → reset-to-zero** — so an allowance exists only for the lifetime of a single batch and is always reset before the transaction completes. This is the one **batch-aware** template: the kernel evaluates the whole sequence at once via `evaluateBatch`, under the 1,000,000-gas batch cap.
+
+**What you configure.**
+- `tokens[]` with index-parallel `maxApprovalAmounts[]` — the approvable tokens and each one's per-approval cap.
+- `spenders[]` — the addresses that may receive the allowance.
+- `consumingPairs[]` — bound `(target, selector)` pairs: a selector is valid **only** on the target it is paired with, never on any other allowlisted target.
+- `requireAmountMatch` (bool) — optionally require the consuming call's leading amount to equal the approved amount.
+- `requireRecipientIsAccount` (bool, default off) — optionally pin the consuming call's output recipient to the account.
+
+**How evaluation decides** (in order, on the three-call batch):
+1. **Configuration current?** Deny if not configured for the current epoch.
+2. **Exactly three calls?** Deny otherwise.
+3. **Call 0 — the approve.** Must carry no ETH; must be `approve(spender, amount)` on an allowlisted token; the token's cap must be non-zero (i.e. allowlisted); the spender must be allowlisted; `0 < amount ≤ cap`. **And the pre-batch allowance on that (token, spender) pair must already be zero** — so the consuming call can only ever draw the allowance *this* batch grants, never a stale one.
+4. **Call 1 — the consuming call.** Must carry no ETH; long enough to decode; its `(target, selector)` must be an allowlisted **pair**. Then two unconditional bindings:
+   - the call's target must **be the approved spender** (you approve the router/pool/vault and call that same address);
+   - the **asset it pulls must be the approved token**, decoded for the seven decodable standard-ABI selectors (the V2/V3 swaps, Aave `supply`/`deposit`, ERC-4626 `deposit`/`mint`); a selector whose consumed asset can't be located safely is **denied** (fail-closed).
+   Then, if configured: `requireAmountMatch` checks the leading amount equals the approve amount; `requireRecipientIsAccount` decodes the output recipient and requires it to equal the account (and denies any selector outside the decodable set).
+5. **Call 2 — the reset.** Must carry no ETH; must be `approve(spender, 0)` on the **same** token and spender as call 0, resetting the allowance to exactly zero.
+
+If every check passes, the batch is allowed.
+
+**What it cannot protect against.** With `requireRecipientIsAccount` **off** (the default), it does **not** constrain where the consuming call sends its output — the bracket bounds the *allowance* (and binds it to the approved token and spender), not the destination. Turn the mode **on** whenever every consuming selector you authorize is in the decodable set; it is the safer configuration. The consuming selector **must** be one of the seven decodable standard-ABI selectors — aggregators, the Universal Router, Uniswap V4, and opaque command payloads are **out of scope by design** (non-decodable → fail-closed). It does not vet the venue behind an allowlisted pair. The batch is capped at 16 sub-calls and 1,000,000 gas.
+
+---
+
+## The experimental set (currently empty)
+
+There is no experimental template directory in the repository today (`contracts/experimental/` is absent). This is where future, **not-yet-audited** templates will live — candidates include bridging, Hyperliquid/CoreWriter trading, Pendle, prediction markets, and the aggregator / Universal-Router / Uniswap-V4 "balance-delta" swap path that the audited `Swap` templates deliberately exclude.
+
+When that set is populated, each contract in it will carry a loud **"UNAUDITED — EXPERIMENTAL"** banner and will **not** be part of the audited launch set described above. That banner belongs *only* to the experimental set — it does **not** apply to the seven launch templates, which are the audited reference set. Treat anything in the experimental set as unreviewed until stated otherwise, and review it against your own use before registering it.
+
+---
+
+*This guide describes the current launch set against the merged, frozen code. Any substantive change to a template requires re-review; update this file alongside the contract and keep it consistent with the contract's header NatSpec, which is canonical.*
