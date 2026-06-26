@@ -6,10 +6,12 @@
 
 **File:** `contracts/interfaces/IFeePolicy.sol`
 
-Every fee policy attached to a Sail account must implement this interface. The kernel calls both methods during `collectFees`.
+Every fee policy attached to a Sail account must implement this interface. The kernel calls `feeRecipient()`, `computeFee()`, and `recordCollection()` during `collectFees`, and `onAttach()` when a policy is (re)attached via `setFeePolicy`.
 
 ```solidity
 interface IFeePolicy {
+    function feeRecipient() external view returns (address);
+
     function computeFee(address account, uint256 currentNav)
         external
         view
@@ -17,6 +19,8 @@ interface IFeePolicy {
 
     function recordCollection(address account, uint256 grossFee, uint256 currentNav)
         external;
+
+    function onAttach(address account) external;
 }
 ```
 
@@ -40,7 +44,15 @@ Called by the kernel after the fee transfer completes. Used to update per-accoun
 
 **Only the kernel should call this.** Implementations should check `msg.sender == kernel` and revert otherwise.
 
-Implementations may also revert on precondition violations (e.g., `ZeroInitialNav`).
+Implementations may also revert on precondition violations (e.g., `HWMNotSeeded` if the account's high-water mark has not been seeded).
+
+### `feeRecipient()`
+
+Returns the address that receives the manager's net fee share. The kernel reads this directly and routes the manager take to it — a caller cannot redirect the payout. On `StandardFeePolicy` this returns `feeManager`.
+
+### `onAttach(address account)`
+
+Lifecycle hook the kernel invokes from `setFeePolicy` when an account (re)attaches this policy. It receives **only** the account — no NAV — so the kernel never learns or computes valuation. Stateful policies re-anchor their per-account accounting here; a stateless policy may implement it as a no-op. `StandardFeePolicy` uses it to re-anchor `lastCollectionTimestamp` (and flag a high-water-mark re-base) so a detach→reattach of the same instance is not billed across the dormant interval.
 
 ---
 
@@ -97,11 +109,11 @@ grossFee = managementFee + performanceFee
 
 - Stored per account in `highWaterMark[account]`.
 - Updated after each collection to `max(HWM, currentNav)` — it only ever moves up.
-- On the first `recordCollection` call for an account, HWM is seeded to `currentNav`.
+- The HWM is **not** auto-seeded on the first collection. It must be seeded explicitly first via `seedHighWaterMark(account, initialNav)` (see Setters); a `recordCollection` before seeding reverts `HWMNotSeeded`.
 
-### ZeroInitialNav Guard
+### HWM Seeding Guard (`HWMNotSeeded` / `AlreadySeeded`)
 
-If `recordCollection` is called for an uninitialised account (first call) with `currentNav == 0`, it reverts with `ZeroInitialNav`. This prevents a manager from seeding the HWM at 0 and then immediately claiming a performance fee on the full portfolio value as if it were pure profit.
+The HWM must be explicitly seeded by the `feeManager` before any collection. `seedHighWaterMark(account, initialNav)` is `onlyFeeManager`, one-shot (a second call reverts `AlreadySeeded`), and requires a non-zero `initialNav` (a zero seed reverts `HWMNotSeeded`). `recordCollection` reverts `HWMNotSeeded` until the account has been seeded. This prevents a manager from seeding the HWM at 0 and then immediately claiming a performance fee on the full portfolio value as if it were pure profit.
 
 ### Caps
 
@@ -149,6 +161,7 @@ Reverts with the corresponding `*TooHigh` or `ZeroAddress` error if any paramete
 | `setPerformanceFeeBps(uint256)` | `feeManager` | <= 5 000 | Updates performance fee rate |
 | `setDistributor(address)` | `feeManager` | None (`address(0)` allowed) | Updates distributor address |
 | `setDistributorBps(uint256)` | `feeManager` | <= 10 000 | Updates distributor's share |
+| `seedHighWaterMark(address,uint256)` | `feeManager` | One-shot per account; `initialNav != 0` | Seeds the account's HWM before its first collection (required) |
 | `proposeFeeManager(address)` | `feeManager` | Must not be `address(0)` | Step 1: nominates the next fee manager |
 | `acceptFeeManager()` | `pendingFeeManager` | Caller must be the pending fee manager | Step 2: finalises the transfer |
 
@@ -176,7 +189,9 @@ Fee-manager control transfers via a two-step `proposeFeeManager` → `acceptFeeM
 | `NotFeeManager()` | Setter called by a non-feeManager address |
 | `NotPendingFeeManager()` | `acceptFeeManager` called by an address other than the pending fee manager |
 | `ZeroAddress()` | `kernel`, `feeManager`, or `proposeFeeManager` target is `address(0)` |
-| `ZeroInitialNav()` | First `recordCollection` call has `currentNav == 0` |
+| `HWMNotSeeded()` | `recordCollection` called before the account's HWM was seeded, or `seedHighWaterMark` called with `initialNav == 0` |
+| `AlreadySeeded()` | `seedHighWaterMark` called a second time for an account already seeded |
+| `CollectionTooFrequent()` | `recordCollection` called before `MIN_COLLECTION_INTERVAL` (1 day) has elapsed since the last collection |
 | `ManagementFeeTooHigh(bps)` | Requested rate exceeds `MAX_MANAGEMENT_FEE_BPS` |
 | `PerformanceFeeTooHigh(bps)` | Requested rate exceeds `MAX_PERFORMANCE_FEE_BPS` |
 | `DistributorBpsTooLarge(bps)` | Requested distributor share exceeds `MAX_DISTRIBUTOR_BPS` |

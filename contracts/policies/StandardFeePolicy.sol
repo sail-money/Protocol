@@ -23,7 +23,7 @@ import {Math}       from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         ensuring performance fees are only charged on new all-time highs.
 ///
 /// @dev    NAV is provided by the manager — it is not independently verified on-chain.
-///         The HWM initialisation guard (`ZeroInitialNav`) prevents a manager from
+///         The HWM seeding guard (`HWMNotSeeded`) prevents a manager from
 ///         claiming a performance fee on the full portfolio on the very first collection
 ///         by seeding HWM at 0.
 /// @custom:security-contact security@sail.money

@@ -288,12 +288,20 @@ A permission with three mapping lookups and a decode should comfortably fit in 2
 
 ```solidity
 interface IFeePolicy {
+    // Where the manager's net fee share is paid (kernel pulls this; the caller cannot redirect it).
+    function feeRecipient() external view returns (address);
+
     function computeFee(address account, uint256 currentNav)
         external view
         returns (uint256 grossFee, address distributor, uint256 distributorBps);
 
     function recordCollection(address account, uint256 grossFee, uint256 currentNav)
         external;
+
+    // Lifecycle hook: the kernel calls this when an account (re)attaches this policy via
+    // setFeePolicy. Account only — no NAV is passed. Stateful policies re-anchor per-account
+    // accounting here; a stateless policy may no-op it.
+    function onAttach(address account) external;
 }
 ```
 
