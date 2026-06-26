@@ -21,8 +21,13 @@ PermissionRegistered(address indexed account, address indexed permission)
 PermissionRevoked(address indexed account, address indexed permission)
 SessionActivated(address indexed account)
 SessionRevoked(address indexed account)
-Dispatched(address indexed account, address indexed target, bytes4 selector, uint256 value)
+Dispatched(address indexed account, address indexed permission, address target, bytes4 selector, uint256 value)
 ```
+
+> The `Dispatched` event carries the `permission` that authorised the dispatch (selective
+> authorization), so per-template dispatch attribution reads straight off the event — no
+> registration-snapshot reconstruction is needed (see patterns 3–4). `account` and `permission`
+> are indexed; `target` is not.
 
 ---
 
@@ -88,33 +93,19 @@ def active_accounts_for_template(template_pid):
 
 **Goal:** count how many dispatches were attributed to each template type.
 
-Because a single account may have multiple permissions registered, a dispatch is
-attributed to template T if T is registered on that account at the time of the
-dispatch AND the dispatch succeeded (revert would emit no Dispatched event).
+Under selective authorization the `Dispatched` event names the exact `permission` that
+authorised the dispatch, so attribution reads directly off `event.permission` — there is no
+need to reconstruct an account's registered-permission set at the dispatch block. A dispatch
+is attributed to exactly one template type, even if the account has several registered. (A
+revert emits no `Dispatched` event, so only successful dispatches are counted.)
 
 ```
-# Build a snapshot: at each block, which permissions does each account have?
-# Maintain a running set updated by PermissionRegistered / PermissionRevoked events.
-accountPermissions = defaultdict(set)  # account → {permission_address}
-
-def attribute_dispatch(event_dispatched, block_number):
-    account = event_dispatched.account
-    attributed = set()
-    for perm_addr in accountPermissions[account]:
-        pid = get_permission_id(perm_addr)
-        if pid is not None:
-            attributed.add(pid)
-    return attributed
-
 dispatchCount = defaultdict(int)
 for event in query("Dispatched", order="asc"):
-    for pid in attribute_dispatch(event, event.blockNumber):
+    pid = get_permission_id(event.permission)   # the named authorizer, straight off the event
+    if pid is not None:
         dispatchCount[pid] += 1
 ```
-
-> **Note:** under selective dispatch, each `Dispatched` event carries the `permission` field
-> identifying the named authorizer. A dispatch is attributed to exactly that one permission.
-> If an account has two templates registered, only the named one's counter is incremented.
 
 ---
 
@@ -127,7 +118,8 @@ nativeValueRouted = defaultdict(int)  # pid → total wei
 
 for event in query("Dispatched", order="asc"):
     if event.value > 0:
-        for pid in attribute_dispatch(event, event.blockNumber):
+        pid = get_permission_id(event.permission)   # named authorizer, straight off the event
+        if pid is not None:
             nativeValueRouted[pid] += event.value
 ```
 

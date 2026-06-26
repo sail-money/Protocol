@@ -33,9 +33,15 @@ role has distinct call semantics.
 The templates consume it exactly this way:
 
 - Swap: `expectedOut = Math.mulDiv(amountIn, price, 10**decimals)`
-  ([`SwapPermission.sol:249`](../contracts/templates/SwapPermission.sol)).
-- Borrow: `borrowScaled = Math.mulDiv(amount, borPrice, 10**borDecimals)`
-  ([`BorrowPermission.sol:221`](../contracts/templates/BorrowPermission.sol)).
+  (`SwapPermission._oracleCheck`, [`SwapPermission.sol`](../contracts/templates/SwapPermission.sol)).
+- Borrow: the LTV check is **amount-based and fail-closed** — it applies `maxLtvBps` to the
+  full-precision collateral value first and collapses the decimal scale last, deriving the
+  largest borrow the ceiling permits as
+  `maxAmountAllowed = mulDiv(mulDiv(colValue, maxLtvBps, 10_000), 10^borDec, 10^colDec) / borPrice`
+  and requiring `amount <= maxAmountAllowed`
+  (`BorrowPermission._ltvCheck`, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
+  (The older `borrowScaled = mulDiv(amount, borPrice, 10^borDecimals)` framing pre-flooring the
+  borrow value is no longer used — that sub-unit-rounding fail-open was closed in Octane #6.)
 
 An adapter that returns a price in any other convention will produce wrong swap floors
 or LTV ratios.
@@ -51,26 +57,25 @@ roles specialise this:
 ### Swap oracle — `getPrice(tokenIn, tokenOut)`
 `base = tokenIn` (sold), `quote = tokenOut` (bought). The returned price implies the
 expected `tokenOut` for a given `tokenIn` input, which the template turns into a
-slippage floor ([`SwapPermission.sol:245`](../contracts/templates/SwapPermission.sol)).
+slippage floor (`SwapPermission._oracleCheck`, [`SwapPermission.sol`](../contracts/templates/SwapPermission.sol)).
 
 ### Borrow oracle — `getPrice(asset, address(0))`
 `base = asset` (the borrow asset), `quote = address(0)`. `address(0)` is not a token —
 it denotes a **common numeraire** in which value is expressed. The adapter returns the
 per-unit value of the borrow asset in that numeraire
-([`BorrowPermission.sol:205-206`](../contracts/templates/BorrowPermission.sol)).
+(`BorrowPermission._ltvCheck`, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
 
 ### Collateral oracle — `getPrice(account, address(0))`
 `base = account` (the Safe account itself, **not** a token), `quote = address(0)` (the
 same common numeraire). The adapter is trusted to report the account's **aggregate
 collateral value**, queried by account address — it is a portfolio valuation, not a
 single-token balance or price
-([`BorrowPermission.sol:205`](../contracts/templates/BorrowPermission.sol), NatSpec
-[`:42-43`](../contracts/templates/BorrowPermission.sol)).
+(`BorrowPermission._ltvCheck` and the contract NatSpec, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
 
 ### Hard requirement: shared numeraire
 The borrow oracle and the collateral oracle **MUST express value in the same
 numeraire.** The LTV check compares borrow value against collateral value
-([`BorrowPermission.sol:224`](../contracts/templates/BorrowPermission.sol)); if the two
+(`BorrowPermission._ltvCheck`, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)); if the two
 adapters use different numeraires the ratio is meaningless and the ceiling provides no
 protection. (Borrow oracles are configured in a matched pair — exactly one oracle is
 rejected at `configure()`; configure either both or neither.)
@@ -84,9 +89,9 @@ above 77 is denied because `10^78` overflows `uint256`
 ([`IOracle.sol:20-22`](../contracts/interfaces/IOracle.sol)). Enforcement:
 
 - Swap: `if (dec > 77) return false;`
-  ([`SwapPermission.sol:248`](../contracts/templates/SwapPermission.sol)).
+  (`SwapPermission._oracleCheck`, [`SwapPermission.sol`](../contracts/templates/SwapPermission.sol)).
 - Borrow: `if (colDec > 77 || borDec > 77) return false;`
-  ([`BorrowPermission.sol:212`](../contracts/templates/BorrowPermission.sol)).
+  (`BorrowPermission._ltvCheck`, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
 
 Each role may use its own `decimals`; the template folds `10^decimals` into its `mulDiv`
 math, so adapters need not agree on a shared scale (they must, however, agree on the
@@ -100,8 +105,8 @@ numeraire — see §2).
 freshness as **`block.timestamp - updatedAt <= maxPriceAgeSec`**, and treat
 `updatedAt == 0` as stale (denied):
 
-- Swap: [`SwapPermission.sol:246`](../contracts/templates/SwapPermission.sol).
-- Borrow: both feeds checked, [`BorrowPermission.sol:207-209`](../contracts/templates/BorrowPermission.sol).
+- Swap: `SwapPermission._oracleCheck` ([`SwapPermission.sol`](../contracts/templates/SwapPermission.sol)).
+- Borrow: both feeds checked in `BorrowPermission._ltvCheck` ([`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
 
 A non-zero `maxPriceAgeSec` is mandatory whenever an oracle is configured, so the
 freshness bound is always active for an oracle-gated account.

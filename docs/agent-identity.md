@@ -4,6 +4,16 @@ This document explains the agent-identity interface layer added to the Sail Prot
 template set. It covers design rationale, implementation patterns, off-chain consumption,
 and explicit scope boundaries.
 
+> **Status: optional, not kernel-enforced (forward-looking convention).** These interfaces
+> exist (`IAgentIdentityResolver`, `IAccountAgentIdentityResolver`, `IAgentWalletVerifier`),
+> and the shared base `ConfigurablePermission` implements the per-account resolver
+> (`agentIdentityFor`). But **the kernel never reads, verifies, or depends on agent identity**
+> at any point, and the launch templates do **not** declare an agent-identity capability in
+> `capabilityIds()` (e.g. `BorrowPermission` declares only `BOUNDED_BORROW`) and store no
+> identity by default. So this layer is **not load-bearing**: nothing in the shipped protocol
+> consumes it. Treat the patterns below as a convention for templates (current or future) that
+> opt in — not as an active, enforced feature of the launch set.
+
 ---
 
 ## 1. Why agent identity is at the template layer, not the kernel layer
@@ -73,7 +83,10 @@ boundary.
 ### Step 1 — discover which templates expose agent identity
 
 Use `IPermissionIntrospection.capabilityIds()` to filter templates by capability without
-needing to know their ABI:
+needing to know their ABI. **Note:** this matches only templates that *declare* the
+agent-identity capability — none of the launch templates do, so against the shipped set this
+filter returns nothing. It is the discovery pattern for future templates that opt in by adding
+`sail.capability.agent-identity.v1` to their `capabilityIds()`:
 
 ```javascript
 const AGENT_IDENTITY = keccak256("sail.capability.agent-identity.v1");
