@@ -56,12 +56,25 @@ constructor. The constructor enforces all four injected-timelock invariants and 
 
 ### 3. Deploy SailKernel
 
+Deploy the immutable `SafeModuleEnabler` **before** the kernel: the kernel captures the helper's
+runtime codehash at construction and pins it as the only permissible `Safe.setup` delegatecall
+target (W2 — see [SECURITY.md](./SECURITY.md)). The enabler is dependency-free (no constructor args),
+so its address and codehash are deterministic per chain.
+
 ```solidity
+// Deploy the Safe.setup helper FIRST — its codehash is pinned into the kernel below.
+SafeModuleEnabler setupEnabler = new SafeModuleEnabler();
+
 SailKernel kernel = new SailKernel(
     address(governance),
-    treasuryAddress         // receives protocol's share of collected fees
+    treasuryAddress,            // receives protocol's share of collected fees
+    address(setupEnabler)       // immutable Safe.setup helper; its codehash is pinned (W2)
 );
 ```
+
+When seeding `governance.trustedModuleSetup`, allowlist **only** this immutable `SafeModuleEnabler` —
+the kernel additionally requires the setup target's codehash to equal the pinned value, so a
+mutable/look-alike helper is rejected even if mistakenly allowlisted.
 
 ### 4. Configure Governance Parameters
 
@@ -275,12 +288,20 @@ A permission with three mapping lookups and a decode should comfortably fit in 2
 
 ```solidity
 interface IFeePolicy {
+    // Where the manager's net fee share is paid (kernel pulls this; the caller cannot redirect it).
+    function feeRecipient() external view returns (address);
+
     function computeFee(address account, uint256 currentNav)
         external view
         returns (uint256 grossFee, address distributor, uint256 distributorBps);
 
     function recordCollection(address account, uint256 grossFee, uint256 currentNav)
         external;
+
+    // Lifecycle hook: the kernel calls this when an account (re)attaches this policy via
+    // setFeePolicy. Account only — no NAV is passed. Stateful policies re-anchor per-account
+    // accounting here; a stateless policy may no-op it.
+    function onAttach(address account) external;
 }
 ```
 

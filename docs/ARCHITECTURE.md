@@ -14,7 +14,7 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 |---|---|
 | `SailKernel` | Central execution engine. Verifies manager signatures, evaluates permissions, executes through the Safe module interface, and handles fee accounting. |
 | `SailGovernance` | Protocol parameter store. Holds fee caps, permission registration fees, and the protocol cut. Immutable constitutional caps cannot be raised by any governance action. |
-| `IFeePolicy` / `StandardFeePolicy` | Fee computation layer. The kernel delegates fee calculation to the attached policy. `StandardFeePolicy` implements a management + performance fee schedule with a high-water mark. |
+| `IFeePolicy` / `StandardFeePolicy` | Fee computation layer. The kernel delegates fee calculation to the attached policy via `feeRecipient()` (payout target), `computeFee()` (fee ceiling), `recordCollection()` (post-collection state), and the `onAttach()` lifecycle hook (re-anchor on (re)attach). `StandardFeePolicy` implements a management + performance fee schedule with a high-water mark. |
 | `IPermission` / permission templates | Pluggable access-control modules. Each permission implements a single `evaluate()` function. A reference set of seven templates ships with the protocol — `SwapPermission`, `SwapPermissionNoOracle`, `BorrowPermission`, `DepositPermission`, `WithdrawPermission`, `TransferPermission`, `ApproveAndCallBatchPermission` — over a shared base, `ConfigurablePermission`. They are swappable defaults; any contract implementing `IPermission` can be registered instead. |
 
 ---
@@ -109,7 +109,7 @@ SailKernel.configs[account]
   │      └── ... (up to maxPermissionsPerAccount)
   │
   └──► IFeePolicy (StandardFeePolicy or custom)
-         └── computeFee() / recordCollection()
+         └── feeRecipient() / computeFee() / recordCollection() / onAttach()
 ```
 
 ---
@@ -120,9 +120,13 @@ SailKernel.configs[account]
 SailKernel
   ├── imports SailGovernance          (reads fee params, permission cap)
   ├── imports IPermission             (evaluate interface)
-  ├── imports IFeePolicy              (computeFee / recordCollection)
+  ├── imports IFeePolicy              (feeRecipient / computeFee / recordCollection / onAttach)
   ├── imports ISafe                   (execTransactionFromModule)
   ├── imports ISafeFactory            (createProxyWithNonce — createAccount only)
+  ├── pins SafeModuleEnabler          (deploy-time dependency: the immutable helper must be
+  │                                    deployed BEFORE the kernel; the constructor reads its
+  │                                    runtime codehash and pins it as the only valid Safe.setup
+  │                                    delegatecall target — W2)
   └── inherits EIP712, ReentrancyGuard
 
 SailGovernance

@@ -283,11 +283,11 @@ The protocol/distributor cut floor-divide a manager-chosen `grossFee` (only `gro
 
 `MandateFactory` is the untrusted UX orchestrator; it holds no privilege, and every inner call is independently signature-authenticated. A submitter cannot change *what* is configured, only *when* a pre-signed bundle lands. A mempool observer replaying a revealed `configureSig` can consume the per-account config nonce so the factory's configure → register bundle reverts, but the resulting state is benign (no permission activated) and recovery needs no new signature (submit `register*` directly with the existing kernel signature). Same family as #14.
 
-### W2 — Address-only `trustedModuleSetup` allowlist (accepted, with a hard operational constraint)
+### W2 — `Safe.setup` delegatecall target is codehash-pinned (resolved in code)
 
-The shipped helper (`SafeModuleEnabler`) is **immutable** (no constructor, no state, no proxy, no delegatecall-to-mutable, no `selfdestruct`/metamorphic redeploy), so the exploit is impossible against the as-shipped configuration. It would require governance to allowlist a *different*, upgradeable helper — a governance misconfiguration behind the 48-hour timelock.
+The shipped helper (`SafeModuleEnabler`) is **immutable** (no constructor, no state, no proxy, no delegatecall-to-mutable, no `selfdestruct`/metamorphic redeploy). Beyond the `trustedModuleSetup` address allowlist, `createAccount` now **pins the setup target's runtime codehash**: the kernel captures the deployed `SafeModuleEnabler`'s codehash at construction into the immutable `EXPECTED_SETUP_CODEHASH`, and every non-zero setup target must match it or the call reverts `UntrustedModuleSetupCodehash`. The immutable-helper rule is therefore enforced **in code**, not merely operationally — even if governance mistakenly allowlisted a *different*, upgradeable helper at a trusted address, its bytecode would not match the pin and account creation would revert. Because the kernel and the helper ship from the same build, the pin matches the deployed enabler by construction.
 
-> **Hard operational constraint.** `trustedModuleSetup` MUST only ever allowlist **immutable** helpers — fixed bytecode, no proxy, no delegatecall-to-mutable target, no `selfdestruct` / metamorphic redeploy. Allowlisting an upgradeable helper is outside the threat model.
+> **Operational note (now backstopped in code).** `trustedModuleSetup` should still only ever allowlist the immutable `SafeModuleEnabler`, but allowlisting anything else no longer opens the takeover surface: the codehash pin rejects any target whose bytecode differs from the pinned immutable helper.
 
 ### F1 — Manager-attested-NAV full drain (the §8.2 boundary)
 

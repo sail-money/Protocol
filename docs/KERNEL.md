@@ -83,7 +83,7 @@ Used by `activateSession()`.
 ### `SET_FEE_POLICY_TYPEHASH`
 
 ```
-SetFeePolicy(address account,address newFeePolicy,uint256 nonce)
+SetFeePolicy(address account,address newFeePolicy,address feeAsset,uint256 nonce,uint256 deadline)
 ```
 
 Used by `setFeePolicy()`.
@@ -115,6 +115,7 @@ struct AccountConfig {
     address permissionSigner;  // Signs permission-registry operations
     address manager;           // Signs dispatch calls
     address feePolicy;         // Fee policy contract; address(0) = none
+    address feeAsset;          // Canonical fee settlement token; address(0) = native ETH
     bool    sessionActive;     // When false, all dispatch calls are blocked
 }
 ```
@@ -256,12 +257,12 @@ struct AccountConfig {
 
 ---
 
-### `setFeePolicy(account, newFeePolicy, sig)`
+### `setFeePolicy(account, newFeePolicy, feeAsset, deadline, sig)`
 
 - **Access:** Anyone (signature-gated by permissionSigner)
-- **What it does:** Replaces the fee policy for an account. `newFeePolicy = address(0)` clears the policy, making `collectFees` revert with `FeePolicyNotSet`.
+- **What it does:** Replaces the fee policy for an account and sets its canonical `feeAsset`. `newFeePolicy = address(0)` clears the policy (and the asset), making `collectFees` revert with `FeePolicyNotSet`. A `(account, policy)` pair is pinned to the single fee asset it was first used with (the #5 binding): re-pointing the same policy instance to a different asset reverts `FeePolicyAssetMismatch`.
 - **Events:** `FeePolicyUpdated(account, newFeePolicy)`
-- **Errors:** `AccountNotRegistered`, `InvalidSignerSignature`
+- **Errors:** `AccountNotRegistered`, `InvalidSignerSignature`, `DeadlineExpired`, `FeePolicyAssetMismatch` (re-point of a policy already bound to a different fee asset)
 
 ---
 
@@ -431,6 +432,7 @@ struct AccountConfig {
 | `TooManyPermissions(account, limit)` | Adding permissions would exceed `governance.maxPermissionsPerAccount()` |
 | `InsufficientFee(required, provided)` | `msg.value` is below the computed registration fee |
 | `FeePolicyNotSet()` | `collectFees` called with no fee policy attached to the account |
+| `FeePolicyAssetMismatch(policy, expected, provided)` | `setFeePolicy` re-points a policy instance already bound (per account) to a different fee asset — the #5 fee-asset binding |
 | `FeeTooLarge(requested, maxAllowed)` | `grossFee` exceeds the policy's computed maximum |
 | `FeeTransferFailed()` | ETH or ERC-20 fee transfer via the Safe failed |
 | `NotManager(caller, expected)` | Caller of a manager-only function is not the account's manager |
@@ -440,3 +442,10 @@ struct AccountConfig {
 | `DistributorBpsTooLarge(bps)` | `distributorBps` returned by the fee policy exceeds 10 000 |
 | `NoPermissionsRegistered(account)` | Retained for ABI compatibility; no longer emitted by `dispatch`. The caller now names a specific permission and receives `PermissionNotRegistered` if it is absent. |
 | `ProtocolPaused()` | `dispatch` or `collectFees` called while the protocol is paused |
+| `UntrustedFactory(factory)` | `createAccount` given a Safe factory not in governance's trusted allowlist |
+| `UntrustedSingleton(singleton)` | `createAccount` given a Safe singleton not in governance's trusted allowlist |
+| `InvalidInitializer()` | `createAccount` `safeInitializer` too short to contain the Safe.setup `to` field (< 100 bytes) |
+| `UntrustedModuleSetup(setup)` | `createAccount` Safe.setup delegatecall `to` target not in governance's trusted module-setup allowlist |
+| `UntrustedModuleSetupCodehash(setup)` | `createAccount` setup target's runtime codehash != the pinned `EXPECTED_SETUP_CODEHASH` (the immutable SafeModuleEnabler — W2) |
+| `UntrustedProxyCodehash(codehash)` | `createAccount`/`registerAccount` account's runtime codehash not in governance's trusted Safe-proxy-codehash allowlist |
+| `ModuleNotEnabled()` | `createAccount`/`registerAccount` Safe does not have this kernel enabled as a module |

@@ -158,6 +158,9 @@ The protocol does not compute the gross fee amount. That is the responsibility o
  
 ```solidity
 interface IFeePolicy {
+    /// @notice Where the manager's net fee share is paid. The kernel pulls this; a caller cannot redirect it.
+    function feeRecipient() external view returns (address);
+
     /// @notice Compute the legitimate fee owed at this moment.
     function computeFee(address account, uint256 currentNav) 
         external view returns (
@@ -169,6 +172,10 @@ interface IFeePolicy {
     /// @notice Record that a fee was collected (for HWM, accrual tracking).
     function recordCollection(address account, uint256 grossFee, uint256 currentNav) 
         external;
+
+    /// @notice Lifecycle hook the kernel invokes when an account (re)attaches this policy via
+    ///         setFeePolicy. Account only — no NAV. Stateful policies re-anchor per-account state here.
+    function onAttach(address account) external;
 }
 ```
  

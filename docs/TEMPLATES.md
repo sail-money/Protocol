@@ -107,13 +107,14 @@ Each of the seven follows the same four-part structure:
 
 **How evaluation decides** (in order):
 1. **Configuration current?** Deny if not configured for the current epoch.
-2. **Protocol allowlisted?** Deny if the call target isn't in `protocols[]`.
-3. **Recognized borrow shape?** It decodes three selectors — Aave V3 `borrow`, Morpho `borrow`, and Compound V2 `borrow`. Anything else: deny. For each:
+2. **Any ETH attached?** Deny if `value != 0` (no supported borrow selector is payable). This makes all 7 functional templates uniform in rejecting native ETH (Octane #1).
+3. **Protocol allowlisted?** Deny if the call target isn't in `protocols[]`.
+4. **Recognized borrow shape?** It decodes three selectors — Aave V3 `borrow`, Morpho `borrow`, and Compound V2 `borrow`. Anything else: deny. For each:
    - the borrow **asset** must be allowlisted — for Compound, the call target is the cToken, so it resolves the **underlying** via `underlying()` and allowlists *that*; a target with no `underlying()` (e.g. cETH) resolves nothing and is **denied** (fail-closed);
    - amount ≤ `maxAmountPerTx` → else deny;
    - the position is credited to **the account** (`onBehalfOf` / `receiver` == account) → else deny;
    - then the **LTV check**.
-4. **The LTV check.** If no oracles are configured, this step passes (size-cap-only mode). If both are set: it reads collateral value and borrow price, denies on a stale or zero/implausible reading, and computes the **largest borrow amount the ceiling permits**, comparing the requested amount against it. The math is **fail-closed and amount-based**: it applies the LTV fraction to the full-precision collateral value first and collapses decimal scale last, flooring in the borrower's disfavour at every step — so a borrow over the ceiling can never slip through, and the prior bug where a sub-1-unit borrow rounded to zero LTV is closed (Octane #6/#11).
+5. **The LTV check.** If no oracles are configured, this step passes (size-cap-only mode). If both are set: it reads collateral value and borrow price, denies on a stale or zero/implausible reading, and computes the **largest borrow amount the ceiling permits**, comparing the requested amount against it. The math is **fail-closed and amount-based**: it applies the LTV fraction to the full-precision collateral value first and collapses decimal scale last, flooring in the borrower's disfavour at every step — so a borrow over the ceiling can never slip through, and the prior bug where a sub-1-unit borrow rounded to zero LTV is closed (Octane #6/#11).
 
 **What it cannot protect against.** With **zero oracles**, there is **no LTV ceiling at all** — only the size cap applies (the stored `maxLtvBps` is unused in that mode). The LTV check is **per-call, not cumulative**: it bounds each borrow step against collateral at that instant, not the cumulative LTV of a position built across many borrows (a leverage loop). It is checked only at borrow time, not ongoing position health, and cannot detect a dishonest feed. For cumulative-position safety, rely on the lending protocol's own health factor and/or a separate monitoring permission. As with `SwapPermission`, a heavy oracle adapter can exhaust the gas cap and fail closed.
 
