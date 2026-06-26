@@ -188,6 +188,8 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
         // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
         if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
+        // No supported borrow selector is payable — reject native ETH.
+        if (ctx.value != 0) return false;
         if (!isAllowedProtocol[ctx.account][ctx.target]) return false;
         Slot storage s = _slots[ctx.account];
 
