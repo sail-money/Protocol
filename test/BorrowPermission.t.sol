@@ -288,6 +288,17 @@ contract BorrowPermissionTest is Test {
         assertTrue(borrow.evaluate(_compound(100), _ctx(CTOKEN, COMPOUND_BORROW)));
     }
 
+    // ── ctx.value guard: an otherwise-valid borrow carrying ETH is denied ─────────
+    function test_NonzeroValue_Denies() public {
+        _configure(0, address(0), address(0), 0);
+        // Positive regression: the same borrow with zero value still passes.
+        assertTrue(borrow.evaluate(_aave(ASSET, 100, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+        // Negative: identical borrow carrying native ETH is denied (no borrow selector is payable).
+        Context memory c = _ctx(AAVE, AAVE_BORROW);
+        c.value = 1;
+        assertFalse(borrow.evaluate(_aave(ASSET, 100, ACCOUNT), c));
+    }
+
     // ── structural denials ───────────────────────────────────────────────────────
 
     function test_DisallowedProtocol_Denies() public {
