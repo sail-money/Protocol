@@ -149,11 +149,12 @@ Reverts with the corresponding `*TooHigh` or `ZeroAddress` error if any paramete
 | `setPerformanceFeeBps(uint256)` | `feeManager` | <= 5 000 | Updates performance fee rate |
 | `setDistributor(address)` | `feeManager` | None (`address(0)` allowed) | Updates distributor address |
 | `setDistributorBps(uint256)` | `feeManager` | <= 10 000 | Updates distributor's share |
-| `transferFeeManager(address)` | `feeManager` | Must not be `address(0)` | Transfers fee manager rights |
+| `proposeFeeManager(address)` | `feeManager` | Must not be `address(0)` | Step 1: nominates the next fee manager |
+| `acceptFeeManager()` | `pendingFeeManager` | Caller must be the pending fee manager | Step 2: finalises the transfer |
 
-### `transferFeeManager` — Single-Step Warning
+### Fee-Manager Transfer — Two-Step
 
-Unlike the kernel's two-step governance transfer, `transferFeeManager` is a **single-step** operation. A mistyped address permanently loses control of this policy's parameters — there is no recovery mechanism. Always use a multisig or hardware-wallet-controlled address as `feeManager`. If possible, verify the new address can sign a transaction before calling this function.
+Fee-manager control transfers via a two-step `proposeFeeManager` → `acceptFeeManager` handshake, mirroring the kernel's two-step governance transfer: the current `feeManager` nominates a successor, and the transfer finalises only when that successor calls `acceptFeeManager` (calling `proposeFeeManager` again before acceptance overwrites the pending nominee). Because an address that cannot call `acceptFeeManager` never becomes `feeManager`, a mistyped or uncontrolled successor cannot take — or permanently lose — control of the policy. Always use a multisig or hardware-wallet-controlled address as `feeManager`, and confirm the nominee can sign before it calls `acceptFeeManager`.
 
 ### Events
 
@@ -163,7 +164,8 @@ Unlike the kernel's two-step governance transfer, `transferFeeManager` is a **si
 | `PerformanceFeeUpdated(oldBps, newBps)` | `setPerformanceFeeBps` |
 | `DistributorUpdated(oldDistributor, newDistributor)` | `setDistributor` |
 | `DistributorBpsUpdated(oldBps, newBps)` | `setDistributorBps` |
-| `FeeManagerTransferred(oldFeeManager, newFeeManager)` | `transferFeeManager` |
+| `FeeManagerProposed(currentFeeManager, proposedFeeManager)` | `proposeFeeManager` |
+| `FeeManagerTransferred(oldFeeManager, newFeeManager)` | `acceptFeeManager` |
 | `FeesCollected(account, grossFee, currentNav, newHighWaterMark)` | `recordCollection` (skipped on first/init call) |
 
 ### Errors
@@ -172,7 +174,8 @@ Unlike the kernel's two-step governance transfer, `transferFeeManager` is a **si
 |---|---|
 | `NotKernel()` | `recordCollection` called by a non-kernel address |
 | `NotFeeManager()` | Setter called by a non-feeManager address |
-| `ZeroAddress()` | `kernel`, `feeManager`, or `transferFeeManager` target is `address(0)` |
+| `NotPendingFeeManager()` | `acceptFeeManager` called by an address other than the pending fee manager |
+| `ZeroAddress()` | `kernel`, `feeManager`, or `proposeFeeManager` target is `address(0)` |
 | `ZeroInitialNav()` | First `recordCollection` call has `currentNav == 0` |
 | `ManagementFeeTooHigh(bps)` | Requested rate exceeds `MAX_MANAGEMENT_FEE_BPS` |
 | `PerformanceFeeTooHigh(bps)` | Requested rate exceeds `MAX_PERFORMANCE_FEE_BPS` |

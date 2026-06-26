@@ -213,7 +213,7 @@ The `MandateFactory.deployAndAttach` clone CREATE2 salt binds both the caller an
 
 ### NAV is Not Verified On-Chain
 
-The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy, and the resulting fee is bounded only by the account's own balance — in the limit, approaching a full withdrawal of the account. Because the reference fee policy trusts a manager-attested NAV, a manager (in a non-self-managed deployment) could in principle report an inflated NAV and `collectFees` up to the full Safe balance (finding F1) — which is exactly why the reference `StandardFeePolicy` is scoped to self-managed SMAs (manager == owner), and a third-party allocation warrants a fee policy that validates NAV without manager attestation.
+The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy, and the resulting fee is bounded only by the account's own balance — in the limit, approaching a full withdrawal of the account. Because the reference fee policy trusts a manager-attested NAV, a manager (in a non-self-managed deployment) could in principle report an inflated NAV and `collectFees` up to the full Safe balance (finding F1) — which is exactly why the reference `StandardFeePolicy` is scoped to self-managed SMAs (the owner controls the manager key *and* the policy's `feeManager` is the owner's own address), and a third-party allocation warrants a fee policy that validates NAV without manager attestation.
 
 **Operator responsibility:** use a fee policy that validates NAV through a trusted oracle if the manager is not fully trusted. `StandardFeePolicy` does not include oracle validation — it accepts manager-provided NAV values directly.
 
@@ -225,11 +225,11 @@ The `currentNav` value in `collectFees` is provided by the manager. The kernel d
 
 **Adapter gas budget (F5).** An oracle-using template's own `evaluate` cost is light — one oracle read plus a decode and a couple of `mulDiv`s — but the whole evaluation runs under `PERMISSION_GAS_CAP = 150,000`. A heavy operator-supplied oracle adapter can push the evaluation over that cap, which fails closed (deny). Operators must budget their adapter's gas so a legitimate dispatch does not get denied on out-of-gas.
 
-### `transferFeeManager` is Single-Step
+### Fee-Manager Transfer Is Two-Step
 
-Unlike the kernel's two-step governance transfer, `StandardFeePolicy.transferFeeManager` is single-step. A mistyped address permanently loses control of the policy.
+`StandardFeePolicy` transfers fee-manager control via a two-step `proposeFeeManager` → `acceptFeeManager` handshake: the current `feeManager` nominates a successor, and the transfer finalises only when that successor calls `acceptFeeManager`. Mirroring the kernel's two-step governance transfer, this prevents a mistyped or uncontrolled address from taking — and permanently losing — control of the policy: an address that cannot call `acceptFeeManager` never becomes `feeManager`.
 
-**Operator responsibility:** use a multisig as `feeManager`. Verify the new address's ability to sign before calling `transferFeeManager`.
+**Operator responsibility:** use a multisig as `feeManager`, and confirm the nominated successor can sign before it calls `acceptFeeManager`.
 
 ### `BorrowPermission` LTV Enforcement Is Per-Call
 
@@ -257,7 +257,7 @@ The following findings were reviewed and **accepted** as deliberate design decis
 
 ### #10 — Performance fee on deposits / airdrops (accepted, documented)
 
-`computeFee` charges on any NAV rise above the high-water mark with no flow-netting, so a fresh deposit or airdrop can be taxed as profit. This is the §8.2 manager-attested-NAV boundary: at launch `manager == owner` and the protocol cut is 0, so fees flow owner → owner with no external loss. The kernel already tracks cumulative deposits/withdrawals, but those flows are themselves `permissionSigner`-attested, so a flow-netting policy *moves* the trust surface rather than removing it. A flow-netting / NAV-validating `IFeePolicy` is a peripheral contract anyone may deploy for third-party-allocation contexts — out of scope here, with no protocol dependency.
+`computeFee` charges on any NAV rise above the high-water mark with no flow-netting, so a fresh deposit or airdrop can be taxed as profit. This is the §8.2 **manager-attested-NAV** boundary, and it is deliberate: `StandardFeePolicy` computes fees from a NAV the manager reports at collection — the kernel neither computes nor validates NAV. Keeping the kernel out of valuation is a core design choice. Teaching it to measure NAV across lending / trading / borrowing / LP / etc. would expand the trusted core into an unbounded, venue-specific valuation surface; NAV measurement is therefore the manager's responsibility (and that of future audited, NAV-validating permission/fee templates), never the kernel's. The accepted consequence: a manager can crystallise a performance fee on any reported NAV rise (including fresh deposits or airdrops) and, under manager-attested NAV, can in principle report a NAV that extracts up to the account's balance. The collected fee is paid to the policy's `feeRecipient` (its `feeManager`) and the protocol cut to `treasury` — addresses *independent of the account owner*. The no-external-loss property therefore does **not** follow from "`manager == owner`" alone: for a self-managed SMA it holds when the owner controls the manager key **and** the policy's `feeManager` is the owner's own address (`feeManager == owner`), with the protocol cut at 0. `StandardFeePolicy` is the reference policy for exactly this self-managed scope; a shared / multi-tenant instance whose `feeManager` is a third party is outside it. Third-party allocation (`manager != owner`) is out of scope for this policy and requires a NAV-validating `IFeePolicy` that derives NAV from on-chain position adapters rather than manager attestation — arriving with the Marketplace phase.
 
 ### #12 — Cross-oracle skew (Low, deferred post-audit)
 
@@ -273,7 +273,7 @@ Authority derives solely from the manager EIP-712 signature; the submitter is in
 
 ### #15 — `feeAsset` not in the account salt (accepted, bounded)
 
-The `createAccount` salt binds the principals + the `safeInitializer` (owners/threshold/module), so a squatter gains no authority and cannot collect fees. The only mutable field (`feeAsset`) is correctable in a single transaction by the bound `permissionSigner` and is pinned per-policy by #5. The exposure is bounded and self-curable; folding `feeAsset` into the salt would break same-address portability across the live chains.
+The `createAccount` salt binds the principals + the `safeInitializer` (owners/threshold/module), so a squatter gains no authority and cannot collect fees. The only mutable field, `feeAsset`, is correctable by the bound `permissionSigner` via `setFeePolicy` in a single transaction — but, because the #5 fee-asset binding pins the current policy to its existing asset *before* the overwrite, a same-instance re-point to a corrected asset reverts `FeePolicyAssetMismatch`. Recovery therefore points the account at a **different** trusted policy instance (the fresh-policy-instance pattern described under #5 above). The exposure is bounded and recoverable; folding `feeAsset` into the salt would break same-address portability across the live chains.
 
 ### #16 — Floor rounding in the fee split (Informational, WONTFIX)
 
@@ -291,4 +291,4 @@ The shipped helper (`SafeModuleEnabler`) is **immutable** (no constructor, no st
 
 ### F1 — Manager-attested-NAV full drain (the §8.2 boundary)
 
-Recorded above under *NAV is Not Verified On-Chain*: because the reference fee policy trusts a manager-attested NAV, a manager in a non-self-managed deployment could in principle report an inflated NAV and `collectFees` up to the full Safe balance. This is why the reference policy is scoped to self-managed SMAs (manager == owner); third-party allocation needs a NAV-validating policy.
+Recorded above under *NAV is Not Verified On-Chain*: because the reference fee policy trusts a manager-attested NAV, a manager in a non-self-managed deployment could in principle report an inflated NAV and `collectFees` up to the full Safe balance. This is why the reference policy is scoped to self-managed SMAs (the owner controls the manager key *and* the policy's `feeManager` is the owner's own address, with the protocol cut at 0); third-party allocation needs a NAV-validating policy.
