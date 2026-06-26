@@ -939,4 +939,37 @@ contract StandardFeePolicyTest is Test {
         assertEq(grossFee, billed, "charges only the 10 post-reattach days");
         assertLt(grossFee, wouldHaveBilled, "strictly less than the dormant-interval over-bill");
     }
+
+    /// @dev (5) Drop-while-detached: reattaching at a NAV BELOW the prior HWM must NOT ratchet the
+    ///      mark down. The first post-reattach collection charges no perf fee (suppressed) and keeps
+    ///      the higher prior HWM; a later collection at a NAV still below that prior high is likewise
+    ///      not charged a perf fee — proving the conservative max(priorHWM, currentNav) re-anchor
+    ///      (a fresh-start `= currentNav` would have lowered the mark and billed the recovery).
+    function test_OnAttach_DropWhileDetached_DoesNotRatchetHWMDown() public {
+        _initAccount(ACCOUNT, NAV);                 // HWM seeded at NAV (the prior high)
+
+        // Detached while NAV falls below the seeded HWM.
+        vm.warp(T0 + 100 days);
+        uint256 lowerNav = NAV - 200_000e18;
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+
+        // First collection after reattach: perf suppressed; management fee only, over 1 day.
+        vm.warp(T0 + 101 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, lowerNav);
+        assertEq(grossFee, _expectedMgmt(lowerNav, MGMT_BPS, 1 days), "perf suppressed on re-anchor");
+
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, grossFee, lowerNav);
+        // HWM is NOT lowered to lowerNav — max(priorHWM, currentNav) keeps the prior high.
+        assertEq(policy.highWaterMark(ACCOUNT), NAV, "HWM not ratcheted down on reattach");
+        assertFalse(policy.pendingReanchor(ACCOUNT));
+
+        // A later collection at a NAV still BELOW the preserved prior high charges NO perf fee —
+        // proving the mark was kept (a down-rebase to lowerNav would have billed this recovery).
+        vm.warp(T0 + 102 days);
+        uint256 recoveredNav = NAV - 50_000e18;      // still below the prior high
+        (uint256 grossFee2,,) = policy.computeFee(ACCOUNT, recoveredNav);
+        assertEq(grossFee2, _expectedMgmt(recoveredNav, MGMT_BPS, 1 days), "no perf below preserved HWM");
+    }
 }

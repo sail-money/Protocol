@@ -269,10 +269,10 @@ contract StandardFeePolicy is IFeePolicy {
             SECONDS_PER_YEAR * BASIS_POINTS
         );
 
-        // On the first collection after a reattach, charge no performance fee: the HWM is about to
-        // be re-based to currentNav (see recordCollection), so gains booked while detached are not
-        // billed. Management fee is unaffected — it already accrues only from the re-anchored
-        // lastCollectionTimestamp set by onAttach.
+        // On the first collection after a reattach, charge no performance fee: the HWM is about to be
+        // re-anchored to max(priorHWM, currentNav) (see recordCollection), so any gain booked while
+        // detached is not billed. Management fee is unaffected — it already accrues only from the
+        // re-anchored lastCollectionTimestamp set by onAttach.
         uint256 performanceFee;
         uint256 hwm = highWaterMark[account];
         if (!pendingReanchor[account] && currentNav > hwm) {
@@ -301,10 +301,13 @@ contract StandardFeePolicy is IFeePolicy {
             revert CollectionTooFrequent();
 
         lastCollectionTimestamp[account] = block.timestamp;
-        // On the first collection after a reattach, re-base the HWM to the reattachment NAV (a fresh
-        // start), rather than carrying the stale pre-detach mark forward; this pairs with the
-        // performance-fee suppression in computeFee so nothing booked while detached is billed.
-        uint256 newHwm = pendingReanchor[account] ? currentNav : Math.max(highWaterMark[account], currentNav);
+        // On the first collection after a reattach, the performance leg is suppressed (see computeFee)
+        // and the HWM is re-anchored to max(priorHWM, currentNav) — the same conservative ratchet as a
+        // normal collection. We deliberately NEVER lower the mark: re-basing it DOWN (when
+        // currentNav < priorHWM) would let a later recovery below the prior all-time high be charged a
+        // performance fee — the opposite of this fix's intent. For the gains-while-detached case
+        // (currentNav > priorHWM) max picks currentNav, so the dormant gain is still not billed.
+        uint256 newHwm = Math.max(highWaterMark[account], currentNav);
         if (pendingReanchor[account]) pendingReanchor[account] = false;
         highWaterMark[account] = newHwm;
         emit FeesCollected(account, grossFee, currentNav, newHwm);
@@ -316,10 +319,13 @@ contract StandardFeePolicy is IFeePolicy {
     /// @inheritdoc IFeePolicy
     /// @dev Lifecycle hook: re-anchor an account that already has state on THIS instance (i.e. a
     ///      detach→reattach of the same policy). Resetting `lastCollectionTimestamp` to now stops the
-    ///      dormant interval from being billed as management fees, and `pendingReanchor` makes the
-    ///      next collection re-base the HWM (suppressing any performance fee on gains booked while
-    ///      detached). A never-seeded account has no anchors to reset — the normal first-use path —
-    ///      so onAttach is a no-op for it. The kernel passes only `account`; no NAV is involved.
+    ///      dormant interval from being billed as management fees, and `pendingReanchor` makes the next
+    ///      collection suppress its performance leg and re-anchor the HWM to max(priorHWM, currentNav)
+    ///      — the mark is never ratcheted DOWN, so the re-anchor is owner-protective: it can only avoid
+    ///      a charge, never create one (it skips a dormant-interval gain, and never lets a later
+    ///      recovery below the prior high be billed). A never-seeded account has no anchors to reset —
+    ///      the normal first-use path — so onAttach is a no-op for it. The kernel passes only
+    ///      `account`; no NAV is involved.
     function onAttach(address account) external onlyKernel {
         if (hwmSeeded[account]) {
             lastCollectionTimestamp[account] = block.timestamp;
