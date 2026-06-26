@@ -442,3 +442,10 @@ struct AccountConfig {
 | `DistributorBpsTooLarge(bps)` | `distributorBps` returned by the fee policy exceeds 10 000 |
 | `NoPermissionsRegistered(account)` | Retained for ABI compatibility; no longer emitted by `dispatch`. The caller now names a specific permission and receives `PermissionNotRegistered` if it is absent. |
 | `ProtocolPaused()` | `dispatch` or `collectFees` called while the protocol is paused |
+| `UntrustedFactory(factory)` | `createAccount` given a Safe factory not in governance's trusted allowlist |
+| `UntrustedSingleton(singleton)` | `createAccount` given a Safe singleton not in governance's trusted allowlist |
+| `InvalidInitializer()` | `createAccount` `safeInitializer` too short to contain the Safe.setup `to` field (< 100 bytes) |
+| `UntrustedModuleSetup(setup)` | `createAccount` Safe.setup delegatecall `to` target not in governance's trusted module-setup allowlist |
+| `UntrustedModuleSetupCodehash(setup)` | `createAccount` setup target's runtime codehash != the pinned `EXPECTED_SETUP_CODEHASH` (the immutable SafeModuleEnabler — W2) |
+| `UntrustedProxyCodehash(codehash)` | `createAccount`/`registerAccount` account's runtime codehash not in governance's trusted Safe-proxy-codehash allowlist |
+| `ModuleNotEnabled()` | `createAccount`/`registerAccount` Safe does not have this kernel enabled as a module |

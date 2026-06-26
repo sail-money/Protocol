@@ -179,7 +179,7 @@ Fee-manager control transfers via a two-step `proposeFeeManager` → `acceptFeeM
 | `DistributorBpsUpdated(oldBps, newBps)` | `setDistributorBps` |
 | `FeeManagerProposed(currentFeeManager, proposedFeeManager)` | `proposeFeeManager` |
 | `FeeManagerTransferred(oldFeeManager, newFeeManager)` | `acceptFeeManager` |
-| `FeesCollected(account, grossFee, currentNav, newHighWaterMark)` | `recordCollection` (skipped on first/init call) |
+| `FeesCollected(account, grossFee, currentNav, newHighWaterMark)` | every `recordCollection` (the account is seeded first via `seedHighWaterMark`, so there is no skipped first emission) |
 
 ### Errors
 
