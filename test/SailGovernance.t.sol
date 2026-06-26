@@ -696,4 +696,47 @@ contract SailGovernanceTest is Test {
     }
 
     event AllowlistBootstrapped(address indexed by);
+
+    // -------------------------------------------------------------------------
+    // C3 — zero-value guard symmetry on steady-state setters (mirror bootstrap)
+    // -------------------------------------------------------------------------
+
+    /// @dev setTrustedSafeProxyCodehash must reject a zero codehash, matching the
+    ///      `ZeroCodehash` guard bootstrapAllowlists already applies. A zero codehash
+    ///      would match empty/EOA accounts and has no legitimate use.
+    function test_C3_SetTrustedSafeProxyCodehash_RevertsOnZero() public {
+        bytes memory data = abi.encodeCall(gov.setTrustedSafeProxyCodehash, (bytes32(0), true));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
+        vm.expectRevert(SailGovernance.ZeroCodehash.selector);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
+
+    /// @dev A non-zero codehash still writes successfully (the guard is purely additive).
+    function test_C3_SetTrustedSafeProxyCodehash_NonZeroSucceeds() public {
+        bytes32 ch = keccak256("some.proxy.codehash");
+        _timelockExec(abi.encodeCall(gov.setTrustedSafeProxyCodehash, (ch, true)));
+        assertTrue(gov.trustedSafeProxyCodehash(ch));
+    }
+
+    /// @dev setTrustedSafeFactory must reject the zero address, matching bootstrap's ZeroAddress guard.
+    function test_C3_SetTrustedSafeFactory_RevertsOnZero() public {
+        bytes memory data = abi.encodeCall(gov.setTrustedSafeFactory, (address(0), true));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
+
+    /// @dev setTrustedSafeSingleton must reject the zero address, matching bootstrap's ZeroAddress guard.
+    function test_C3_SetTrustedSafeSingleton_RevertsOnZero() public {
+        bytes memory data = abi.encodeCall(gov.setTrustedSafeSingleton, (address(0), true));
+        bytes32 salt = _timelockSchedule(data);
+        TimelockController tl = gov.timelock();
+        vm.expectRevert(SailGovernance.ZeroAddress.selector);
+        vm.prank(TEAM);
+        tl.execute(address(gov), 0, data, bytes32(0), salt);
+    }
 }

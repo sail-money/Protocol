@@ -60,7 +60,7 @@ contract BatchPermissionsTest is Test {
         manager    = vm.addr(MANAGER_KEY);
 
         gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(TEAM));
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
         safe   = new BatchMockSafe();
 
         perm1  = new BatchMockPermission();

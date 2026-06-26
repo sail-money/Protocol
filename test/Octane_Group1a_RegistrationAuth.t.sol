@@ -83,7 +83,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     function setUp() public {
         owner  = vm.addr(OWNER_KEY);
         gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, TimelockDeployer.deploy(TEAM));
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
 
         // One codehash seed covers every ConfigurableSafe instance.
         ConfigurableSafe seed = new ConfigurableSafe(TRUSTED_SINGLETON, owner);

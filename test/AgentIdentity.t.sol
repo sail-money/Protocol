@@ -72,7 +72,7 @@ contract AgentIdentityTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
 
         gov    = new SailGovernance(address(this), 0.001 ether, address(this), 0, TimelockDeployer.deploy(address(this)));
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
         safe   = new AgentTestSafe();
 
         vm.prank(address(gov.timelock()));

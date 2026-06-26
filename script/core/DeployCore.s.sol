@@ -175,10 +175,19 @@ contract DeployCore is Script {
         );
         d.governance = SailGovernance(_deploy2(SALT_GOVERNANCE, governanceInit, "SailGovernance"));
 
-        // (3) SailKernel — references the (deterministic) governance address + treasury.
+        // (3a) SafeModuleEnabler — no constructor args, so its initCode (and therefore its address
+        //      and runtime codehash) is trivially identical on every chain. Deployed BEFORE the
+        //      kernel so the kernel constructor can read its codehash and pin it (W2).
+        bytes memory enablerInit = type(SafeModuleEnabler).creationCode;
+        d.safeModuleEnabler = SafeModuleEnabler(_deploy2(SALT_MODULE_ENABLER, enablerInit, "SafeModuleEnabler"));
+
+        // (3b) SailKernel — references the (deterministic) governance address + treasury, and pins
+        //      the just-deployed immutable SafeModuleEnabler's runtime codehash (W2). Because the
+        //      kernel and the enabler ship from the SAME build, the pinned codehash matches the
+        //      deployed helper by construction.
         bytes memory kernelInit = abi.encodePacked(
             type(SailKernel).creationCode,
-            abi.encode(address(d.governance), cfg.treasury)
+            abi.encode(address(d.governance), cfg.treasury, address(d.safeModuleEnabler))
         );
         d.kernel = SailKernel(_deploy2(SALT_KERNEL, kernelInit, "SailKernel"));
 
@@ -202,11 +211,6 @@ contract DeployCore is Script {
             )
         );
         d.feePolicy = StandardFeePolicy(_deploy2(SALT_FEE_POLICY, feePolicyInit, "StandardFeePolicy"));
-
-        // (6) SafeModuleEnabler — no constructor args, so its initCode (and therefore its address)
-        //     is trivially identical on every chain.
-        bytes memory enablerInit = type(SafeModuleEnabler).creationCode;
-        d.safeModuleEnabler = SafeModuleEnabler(_deploy2(SALT_MODULE_ENABLER, enablerInit, "SafeModuleEnabler"));
 
         // Genesis allowlist seeding: when SAIL_BOOTSTRAP_ALLOWLISTS is set, seed the onboarding
         // allowlists in this same broadcast (deployer is still `governance`), bypassing the

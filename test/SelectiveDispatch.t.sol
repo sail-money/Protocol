@@ -150,7 +150,7 @@ contract SelectiveDispatchTest is Test {
         vm.deal(address(this), 10 ether);
 
         gov    = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, TimelockDeployer.deploy(address(this)));
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
         safe   = new MockSafe();
         vm.deal(address(safe), 1 ether);
 

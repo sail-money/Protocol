@@ -68,7 +68,7 @@ contract Octane03_Signatures is Test {
         manager    = vm.addr(MANAGER_KEY);
 
         gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
-        kernel   = new SailKernel(address(gov), address(0x2222));
+        kernel   = new SailKernel(address(gov), address(0x2222), address(0));
         safe     = new _O3Safe();
         perm     = new _O3Perm();
         feePolicy = new _O3FeePolicy();

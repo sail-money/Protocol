@@ -223,7 +223,7 @@ contract SailKernelTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
 
         gov      = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(TEAM));
-        kernel   = new SailKernel(address(gov), TREASURY);
+        kernel   = new SailKernel(address(gov), TREASURY, address(0));
         safe     = new MockSafe();
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
@@ -417,28 +417,30 @@ contract SailKernelTest is Test {
 
     function test_CreateAccount_RevertsOnZeroPermissionSigner() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address singleton   = address(0xBEEF); // non-zero dummy; MockSafeFactory ignores it
         address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0), true);
+        gov.setTrustedSafeSingleton(singleton, true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, address(0), manager, address(0), address(0));
+        kernel.createAccount(address(factory), singleton, _setupInit(moduleSetup), 0, address(0), manager, address(0), address(0));
     }
 
     function test_CreateAccount_RevertsOnZeroManager() public {
         MockSafeFactory factory = new MockSafeFactory();
+        address singleton   = address(0xBEEF); // non-zero dummy; MockSafeFactory ignores it
         address moduleSetup = address(0xD00D);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0), true);
+        gov.setTrustedSafeSingleton(singleton, true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedModuleSetup(moduleSetup, true);
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        kernel.createAccount(address(factory), address(0), _setupInit(moduleSetup), 0, permSigner, address(0), address(0), address(0));
+        kernel.createAccount(address(factory), singleton, _setupInit(moduleSetup), 0, permSigner, address(0), address(0), address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1762,7 +1764,7 @@ contract SailKernelTest is Test {
     function test_Constructor_RevertsOnTreasuryEqualsSelf() public {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
-        new SailKernel(address(gov), predicted);
+        new SailKernel(address(gov), predicted, address(0));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -216,7 +216,7 @@ contract BatchDispatchTest is Test {
 
         gov = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, TimelockDeployer.deploy(address(this)));
 
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
         safe   = new ForwardingMockSafe();
         vm.deal(address(safe), 10 ether);
 
