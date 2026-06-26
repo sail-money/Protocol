@@ -102,6 +102,13 @@ contract StandardFeePolicy is IFeePolicy {
     ///         Prevents retroactive repricing: rate changes only take effect prospectively.
     mapping(address account => uint256) public appliedPerformanceFeeBps;
 
+    /// @notice Set by `onAttach` when a previously-seeded account reattaches this instance, cleared
+    ///         on the next `recordCollection`. While true, the first post-reattach collection charges
+    ///         no performance fee and re-bases the HWM to the reattachment NAV — so no fee is billed
+    ///         on gains booked while the policy was detached. (Management fees are already re-anchored
+    ///         by `onAttach` resetting `lastCollectionTimestamp`.)
+    mapping(address account => bool) public pendingReanchor;
+
     // -------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------
@@ -262,9 +269,13 @@ contract StandardFeePolicy is IFeePolicy {
             SECONDS_PER_YEAR * BASIS_POINTS
         );
 
+        // On the first collection after a reattach, charge no performance fee: the HWM is about to
+        // be re-based to currentNav (see recordCollection), so gains booked while detached are not
+        // billed. Management fee is unaffected — it already accrues only from the re-anchored
+        // lastCollectionTimestamp set by onAttach.
         uint256 performanceFee;
         uint256 hwm = highWaterMark[account];
-        if (currentNav > hwm) {
+        if (!pendingReanchor[account] && currentNav > hwm) {
             performanceFee = Math.mulDiv(currentNav - hwm, appliedPerformanceFeeBps[account], BASIS_POINTS);
         }
 
@@ -290,12 +301,30 @@ contract StandardFeePolicy is IFeePolicy {
             revert CollectionTooFrequent();
 
         lastCollectionTimestamp[account] = block.timestamp;
-        uint256 newHwm = Math.max(highWaterMark[account], currentNav);
+        // On the first collection after a reattach, re-base the HWM to the reattachment NAV (a fresh
+        // start), rather than carrying the stale pre-detach mark forward; this pairs with the
+        // performance-fee suppression in computeFee so nothing booked while detached is billed.
+        uint256 newHwm = pendingReanchor[account] ? currentNav : Math.max(highWaterMark[account], currentNav);
+        if (pendingReanchor[account]) pendingReanchor[account] = false;
         highWaterMark[account] = newHwm;
         emit FeesCollected(account, grossFee, currentNav, newHwm);
         // Prospective: rate changes apply from the next period forward.
         appliedManagementFeeBps[account]  = managementFeeBps;
         appliedPerformanceFeeBps[account] = performanceFeeBps;
+    }
+
+    /// @inheritdoc IFeePolicy
+    /// @dev Lifecycle hook: re-anchor an account that already has state on THIS instance (i.e. a
+    ///      detach→reattach of the same policy). Resetting `lastCollectionTimestamp` to now stops the
+    ///      dormant interval from being billed as management fees, and `pendingReanchor` makes the
+    ///      next collection re-base the HWM (suppressing any performance fee on gains booked while
+    ///      detached). A never-seeded account has no anchors to reset — the normal first-use path —
+    ///      so onAttach is a no-op for it. The kernel passes only `account`; no NAV is involved.
+    function onAttach(address account) external onlyKernel {
+        if (hwmSeeded[account]) {
+            lastCollectionTimestamp[account] = block.timestamp;
+            pendingReanchor[account]         = true;
+        }
     }
 
     /// @notice Explicitly seed the high-water mark for an account before the first collection.

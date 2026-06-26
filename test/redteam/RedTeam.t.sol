@@ -135,6 +135,7 @@ contract InflatedFeePolicy is IFeePolicy {
     }
 
     function recordCollection(address, uint256, uint256) external {}
+    function onAttach(address) external {}
 
     // If distributor is zero (no split configured), fall back to a non-zero placeholder
     // so the kernel's ZeroAddress check doesn't short-circuit before we reach the actual

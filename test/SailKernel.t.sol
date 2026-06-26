@@ -159,6 +159,8 @@ contract MockFeePolicy is IFeePolicy {
     function recordCollection(address, uint256, uint256) external {
         recordCalled = true;
     }
+
+    function onAttach(address) external {}
 }
 
 contract MockOracle is IOracle {
