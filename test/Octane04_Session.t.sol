@@ -45,6 +45,7 @@ contract _O4FeePolicy is IFeePolicy {
         return (nav / 100, address(0), 0);
     }
     function recordCollection(address, uint256, uint256) external {}
+    function onAttach(address) external {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

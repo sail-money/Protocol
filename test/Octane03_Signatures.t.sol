@@ -36,6 +36,7 @@ contract _O3FeePolicy is IFeePolicy {
         return (0, address(0), 0);
     }
     function recordCollection(address, uint256, uint256) external {}
+    function onAttach(address) external {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -92,6 +92,7 @@ contract MutableRecipientFeePolicy is IFeePolicy {
     }
 
     function recordCollection(address, uint256, uint256) external {}
+    function onAttach(address) external {}
 }
 
 contract ManipulableOracle2 is IOracle {

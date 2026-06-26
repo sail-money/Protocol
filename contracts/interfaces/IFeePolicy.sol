@@ -39,4 +39,15 @@ interface IFeePolicy {
     /// @param  grossFee   Actual fee amount collected in this call.
     /// @param  currentNav NAV reported by the manager at collection time.
     function recordCollection(address account, uint256 grossFee, uint256 currentNav) external;
+
+    /// @notice Lifecycle hook the kernel invokes when `account` (re)attaches this policy via
+    ///         `setFeePolicy`. Implementations that keep persistent per-account accounting should
+    ///         re-anchor it here, so an account that detaches and later reattaches the SAME policy
+    ///         instance is not billed across the dormant interval.
+    /// @dev    Only the kernel should call this. The kernel passes ONLY the account and learns
+    ///         nothing about NAV or valuation — this is pure lifecycle/bookkeeping; NAV remains the
+    ///         manager's responsibility, reported through `computeFee`/`recordCollection` as before.
+    ///         A stateless policy may implement this as a no-op.
+    /// @param  account The Safe account attaching this policy.
+    function onAttach(address account) external;
 }

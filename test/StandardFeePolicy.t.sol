@@ -843,4 +843,133 @@ contract StandardFeePolicyTest is Test {
         assertEq(policy.appliedPerformanceFeeBps(ACCOUNT), PERF_BPS);
     }
 
+    // ── onAttach lifecycle re-anchor (detach/reattach over-collection fix) ──────
+
+    /// @dev onAttach is kernel-only.
+    function test_OnAttach_RevertsForNonKernel() public {
+        _initAccount(ACCOUNT, NAV);
+        vm.prank(STRANGER);
+        vm.expectRevert(StandardFeePolicy.NotKernel.selector);
+        policy.onAttach(ACCOUNT);
+    }
+
+    /// @dev onAttach on a never-seeded account is a no-op: no anchors to reset, no flag set.
+    function test_OnAttach_NeverSeeded_NoOp() public {
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+        assertEq(policy.lastCollectionTimestamp(ACCOUNT), 0);
+        assertFalse(policy.pendingReanchor(ACCOUNT));
+    }
+
+    /// @dev (1) Reattach bills management fees only over the POST-reattach interval, never the
+    ///      dormant interval the policy spent detached.
+    function test_OnAttach_ReanchorsManagementClock() public {
+        _initAccount(ACCOUNT, NAV);                 // seeded at T0
+
+        // Detached for 100 days (kernel never calls SP during this window), then reattached.
+        vm.warp(T0 + 100 days);
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);                    // re-anchor: lastCollectionTimestamp = now
+        assertEq(policy.lastCollectionTimestamp(ACCOUNT), T0 + 100 days);
+        assertTrue(policy.pendingReanchor(ACCOUNT));
+
+        // 30 days of legitimate post-reattach activity.
+        vm.warp(T0 + 130 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV); // NAV == HWM, so perf = 0
+
+        // Billed over 30 days, NOT the 130 days since the original seed.
+        assertEq(grossFee, _expectedMgmt(NAV, MGMT_BPS, 30 days));
+    }
+
+    /// @dev (2) An UNINTERRUPTED account (no onAttach) is unchanged: it bills the full elapsed
+    ///      span — proving the re-anchor fires only on attach.
+    function test_OnAttach_UninterruptedCollectionUnchanged() public {
+        _initAccount(ACCOUNT, NAV);
+        vm.warp(T0 + 130 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV);
+        assertEq(grossFee, _expectedMgmt(NAV, MGMT_BPS, 130 days));
+    }
+
+    /// @dev (3) The first post-reattach collection suppresses the performance fee and re-bases the
+    ///      HWM to the reattachment NAV — so gains booked while detached are not billed — and the
+    ///      NEXT collection behaves normally (perf charged on gains above the re-based HWM).
+    function test_OnAttach_SuppressesStalePerfFeeThenResumes() public {
+        _initAccount(ACCOUNT, NAV);
+
+        // Detached while NAV climbs above the seeded HWM.
+        vm.warp(T0 + 100 days);
+        uint256 gainedNav = NAV + 100_000e18;
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+
+        // First collection after reattach (>= MIN_COLLECTION_INTERVAL later): perf suppressed.
+        vm.warp(T0 + 101 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, gainedNav);
+        assertEq(grossFee, _expectedMgmt(gainedNav, MGMT_BPS, 1 days), "perf must be suppressed on re-anchor");
+
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, grossFee, gainedNav);
+        assertEq(policy.highWaterMark(ACCOUNT), gainedNav, "HWM re-based to reattachment NAV");
+        assertFalse(policy.pendingReanchor(ACCOUNT), "flag cleared after first collection");
+
+        // Next collection: normal behaviour — perf charged on gains above the re-based HWM.
+        vm.warp(T0 + 102 days);
+        uint256 higherNav = gainedNav + 50_000e18;
+        (uint256 grossFee2,,) = policy.computeFee(ACCOUNT, higherNav);
+        uint256 mgmt2 = _expectedMgmt(higherNav, MGMT_BPS, 1 days);
+        uint256 perf2 = (higherNav - gainedNav) * PERF_BPS / 10_000;
+        assertEq(grossFee2, mgmt2 + perf2, "perf resumes normally after re-anchor");
+    }
+
+    /// @dev (4) Explicit detach→reattach→collect arithmetic with concrete numbers: 90 days dormant,
+    ///      reattach, collect 10 days later. Only the 10 billable days are charged, strictly less
+    ///      than the 100-day amount the pre-fix code would have billed.
+    function test_OnAttach_ExplicitArithmetic() public {
+        _initAccount(ACCOUNT, NAV);                 // NAV = 1_000_000e18, MGMT = 200 bps (2%/yr)
+
+        vm.warp(T0 + 90 days);                       // dormant
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+
+        vm.warp(T0 + 100 days);                      // 10 days after reattach
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV);
+
+        uint256 billed = NAV * 200 * 10 days / (365 days * 10_000);
+        uint256 wouldHaveBilled = NAV * 200 * 100 days / (365 days * 10_000); // pre-fix (full span)
+        assertEq(grossFee, billed, "charges only the 10 post-reattach days");
+        assertLt(grossFee, wouldHaveBilled, "strictly less than the dormant-interval over-bill");
+    }
+
+    /// @dev (5) Drop-while-detached: reattaching at a NAV BELOW the prior HWM must NOT ratchet the
+    ///      mark down. The first post-reattach collection charges no perf fee (suppressed) and keeps
+    ///      the higher prior HWM; a later collection at a NAV still below that prior high is likewise
+    ///      not charged a perf fee — proving the conservative max(priorHWM, currentNav) re-anchor
+    ///      (a fresh-start `= currentNav` would have lowered the mark and billed the recovery).
+    function test_OnAttach_DropWhileDetached_DoesNotRatchetHWMDown() public {
+        _initAccount(ACCOUNT, NAV);                 // HWM seeded at NAV (the prior high)
+
+        // Detached while NAV falls below the seeded HWM.
+        vm.warp(T0 + 100 days);
+        uint256 lowerNav = NAV - 200_000e18;
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+
+        // First collection after reattach: perf suppressed; management fee only, over 1 day.
+        vm.warp(T0 + 101 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, lowerNav);
+        assertEq(grossFee, _expectedMgmt(lowerNav, MGMT_BPS, 1 days), "perf suppressed on re-anchor");
+
+        vm.prank(KERNEL);
+        policy.recordCollection(ACCOUNT, grossFee, lowerNav);
+        // HWM is NOT lowered to lowerNav — max(priorHWM, currentNav) keeps the prior high.
+        assertEq(policy.highWaterMark(ACCOUNT), NAV, "HWM not ratcheted down on reattach");
+        assertFalse(policy.pendingReanchor(ACCOUNT));
+
+        // A later collection at a NAV still BELOW the preserved prior high charges NO perf fee —
+        // proving the mark was kept (a down-rebase to lowerNav would have billed this recovery).
+        vm.warp(T0 + 102 days);
+        uint256 recoveredNav = NAV - 50_000e18;      // still below the prior high
+        (uint256 grossFee2,,) = policy.computeFee(ACCOUNT, recoveredNav);
+        assertEq(grossFee2, _expectedMgmt(recoveredNav, MGMT_BPS, 1 days), "no perf below preserved HWM");
+    }
 }

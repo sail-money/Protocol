@@ -1197,6 +1197,14 @@ contract SailKernel is EIP712, ReentrancyGuard {
         configs[account].feePolicy = newFeePolicy;
         configs[account].feeAsset  = (newFeePolicy == address(0)) ? address(0) : feeAsset;
         emit FeePolicyUpdated(account, newFeePolicy);
+
+        // Lifecycle hook (after all kernel state writes — CEI): tell the new policy it has been
+        // attached so it can re-anchor its per-account accounting. This closes the detach→reattach
+        // over-collection (the same instance would otherwise bill management fees over the dormant
+        // interval). The call passes ONLY `account` — the kernel never learns NAV/valuation; that
+        // stays the policy/manager's responsibility. The new policy is governance-trusted (checked
+        // above) and setFeePolicy is nonReentrant, so the external call is safe here.
+        if (newFeePolicy != address(0)) IFeePolicy(newFeePolicy).onAttach(account);
     }
 
     /// @notice Register multiple permissions atomically. One signer nonce is consumed for the
