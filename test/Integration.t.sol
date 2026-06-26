@@ -125,7 +125,7 @@ contract IntegrationTest is Test {
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0
 
         // 2. Kernel
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
 
         // 3. MockSafe
         mockSafe = new MockSafe();

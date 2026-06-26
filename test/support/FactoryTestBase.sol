@@ -87,7 +87,7 @@ abstract contract FactoryTestBase is Test {
         vm.prank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
 
-        kernel  = new SailKernel(address(gov), TREASURY);
+        kernel  = new SailKernel(address(gov), TREASURY, address(0));
         factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();

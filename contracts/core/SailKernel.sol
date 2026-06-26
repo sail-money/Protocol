@@ -329,6 +329,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice The governance contract that stores fee parameters and the protocol cut.
     SailGovernance public immutable governance;
 
+    /// @notice Runtime codehash of the audited, immutable SafeModuleEnabler this kernel pins as
+    ///         the ONLY permissible Safe.setup delegatecall `to` target (W2). Captured at
+    ///         construction from the deployed helper, so it matches the launch build by
+    ///         construction — no hand-copied literal, no recompile-mismatch risk. `createAccount`
+    ///         requires every non-zero `setupTarget` to carry exactly this codehash, so a
+    ///         governance mistake allowlisting a mutable/look-alike helper cannot open the
+    ///         setup-delegatecall takeover surface.
+    bytes32        public immutable EXPECTED_SETUP_CODEHASH;
+
     /// @notice Address that receives the protocol's share of collected fees.
     address        public treasury;
 
@@ -549,6 +558,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///      in governance's trusted module-setup allowlist.
     error UntrustedModuleSetup(address setup);
 
+    /// @dev Thrown by `createAccount` when the Safe.setup delegatecall `to` target's runtime
+    ///      codehash does not match the immutable, audited SafeModuleEnabler pinned at deploy
+    ///      (`EXPECTED_SETUP_CODEHASH`). Defends against a governance mistake allowlisting a
+    ///      MUTABLE helper at a trusted address: even an address-allowlisted target is rejected
+    ///      unless its deployed bytecode is byte-identical to the pinned immutable helper (W2).
+    error UntrustedModuleSetupCodehash(address setup);
+
     /// @dev Thrown by `registerAccount` when the caller's runtime codehash is not in
     ///      governance's trusted Safe-proxy-codehash allowlist.
     error UntrustedProxyCodehash(bytes32 codehash);
@@ -600,13 +616,19 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    /// @notice Deploy the kernel with a governance contract and initial treasury address.
-    /// @param  _governance  Address of the deployed SailGovernance contract.
-    /// @param  _treasury    Address that will receive the protocol's share of fees.
-    constructor(address _governance, address _treasury) EIP712("SailKernel", "1") {
+    /// @notice Deploy the kernel with a governance contract, treasury, and the Safe.setup helper.
+    /// @param  _governance    Address of the deployed SailGovernance contract.
+    /// @param  _treasury      Address that will receive the protocol's share of fees.
+    /// @param  _setupEnabler  The deployed, immutable SafeModuleEnabler. Its runtime codehash is
+    ///                        captured into `EXPECTED_SETUP_CODEHASH` and pinned as the only
+    ///                        permissible Safe.setup delegatecall target (W2). MUST be the genuine
+    ///                        immutable helper at launch; it must already be deployed when the
+    ///                        kernel is constructed so its codehash can be read here.
+    constructor(address _governance, address _treasury, address _setupEnabler) EIP712("SailKernel", "1") {
         if (_governance == address(0) || _treasury == address(0) || _treasury == address(this)) revert ZeroAddress();
-        governance = SailGovernance(_governance);
-        treasury   = _treasury;
+        governance             = SailGovernance(_governance);
+        treasury               = _treasury;
+        EXPECTED_SETUP_CODEHASH = _setupEnabler.codehash;
     }
 
     // -------------------------------------------------------------------------
@@ -689,6 +711,15 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address setupTarget = address(uint160(uint256(bytes32(safeInitializer[68:100]))));
         // address(0) means no delegatecall (vanilla Safe.setup) — always safe, no allowlist check needed.
         if (setupTarget != address(0) && !governance.trustedModuleSetup(setupTarget)) revert UntrustedModuleSetup(setupTarget);
+        // W2: address-allowlisting alone is not enough — pin the target's runtime codehash to the
+        // audited immutable SafeModuleEnabler captured at deploy. This converts the operational rule
+        // ("only ever allowlist an IMMUTABLE helper") into a code guarantee: a governance mistake
+        // allowlisting a mutable/upgradeable look-alike at a trusted address cannot satisfy the pin.
+        // Gated on setupTarget != address(0) exactly like the address check, so the no-setup path
+        // (vanilla Safe.setup) is unaffected.
+        if (setupTarget != address(0) && setupTarget.codehash != EXPECTED_SETUP_CODEHASH) {
+            revert UntrustedModuleSetupCodehash(setupTarget);
+        }
 
         uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissionSigner, manager, feePolicy)));
 

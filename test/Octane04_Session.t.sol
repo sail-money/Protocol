@@ -80,7 +80,7 @@ contract Octane04_Session is Test {
         feeRecipient = address(0xFEE1);
 
         gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
-        kernel   = new SailKernel(address(gov), address(0x2222));
+        kernel   = new SailKernel(address(gov), address(0x2222), address(0));
         safe     = new _O4Safe();
         feePolicy = new _O4FeePolicy(feeRecipient);
         vm.prank(address(gov.timelock()));

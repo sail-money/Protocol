@@ -44,7 +44,7 @@ contract KernelGuaranteesTest is Test {
 
         TimelockController tl = TimelockDeployer.deploy(TEAM);
         gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, tl); // fee 0
-        kernel = new SailKernel(address(gov), TREASURY);
+        kernel = new SailKernel(address(gov), TREASURY, address(0));
         safe   = new MockSafe();
         account = address(safe);
 

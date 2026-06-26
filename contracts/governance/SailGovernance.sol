@@ -162,6 +162,7 @@ contract SailGovernance {
     /// @param  factory  Address of the factory contract.
     /// @param  trusted  True to add to allowlist, false to remove.
     function setTrustedSafeFactory(address factory, bool trusted) external onlyTimelock {
+        if (factory == address(0)) revert ZeroAddress();
         trustedSafeFactory[factory] = trusted;
         emit SafeFactoryTrusted(factory, trusted);
     }
@@ -170,6 +171,7 @@ contract SailGovernance {
     /// @param  singleton  Address of the singleton (implementation) contract.
     /// @param  trusted    True to add to allowlist, false to remove.
     function setTrustedSafeSingleton(address singleton, bool trusted) external onlyTimelock {
+        if (singleton == address(0)) revert ZeroAddress();
         trustedSafeSingleton[singleton] = trusted;
         emit SafeSingletonTrusted(singleton, trusted);
     }
@@ -200,6 +202,7 @@ contract SailGovernance {
     /// @param  codehash The proxy runtime codehash (keccak256 of the proxy's deployed code).
     /// @param  trusted  True to add to allowlist, false to remove.
     function setTrustedSafeProxyCodehash(bytes32 codehash, bool trusted) external onlyTimelock {
+        if (codehash == bytes32(0)) revert ZeroCodehash();
         trustedSafeProxyCodehash[codehash] = trusted;
         emit SafeProxyCodehashTrusted(codehash, trusted);
     }

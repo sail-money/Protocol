@@ -181,7 +181,7 @@ abstract contract RedTeamBase is Test {
         gov.setPermissionRegistrationFee(0.001 ether);
         vm.stopPrank();
 
-        kernel  = new SailKernel(address(gov), TREASURY);
+        kernel  = new SailKernel(address(gov), TREASURY, address(0));
         factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();
