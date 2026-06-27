@@ -116,6 +116,12 @@ contract BorrowPermissionTest is Test {
     function _aave(address asset, uint256 amount, address onBehalfOf) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(AAVE_BORROW, asset, amount, uint256(2), uint16(0), onBehalfOf);
     }
+    /// @dev Aave borrow with an explicit interest-rate mode and referral code (2 == variable).
+    function _aaveMode(address asset, uint256 amount, uint256 rateMode, uint16 referralCode, address onBehalfOf)
+        internal pure returns (bytes memory)
+    {
+        return abi.encodeWithSelector(AAVE_BORROW, asset, amount, rateMode, referralCode, onBehalfOf);
+    }
     function _morpho(address asset, uint256 amount, address onBehalf, address receiver) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(MORPHO_BORROW, asset, amount, onBehalf, receiver);
     }
@@ -276,6 +282,33 @@ contract BorrowPermissionTest is Test {
     function test_Aave_Borrow_Allowed() public {
         _configure(0, address(0), address(0), 0);
         assertTrue(borrow.evaluate(_aave(ASSET, 100, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    // ── Aave interest-rate mode: variable-only constraint ─────────────────────────
+
+    /// @notice An Aave borrow requesting STABLE rate mode (1) is rejected, all else valid.
+    function test_Aave_StableRate_Denies() public {
+        _configure(0, address(0), address(0), 0);
+        assertFalse(borrow.evaluate(_aaveMode(ASSET, 100, 1, 0, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    /// @notice Rate mode 0 (neither stable nor variable) is likewise rejected — only 2 passes.
+    function test_Aave_ZeroRateMode_Denies() public {
+        _configure(0, address(0), address(0), 0);
+        assertFalse(borrow.evaluate(_aaveMode(ASSET, 100, 0, 0, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    /// @notice An Aave borrow with VARIABLE rate mode (2) still passes — the intended path is a no-op.
+    function test_Aave_VariableRate_Allows() public {
+        _configure(0, address(0), address(0), 0);
+        assertTrue(borrow.evaluate(_aaveMode(ASSET, 100, 2, 0, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
+    }
+
+    /// @notice The referral code is unconstrained: a non-zero code with variable rate mode still
+    ///         passes, locking the documented boundary that referral attribution has no fund effect.
+    function test_Aave_NonzeroReferralCode_VariableRate_Allows() public {
+        _configure(0, address(0), address(0), 0);
+        assertTrue(borrow.evaluate(_aaveMode(ASSET, 100, 2, 12345, ACCOUNT), _ctx(AAVE, AAVE_BORROW)));
     }
 
     function test_Morpho_Borrow_Allowed() public {

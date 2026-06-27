@@ -63,13 +63,32 @@ interface ICErc20 {
 ///         then the borrow is required to be at or under that amount. A borrow worth less than one
 ///         numeraire unit no longer rounds its value to zero and slips an LTV ceiling — the prior
 ///         fail-open behaviour (Octane #6) is closed. Missing/zero prices, out-of-range decimals, or
-///         a stale feed all deny.
+///         a stale feed all deny. Because every step rounds in the borrower's disfavour, a borrow
+///         that is marginally WITHIN the true LTV ceiling may be rejected; this is the conservative,
+///         fail-closed direction (it never permits an over-LTV borrow). Recourse is to borrow
+///         slightly less.
 ///
 ///         ASSET RESOLUTION. The operator allowlists the UNDERLYING borrow asset. On the Compound
 ///         path the call target is the cToken, but the amount and the allowlist/LTV are
 ///         underlying-denominated, so the template resolves cToken.underlying() and keys both on the
 ///         underlying. Targets with no underlying() (e.g. cETH) resolve nothing and are denied —
 ///         fail-closed by design (Octane #11).
+///
+///         INTEREST-RATE MODE (Aave). Aave borrows are constrained to VARIABLE rate mode; a
+///         stable-rate borrow is rejected. This is the reference template's opinionated default —
+///         stable rate imposes an ongoing cost choice on the user that the manager should not make
+///         on the template's behalf — NOT a claim that variable is universally safer (in a rising
+///         rate environment a strategy may legitimately prefer a locked stable rate). A strategy
+///         that genuinely wants stable-rate debt should use a dedicated permission, not this one.
+///         Trade-off: if a market's variable-rate borrowing is disabled/paused while stable is
+///         available, this template cannot borrow there at all — a bounded availability limitation,
+///         not a loss of funds (the block is fail-closed). Morpho and Compound borrows carry no
+///         Aave-style rate-mode argument and are unaffected.
+///
+///         REFERRAL CODE (Aave). The template does NOT constrain the Aave referral code; it is
+///         off-chain attribution on the account's own position and has no effect on funds,
+///         principal, or the resulting position. Whether to participate in a venue referral program
+///         is the manager's choice.
 ///
 ///         GAS BUDGET (operator note). This template's own evaluate cost is light, but the whole
 ///         evaluation runs under the kernel's 150k PERMISSION_GAS_CAP. A heavy operator-supplied
@@ -95,6 +114,10 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
+
+    /// @dev Aave interest-rate mode for variable-rate debt (stable-rate is 1). The Aave borrow
+    ///      branch constrains the decoded rate mode to this value — see the INTEREST-RATE MODE note.
+    uint256 private constant AAVE_VARIABLE_RATE = 2;
 
     uint256 private constant LEN_AAVE     = 164;
     uint256 private constant LEN_MORPHO   = 132;
@@ -195,8 +218,11 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
 
         if (ctx.selector == AAVE_BORROW) {
             if (txData.length < LEN_AAVE) return false;
-            (address asset, uint256 amount, , , address onBehalfOf) =
+            // referralCode (4th arg) stays decoded-but-unconstrained: attribution only, no fund effect.
+            (address asset, uint256 amount, uint256 rateMode, , address onBehalfOf) =
                 abi.decode(txData[4:], (address, uint256, uint256, uint16, address));
+            // Aave: enforce variable-rate borrowing only; stable-rate debt is rejected.
+            if (rateMode != AAVE_VARIABLE_RATE)      return false;
             if (!isAllowedAsset[ctx.account][asset]) return false;
             if (amount > s.maxAmountPerTx)           return false;
             if (onBehalfOf != ctx.account)           return false;
