@@ -249,6 +249,21 @@ The `currentNav` value in `collectFees` is provided by the manager. The kernel d
 
 **Operator responsibility:** ensure the full path is acceptable before enabling V2 multi-hop swaps. An intermediate token could be a honeypot or a token the operator would not otherwise permit.
 
+### Safe-Authorized Entry Points Trust the Safe's Own Authorization
+
+Two owner-side entry points authorize the caller as the account itself (`msg.sender == account`): manager rotation (`setManager`) and direct fee collection (`collectFees`). This deliberately delegates authorization to the Safe's own owner threshold — the custody anchor — rather than duplicating a signature check in the kernel.
+
+The consequence is that anything the Safe lets call out on its behalf can reach these entry points without a fresh owner-threshold approval:
+
+- A Safe that **enables a malicious or compromised module** can have that module invoke these functions through the Safe (so the kernel sees `msg.sender == account`).
+- A Safe that **sets the kernel as its fallback handler** can have a crafted external call relayed to the kernel with `msg.sender == account`.
+
+Both are outside the protocol's custody model. A module enabled on the Safe can already move the Safe's assets directly, independent of Sail; and configuring the kernel — which is a module, not a handler — as a fallback handler is a misconfiguration with no legitimate purpose.
+
+**Operator responsibility:** do not enable untrusted modules on the Safe, and do not set the kernel as the Safe's fallback handler.
+
+Fee collection is additionally bounded even under such a misconfiguration: `collectFees` pays only the recipient configured by the fee policy (never the caller), the amount is capped by the policy's computed maximum, and collection frequency is rate-limited by the policy's minimum collection interval. Under the self-managed model (`feeManager == owner`) the recipient is the owner, so a module-triggered collection pays the owner.
+
 ---
 
 ## Accepted Findings and Documented Limitations
