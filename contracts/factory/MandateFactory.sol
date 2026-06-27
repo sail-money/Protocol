@@ -190,25 +190,34 @@ contract MandateFactory is ReentrancyGuard {
     // configure(). The caller supplies:
     //   - impl:      the logic contract address of the standalone template to clone
     //   - salt:      caller-chosen entropy; the factory namespaces it internally as
-    //                keccak256(abi.encode(msg.sender, account, salt)). Binding both the
-    //                caller and the target account mirrors the kernel's bound-salt doctrine
-    //                (SailKernel.createAccount folds msg.sender + principals into the CREATE2
-    //                salt) so each (caller, account) pair owns its own clone address space and
-    //                no counterfactual address can be squatted across callers or accounts —
-    //                including a shared relayer caller serving many accounts.
+    //                keccak256(abi.encode(msg.sender, account, salt, keccak256(initData))).
+    //                Binding the caller and the target account mirrors the kernel's bound-salt
+    //                doctrine (SailKernel.createAccount folds msg.sender + principals into the
+    //                CREATE2 salt) so each (caller, account) pair owns its own clone address
+    //                space and no counterfactual address can be squatted across callers or
+    //                accounts — including a shared relayer caller serving many accounts.
+    //                Binding keccak256(initData) additionally ties the predicted clone address
+    //                to the exact initialization payload: a registration signature authorizes
+    //                one specific address, and substituting different initData resolves to a
+    //                different address that the signature does not cover.
     //   - initData:  ABI-encoded initialize(...) call (selector + args)
     //   - kernelSig: permission-signer signature for kernel.registerPermission
     //
     // The clone address is deterministic and can be predicted off-chain via
-    // predictCloneAddress(impl, account, salt) — call it from the same EOA that will send
-    // deployAndAttach, because the factory namespaces by msg.sender and account.
+    // predictCloneAddress(impl, account, salt, initData) — call it from the same EOA that will
+    // send deployAndAttach, with the same account and the same initData, because the factory
+    // namespaces by msg.sender, account, and the init-data hash.
     // -------------------------------------------------------------------------
 
     /// @notice Deploy an EIP-1167 clone of `impl`, call `initData` on it, then
     ///         register it with the kernel for `account` — all in one transaction.
-    /// @dev    Salt is namespaced by (msg.sender, account) to prevent cross-caller and
-    ///         cross-account squatting of the predicted address. Call `predictCloneAddress`
-    ///         with the same EOA and account before signing `kernelSig`.
+    /// @dev    Salt is namespaced by (msg.sender, account, keccak256(initData)) to prevent
+    ///         cross-caller and cross-account squatting of the predicted address and to bind
+    ///         the address to the exact initialization payload. Because the address commits to
+    ///         keccak256(initData), a registration signature cannot be reused with substituted
+    ///         initData — different init bytes resolve to a different address the signature does
+    ///         not authorize. Call `predictCloneAddress` with the same EOA, account, and
+    ///         initData before signing `kernelSig`.
     ///         `initialized()` is a liveness guard only — third-party `impl` contracts
     ///         that implement `initialized()` incorrectly can still pass this check
     ///         while remaining misconfigured. Verify `initData` correctness off-chain.
@@ -225,7 +234,7 @@ contract MandateFactory is ReentrancyGuard {
 
         uint256 preBalance = address(this).balance - msg.value;
 
-        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, account, salt));
+        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)));
         clone = Clones.cloneDeterministic(impl, namespacedSalt);
 
         (bool ok, bytes memory retdata) = clone.call(initData);
@@ -244,11 +253,17 @@ contract MandateFactory is ReentrancyGuard {
     }
 
     /// @notice Predict the address of a clone before it is deployed.
-    ///         Must be called from the same EOA that will call `deployAndAttach`
-    ///         and with the same `account`, because the factory namespaces the salt
-    ///         by msg.sender and account.
-    function predictCloneAddress(address impl, address account, bytes32 salt) external view returns (address) {
-        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, account, salt));
+    ///         Must be called from the same EOA that will call `deployAndAttach`,
+    ///         with the same `account` and the same `initData`, because the factory
+    ///         namespaces the salt by msg.sender, account, and keccak256(initData).
+    ///         Passing different `initData` here yields a different address — prediction
+    ///         and deployment match only when the init payload is identical.
+    function predictCloneAddress(address impl, address account, bytes32 salt, bytes calldata initData)
+        external
+        view
+        returns (address)
+    {
+        bytes32 namespacedSalt = keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)));
         return Clones.predictDeterministicAddress(impl, namespacedSalt, address(this));
     }
 

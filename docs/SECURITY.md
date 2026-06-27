@@ -109,7 +109,7 @@ uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissi
 bytes32 create2Salt = keccak256(abi.encodePacked(keccak256(safeInitializer), boundSalt));
 ```
 
-An observer who sees the call in the mempool cannot front-run it and register the resulting Safe address, because the salt — and therefore the deployed address — is a function of the original caller's address, the principals, and the Safe initializer (owners/threshold/module). A squatter who copies the parameters gains no authority over the resulting account. Every CREATE2 salt in Sail follows this doctrine of binding the caller and its principals — including the `MandateFactory.deployAndAttach` clone salt, which binds `keccak256(abi.encode(msg.sender, account, salt))` so distinct accounts under a shared relayer caller get distinct, non-colliding clone addresses (Octane #18).
+An observer who sees the call in the mempool cannot front-run it and register the resulting Safe address, because the salt — and therefore the deployed address — is a function of the original caller's address, the principals, and the Safe initializer (owners/threshold/module). A squatter who copies the parameters gains no authority over the resulting account. Every CREATE2 salt in Sail follows this doctrine of binding the caller and its principals — including the `MandateFactory.deployAndAttach` clone salt, which binds `keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)))` so distinct accounts under a shared relayer caller get distinct, non-colliding clone addresses. Binding the init-data hash additionally ties the predicted clone address to the exact initialization payload, so a registration signature — which authorizes one specific address — cannot be reused with a substituted payload (Octane #18).
 
 `registerAccount` (the self-registration path for an already-deployed Safe) requires **two** gates: `msg.sender == Safe` (the Safe executes the call through its own threshold mechanism) **and** a Safe owner-set + threshold EIP-712 signature over the `RegisterAccount` struct, verified through the Safe core `checkSignatures` (Octane #4). The owner signature is the robust gate: a `Safe.setup` delegatecall helper can forge the storage-based checks (codehash, trusted-singleton, `nonce()`) but holds no owner keys and so cannot produce the signature. The trusted-singleton (`masterCopy()`) check is ordered ahead of any other `ISafe` call, and the proxy codehash is checked against the governance allowlist (Octane #9). No third party can register a Safe on behalf of its signers.
 
@@ -201,7 +201,7 @@ In `ApproveAndCallBatchPermission`, the consuming call's target must **be** the 
 
 ### `deployAndAttach` Clone Salt (#18)
 
-The `MandateFactory.deployAndAttach` clone CREATE2 salt binds both the caller and the account (`keccak256(abi.encode(msg.sender, account, salt))`), consistent with the kernel's bound-salt doctrine. See *Salt Binding* above.
+The `MandateFactory.deployAndAttach` clone CREATE2 salt binds the caller, the account, and the initialization payload (`keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)))`), consistent with the kernel's bound-salt doctrine. Binding `keccak256(initData)` ties the predicted address to the exact init payload, so a registration signature cannot be reused with substituted initData. See *Salt Binding* above.
 
 ### Swap Native-Value Rejection (#1)
 
