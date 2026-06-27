@@ -6,7 +6,7 @@ import {SailKernel}       from "../contracts/core/SailKernel.sol";
 import {SailGovernance}   from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 
-/// @dev Configurable Safe-proxy stand-in for the group-1a registration-auth regression tests.
+/// @dev Configurable Safe-proxy stand-in for the registration-auth tests.
 ///      Stores its singleton in regular storage (not immutable / not in code), so every instance
 ///      shares one runtime codehash — exactly like a real SafeProxy — letting a single codehash
 ///      seed cover the trusted- and untrusted-singleton instances alike. `nonce` and module-enabled
@@ -14,7 +14,7 @@ import {TimelockDeployer} from "./support/TimelockDeployer.sol";
 ///
 ///      checkSignatures faithfully mirrors Safe-core for a single-owner, threshold-1 Safe: it
 ///      ECDSA-recovers `dataHash` and reverts unless the signer is the configured owner — so the
-///      #4 owner-signature gate is exercised for real (valid sig succeeds; forged-nonce-without-sig
+///      owner-signature gate is exercised for real (valid sig succeeds; forged-nonce-without-sig
 ///      and non-owner sig revert).
 contract ConfigurableSafe {
     address private _singleton;
@@ -48,7 +48,7 @@ contract ConfigurableSafe {
     }
 
     /// @dev Forward `data` to `kernel`, appending the original caller's 20 bytes — reproducing a
-    ///      Safe FallbackManager relay when fallbackHandler == kernel (W1).
+    ///      Safe FallbackManager relay when fallbackHandler == kernel.
     function relayWithTrailingBytes(address kernel, bytes calldata data, address originalCaller)
         external
         returns (bool ok, bytes memory ret)
@@ -62,7 +62,7 @@ contract ConfigurableSafe {
     }
 }
 
-contract OctaneGroup1aRegistrationAuthTest is Test {
+contract RegistrationAuthTest is Test {
     SailKernel     kernel;
     SailGovernance gov;
 
@@ -118,10 +118,10 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         kernel.registerAccount(permSigner, manager, fp, fa, deadline, sig);
     }
 
-    // ── #4 owner-signature gate ─────────────────────────────────────────────────
+    // ── owner-signature gate ─────────────────────────────────────────────────────
 
     /// A valid owner signature registers the account.
-    function test_Reg4_OwnerSig_Valid_Registers() public {
+    function test_OwnerSignature_Valid_Registers() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         _register(safe, address(0), address(0));
         assertTrue(kernel.registered(address(safe)));
@@ -133,7 +133,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     /// THE case the old nonce-only guard let through: a setup helper forges nonce -> 1 (here the
     /// mock simply reports nonce 1) and calls registerAccount WITHOUT a valid owner signature.
     /// Now rejected — the owner-sig is unforgeable by a helper holding no owner keys.
-    function test_Reg4_ForgedNonce_NoOwnerSig_Rejected() public {
+    function test_ForgedNonce_NoOwnerSignature_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON); // nonce == 1, module on, trusted singleton
         vm.prank(address(safe));
         vm.expectRevert(bytes("GS020")); // checkSignatures: empty/short signature
@@ -142,7 +142,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     }
 
     /// A signature from a non-owner key is rejected by the Safe's owner check.
-    function test_Reg4_NonOwnerSig_Rejected() public {
+    function test_NonOwnerSignature_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         uint256 deadline = block.timestamp + 1 days;
         bytes memory badSig = _ownerSig(address(safe), address(0), address(0), deadline, ATTACKER_KEY);
@@ -152,8 +152,21 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         assertFalse(kernel.registered(address(safe)));
     }
 
+    /// An `ownerSig` carrying a Safe approved-hash (v == 1) entry must be rejected outright. Inside
+    /// Safe-core `checkSignatures` msg.sender would be the kernel, so a v==1 entry encoding the kernel
+    /// as "owner" would authorise registration with no genuine owner key — the kernel forbids it.
+    function test_ApprovedHashSignature_Rejected() public {
+        ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
+        // One 65-byte entry: r = some address, s = 0, v = 1 (the approved-hash shortcut).
+        bytes memory v1Sig = abi.encodePacked(bytes32(uint256(uint160(address(kernel)))), bytes32(0), uint8(1));
+        vm.prank(address(safe));
+        vm.expectRevert(SailKernel.ApprovedHashSignatureNotAllowed.selector);
+        kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, v1Sig);
+        assertFalse(kernel.registered(address(safe)));
+    }
+
     /// Defense-in-depth: nonce == 0 is rejected before the owner-sig is even checked.
-    function test_Reg4_NonceZero_DiD_Rejected() public {
+    function test_NonceZero_DefenseInDepth_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         safe.setNonce(0);
         uint256 deadline = block.timestamp + 1 days;
@@ -164,7 +177,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     }
 
     /// A registration whose deadline has passed is rejected.
-    function test_Reg4_DeadlineExpired_Rejected() public {
+    function test_DeadlineExpired_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         vm.warp(1_000_000);
         uint256 deadline = block.timestamp - 1;
@@ -174,9 +187,9 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, sig);
     }
 
-    // ── #9: trusted-singleton check (unchanged; runs before the owner-sig) ───────
+    // ── trusted-singleton check (unchanged; runs before the owner-sig) ────────────
 
-    function test_Reg9_UntrustedSingleton_Rejected() public {
+    function test_UntrustedSingleton_Rejected() public {
         ConfigurableSafe safe = _newSafe(UNTRUSTED_SINGLETON);
         uint256 deadline = block.timestamp + 1 days;
         bytes memory sig = _ownerSig(address(safe), address(0), address(0), deadline, OWNER_KEY);
@@ -185,18 +198,18 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
         kernel.registerAccount(permSigner, manager, address(0), address(0), deadline, sig);
     }
 
-    function test_Reg9_TrustedSingleton_Registers() public {
+    function test_TrustedSingleton_Registers() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         _register(safe, address(0), address(0));
         assertTrue(kernel.registered(address(safe)));
     }
 
-    // ── W1: fallback relay ──────────────────────────────────────────────────────
+    // ── fallback relay ────────────────────────────────────────────────────────────
 
     /// registerAccount no longer carries an exact-length guard (its owner-sig arg is dynamic).
     /// The owner-signature requirement itself closes the fallback vector: a relay sets
     /// msg.sender == Safe but cannot supply the owners' signature, so registration is rejected.
-    function test_RegW1_RegisterAccount_FallbackRelay_NoOwnerSig_Rejected() public {
+    function test_RegisterAccount_FallbackRelay_NoOwnerSignature_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         uint256 deadline = block.timestamp + 1 days;
         // Attacker-controlled (non-owner) signature, delivered via the Safe fallback relay (+20 bytes).
@@ -210,7 +223,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
     }
 
     /// setManager keeps its exact-length guard: a fallback-shaped call is rejected; exact works.
-    function test_RegW1_SetManager_FallbackShape_Rejected() public {
+    function test_SetManager_FallbackShape_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         _register(safe, address(0), address(0));
 
@@ -227,7 +240,7 @@ contract OctaneGroup1aRegistrationAuthTest is Test {
 
     /// collectFees keeps its exact-length guard: a fallback-shaped call is rejected by the length
     /// guard (first check); an exact-length call clears it and reverts later for a different reason.
-    function test_RegW1_CollectFees_FallbackShape_Rejected() public {
+    function test_CollectFees_FallbackShape_Rejected() public {
         ConfigurableSafe safe = _newSafe(TRUSTED_SINGLETON);
         _register(safe, address(0), address(0));
 
