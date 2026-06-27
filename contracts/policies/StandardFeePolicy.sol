@@ -279,6 +279,19 @@ contract StandardFeePolicy is IFeePolicy {
             performanceFee = Math.mulDiv(currentNav - hwm, appliedPerformanceFeeBps[account], BASIS_POINTS);
         }
 
+        // During a suppressed reattach window the performance leg is zero by construction; if the
+        // management leg is also zero (a 0% management schedule, or a tiny rate that floors to 0 on
+        // a small NAV) the gross fee would be zero. The kernel rejects a zero fee (ZeroFee), so no
+        // collection could ever settle — and only a settled collection clears the re-anchor latch.
+        // Return a minimal fee so a collection can run and clear the latch; thereafter pricing is
+        // normal. The elapsed check mirrors recordCollection's MIN_COLLECTION_INTERVAL so the minimal
+        // fee is only offered once a collection could actually succeed. Boundary: if the Safe holds no
+        // balance of the configured fee asset, even this 1-unit transfer cannot settle and the account
+        // stays stuck until it is funded.
+        if (pendingReanchor[account] && managementFee == 0 && elapsed >= MIN_COLLECTION_INTERVAL) {
+            return (1, _distributor, _distributorBps);
+        }
+
         grossFee = managementFee + performanceFee;
     }
 
@@ -326,10 +339,17 @@ contract StandardFeePolicy is IFeePolicy {
     ///      recovery below the prior high be billed). A never-seeded account has no anchors to reset —
     ///      the normal first-use path — so onAttach is a no-op for it. The kernel passes only
     ///      `account`; no NAV is involved.
+    ///
+    ///      The applied-rate snapshots are also refreshed to the current global schedule so the first
+    ///      post-reattach window is priced at today's rate, not a rate captured before the detach. This
+    ///      is prospective only: the dormant interval is not billed (lastCollectionTimestamp is reset)
+    ///      and the performance leg is suppressed for that first window.
     function onAttach(address account) external onlyKernel {
         if (hwmSeeded[account]) {
             lastCollectionTimestamp[account] = block.timestamp;
             pendingReanchor[account]         = true;
+            appliedManagementFeeBps[account]  = managementFeeBps;
+            appliedPerformanceFeeBps[account] = performanceFeeBps;
         }
     }
 

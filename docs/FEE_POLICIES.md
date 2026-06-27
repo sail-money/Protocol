@@ -54,6 +54,10 @@ Returns the address that receives the manager's net fee share. The kernel reads 
 
 Lifecycle hook the kernel invokes from `setFeePolicy` when an account (re)attaches this policy. It receives **only** the account — no NAV — so the kernel never learns or computes valuation. Stateful policies re-anchor their per-account accounting here; a stateless policy may implement it as a no-op. `StandardFeePolicy` uses it to re-anchor `lastCollectionTimestamp` (and flag a high-water-mark re-base) so a detach→reattach of the same instance is not billed across the dormant interval.
 
+On reattach `StandardFeePolicy` also refreshes its per-account applied-rate snapshots to the current global schedule, so the first post-reattach window is priced at today's rate rather than a rate captured before the detach. This is prospective only: the dormant interval is not billed (the timestamp is reset) and the performance leg is suppressed for that first window.
+
+**Zero-management reattach.** On a schedule whose management rate is `0` (or a tiny rate that floors to zero on a small NAV), the suppressed first post-reattach window would otherwise compute a zero gross fee. The kernel rejects a zero fee (`ZeroFee`), and the re-anchor flag only clears once a collection settles — so the account could never collect again. To avoid this, `computeFee` returns a minimal fee of `1` for that window so a collection can settle and clear the flag; normal pricing resumes immediately afterward. **Boundary:** if the Safe holds no balance of the configured fee asset, even this 1-unit transfer cannot settle and the account stays stuck until it is funded.
+
 ---
 
 ## Fee Split Mechanics (in Kernel)
