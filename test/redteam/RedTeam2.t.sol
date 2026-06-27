@@ -37,7 +37,7 @@ import {TimelockController}          from "@openzeppelin/contracts/governance/Ti
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract MockSafe2 {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -144,12 +144,12 @@ abstract contract RedTeamBase2 is Test {
         safe.enableModule(address(kernel));
         vm.deal(address(safe), 100 ether);
 
-        // registerAccount requires an allowlisted Safe-proxy codehash (Octane #4a). One seed
+        // registerAccount requires an allowlisted Safe-proxy codehash. One seed
         // covers all MockSafe2 instances (targetSafe/newSafe/unregisteredSafe).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
@@ -564,7 +564,7 @@ contract ReplacePermissionTests is RedTeamBase2 {
 // =============================================================================
 contract RegisterAccountDeepTests is RedTeamBase2 {
 
-    // ── 20a. Attacker EOA cannot self-register (Octane #4a) ──
+    // ── 20a. Attacker EOA cannot self-register ──
     //   Post-fix, registerAccount rejects callers whose codehash is not an allowlisted Safe
     //   proxy. An EOA (codehash 0) is rejected outright.
 
@@ -621,7 +621,7 @@ contract RegisterAccountDeepTests is RedTeamBase2 {
         MockSafe2 newSafe = new MockSafe2();
         newSafe.enableModule(address(kernel));
 
-        // Manager is an EOA — codehash gate (Octane #4a) rejects its registration attempt.
+        // Manager is an EOA — codehash gate rejects its registration attempt.
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedProxyCodehash.selector, manager.codehash));
         kernel.registerAccount(permSigner, address(0x1234), address(0), address(0), block.timestamp + 1 days, "");

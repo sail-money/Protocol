@@ -124,7 +124,7 @@ contract SailGovernanceTest is Test {
     }
 
     /// @dev The injected timelock must report a minimum delay of EXACTLY 48 hours. A timelock with
-    ///      any other delay (here 24h) must be rejected so the audited 48h guarantee is preserved.
+    ///      any other delay (here 24h) must be rejected so the specified 48h guarantee is preserved.
     function test_Constructor_RevertsOnWrongTimelockDelay() public {
         address[] memory p = new address[](1); p[0] = TEAM;
         address[] memory e = new address[](1); e[0] = TEAM;
@@ -142,7 +142,7 @@ contract SailGovernanceTest is Test {
         new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, wrongProposer);
     }
 
-    /// @dev Review finding M1: the injected timelock must grant EXECUTOR_ROLE to `initialGovernance`.
+    /// @dev The injected timelock must grant EXECUTOR_ROLE to `initialGovernance`.
     ///      Here the timelock makes TEAM the proposer but ALICE the sole executor — TEAM is not an
     ///      executor, so construction must revert with GovernanceNotExecutor.
     function test_Constructor_RevertsWhenGovernanceNotExecutor() public {
@@ -153,7 +153,7 @@ contract SailGovernanceTest is Test {
         new SailGovernance(TEAM, MAX_FEE, EMERGENCY_ADMIN, 0, wrongExecutor);
     }
 
-    /// @dev Review finding M2: the injected timelock must self-administer its roles — the governance
+    /// @dev The injected timelock must self-administer its roles — the governance
     ///      EOA must not hold admin over them. Here the timelock is deployed with the governance EOA
     ///      (TEAM = initialGovernance) as admin instead of address(0), so construction must revert
     ///      with TimelockNotSelfAdministered.
@@ -547,7 +547,7 @@ contract SailGovernanceTest is Test {
         assertFalse(gov.isPaused());
     }
 
-    // Octane finding #10 — pause cooldown reset on unpause
+    // Pause cooldown reset on unpause
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_EarlyUnpause_AllowsImmediateRepause() public {

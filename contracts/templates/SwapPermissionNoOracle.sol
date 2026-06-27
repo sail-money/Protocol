@@ -25,18 +25,18 @@ interface IUniswapV3PoolLike {
 }
 
 /// @title  SwapPermissionNoOracle — bounded swap with a pool-referenced hallucination sanity band
-/// @notice MINIMAL-GUARANTEE REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT
-///         part of the trusted core. This is one of the seven launch templates Octane is auditing
-///         post-freeze. It enforces only a non-zero minimum-out plus a pool-referenced
+/// @notice MINIMAL-GUARANTEE REFERENCE LAUNCH TEMPLATE — part of the hardened reference set, NOT
+///         part of the trusted core. This is one of the seven hardened launch templates.
+///         It enforces only a non-zero minimum-out plus a pool-referenced
 ///         hallucination band — NOT zero protection, but NOT oracle-based, manipulation-resistant
 ///         slippage protection either; use the oracle-gated SwapPermission for manipulation-resistant
 ///         pricing. Read "WHAT IT DOES NOT PROTECT AGAINST" below before relying on it. The kernel
 ///         evaluates any permission safely under staticcall + a gas cap + fail-closed semantics, but
 ///         it does NOT verify that this permission's logic correctly enforces what its NatSpec
 ///         claims, so registrants remain responsible for understanding its narrow guarantee. The
-///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template set
+///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template set
 ///         (currently empty), not this hardened launch set. See docs/SECURITY.md for the
-///         audit-scope documentation.
+///         reference-template documentation.
 ///
 ///         WHAT IT IS. A swap template for tokens that have NO oracle — i.e. no independent,
 ///         manipulation-resistant price feed. It is the non-oracle tier of the swap templates; for
@@ -81,12 +81,12 @@ interface IUniswapV3PoolLike {
 ///
 ///         NATIVE VALUE REJECTED. A dispatch carrying ctx.value != 0 is denied: this is an
 ///         allowance-based ERC-20 → ERC-20 template, so no ETH is ever forwarded to a router
-///         (closing the payable-router / refundETH() ETH-sweep vector — Octane #1).
+///         (closing the payable-router / refundETH() ETH-sweep vector).
 ///
 ///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
 ///         its stored config epoch equals the kernel's current registration epoch for this
 ///         (account, permission). A configuration left over from a prior registration — e.g. after a
-///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
+///         revoke / re-register cycle — is never honoured.
 ///
 /// @dev    The structural/decode region (the three selector decode blocks, the allowlist checks,
 ///         the size cap, and the recipient pin) is kept verbatim in sync with SwapPermission; the
@@ -269,7 +269,7 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
     // ── IPermission ───────────────────────────────────────────────────────────
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
-        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        // Fail closed unless the stored config is current for this registration epoch.
         if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // Swaps pull tokenIn via ERC-20 allowance; no supported router call needs native ETH.
         // A payable router (e.g. V3 exactInputSingle) would otherwise let an attached value be

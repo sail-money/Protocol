@@ -30,7 +30,7 @@ import {TimelockController}      from "@openzeppelin/contracts/governance/Timelo
 // Minimal mock Safe that records execTransactionFromModule calls
 // ─────────────────────────────────────────────────────────────────────────────
 contract MockSafe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -94,7 +94,7 @@ contract ReentrancyAttacker {
 
     function isModuleEnabled(address) external pure returns (bool) { return true; }
 
-    // Octane group 1a: satisfy registerAccount's #9 singleton check and #4 nonce check.
+    // Satisfy registerAccount's singleton check and nonce check.
     function masterCopy() external pure returns (address) { return address(0x5AFE); }
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -190,11 +190,11 @@ abstract contract RedTeamBase is Test {
         vm.deal(address(safe), 100 ether);
 
         // registerAccount requires the caller's codehash to be an allowlisted Safe proxy
-        // (Octane #4a). One seed covers all MockSafe instances (safe2/safe3/newSafe).
+        // One seed covers all MockSafe instances (safe2/safe3/newSafe).
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         // Register the Safe account
         vm.prank(address(safe));
@@ -740,7 +740,7 @@ contract FeeAccountingTests is RedTeamBase {
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(rAttacker).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         // Register rAttacker's account (it calls registerAccount as itself)
         vm.prank(address(rAttacker));
@@ -1054,7 +1054,7 @@ contract AccountRegistrationTests is RedTeamBase {
         MockSafe newSafe = new MockSafe();
         newSafe.enableModule(address(kernel));
 
-        // Post-fix (Octane #4a): registerAccount rejects any caller whose codehash is not an
+        // Post-fix: registerAccount rejects any caller whose codehash is not an
         // allowlisted Safe proxy. The attacker EOA therefore cannot self-register at all —
         // strictly stronger than the prior "registers themselves, not newSafe" behavior.
         vm.prank(attacker);

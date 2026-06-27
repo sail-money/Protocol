@@ -16,7 +16,7 @@ import {WithdrawPermission}            from "../../contracts/templates/WithdrawP
 ///
 ///         Every shared template is a singleton bound to the kernel. Accounts opt in
 ///         per-instance via `configure(account, params, deadline, sig)`. Deploying
-///         these once per chain gives every Sail account a canonical, audited set
+///         these once per chain gives every Sail account a canonical reference set
 ///         of permission shapes to attach to.
 ///
 ///         Reads the kernel address from `deployments/<chainId>/core.json` so this

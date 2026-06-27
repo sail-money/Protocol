@@ -109,9 +109,9 @@ uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissi
 bytes32 create2Salt = keccak256(abi.encodePacked(keccak256(safeInitializer), boundSalt));
 ```
 
-An observer who sees the call in the mempool cannot front-run it and register the resulting Safe address, because the salt — and therefore the deployed address — is a function of the original caller's address, the principals, and the Safe initializer (owners/threshold/module). A squatter who copies the parameters gains no authority over the resulting account. Every CREATE2 salt in Sail follows this doctrine of binding the caller and its principals — including the `MandateFactory.deployAndAttach` clone salt, which binds `keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)))` so distinct accounts under a shared relayer caller get distinct, non-colliding clone addresses. Binding the init-data hash additionally ties the predicted clone address to the exact initialization payload, so a registration signature — which authorizes one specific address — cannot be reused with a substituted payload (Octane #18).
+An observer who sees the call in the mempool cannot front-run it and register the resulting Safe address, because the salt — and therefore the deployed address — is a function of the original caller's address, the principals, and the Safe initializer (owners/threshold/module). A squatter who copies the parameters gains no authority over the resulting account. Every CREATE2 salt in Sail follows this doctrine of binding the caller and its principals — including the `MandateFactory.deployAndAttach` clone salt, which binds `keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)))` so distinct accounts under a shared relayer caller get distinct, non-colliding clone addresses. Binding the init-data hash additionally ties the predicted clone address to the exact initialization payload, so a registration signature — which authorizes one specific address — cannot be reused with a substituted payload.
 
-`registerAccount` (the self-registration path for an already-deployed Safe) requires **two** gates: `msg.sender == Safe` (the Safe executes the call through its own threshold mechanism) **and** a Safe owner-set + threshold EIP-712 signature over the `RegisterAccount` struct, verified through the Safe core `checkSignatures` (Octane #4). The owner signature is the robust gate: a `Safe.setup` delegatecall helper can forge the storage-based checks (codehash, trusted-singleton, `nonce()`) but holds no owner keys and so cannot produce the signature. The trusted-singleton (`masterCopy()`) check is ordered ahead of any other `ISafe` call, and the proxy codehash is checked against the governance allowlist (Octane #9). No third party can register a Safe on behalf of its signers.
+`registerAccount` (the self-registration path for an already-deployed Safe) requires **two** gates: `msg.sender == Safe` (the Safe executes the call through its own threshold mechanism) **and** a Safe owner-set + threshold EIP-712 signature over the `RegisterAccount` struct, verified through the Safe core `checkSignatures`. The owner signature is the robust gate: a `Safe.setup` delegatecall helper can forge the storage-based checks (codehash, trusted-singleton, `nonce()`) but holds no owner keys and so cannot produce the signature. The trusted-singleton (`masterCopy()`) check is ordered ahead of any other `ISafe` call, and the proxy codehash is checked against the governance allowlist. No third party can register a Safe on behalf of its signers.
 
 ---
 
@@ -161,49 +161,49 @@ These allowlists are maintained through the 48-hour governance timelock. The pro
 
 ---
 
-## Reference Template Set — Audit Framing
+## Reference Template Set
 
-The seven launch templates (`SwapPermission`, `SwapPermissionNoOracle`, `BorrowPermission`, `DepositPermission`, `WithdrawPermission`, `TransferPermission`, `ApproveAndCallBatchPermission`) are the **reference set** that Octane is auditing post-freeze. They are hardened and documented with honest "what this cannot protect against" boundaries in each contract's NatSpec header. They are **not** carriers of a loud "UNAUDITED EXAMPLE" banner — that framing was for unverified example templates and is wrong for the hardened launch set.
+The seven launch templates (`SwapPermission`, `SwapPermissionNoOracle`, `BorrowPermission`, `DepositPermission`, `WithdrawPermission`, `TransferPermission`, `ApproveAndCallBatchPermission`) are the **hardened reference set**. They are documented with honest "what this cannot protect against" boundaries in each contract's NatSpec header. They are **not** carriers of a loud "UNAUDITED — EXPERIMENTAL" banner — that framing was for unverified example templates and is wrong for the hardened launch set.
 
-The loud `UNAUDITED EXAMPLE` banner is reserved for the **future experimental template set** (currently empty). The launch templates remain **outside the trusted core** (a bug in one affects only the accounts that registered it, never the kernel), but "outside the trusted core" is a blast-radius statement, not an "unreviewed" statement.
+The loud `UNAUDITED — EXPERIMENTAL` banner is reserved for the **future experimental template set** (currently empty). The launch templates remain **outside the trusted core** (a bug in one affects only the accounts that registered it, never the kernel), but "outside the trusted core" is a blast-radius statement, not an "unreviewed" statement.
 
 ---
 
-## Octane Remediations (Post-Freeze State)
+## Hardening Mechanisms
 
-The following mechanisms were established by the Octane remediation pass and are frozen for the re-audit. Each is summarised here; the per-template NatSpec headers and `docs/spec.md` carry the cross-references.
+The following mechanisms are summarised here; the per-template NatSpec headers and `docs/spec.md` carry the cross-references.
 
-### Config ↔ Registration-Epoch Binding (#2 / #8)
+### Config ↔ Registration-Epoch Binding
 
-The kernel tracks a per-`(account, permission)` `registrationEpoch`, a plain monotonic counter bumped only when a permission *leaves* an account's registry (revoke, the removed side of a replace, or a manager-rotation clear) and **not** on registration. The current epoch is pushed into `Context.configEpoch` / `BatchContext.configEpoch` at dispatch time. A `ConfigurablePermission` stamps the epoch into its per-account config at `configure()` time and binds it cryptographically into the configure/identity EIP-712 digest; evaluation **fails closed** — denies unless the account is configured *and* its stamped epoch equals the kernel's current epoch. This closes both the non-atomic configure+register front-run (#2) and configure-signature replay across a revoke/re-register cycle (#8).
+The kernel tracks a per-`(account, permission)` `registrationEpoch`, a plain monotonic counter bumped only when a permission *leaves* an account's registry (revoke, the removed side of a replace, or a manager-rotation clear) and **not** on registration. The current epoch is pushed into `Context.configEpoch` / `BatchContext.configEpoch` at dispatch time. A `ConfigurablePermission` stamps the epoch into its per-account config at `configure()` time and binds it cryptographically into the configure/identity EIP-712 digest; evaluation **fails closed** — denies unless the account is configured *and* its stamped epoch equals the kernel's current epoch. This closes both the non-atomic configure+register front-run and configure-signature replay across a revoke/re-register cycle.
 
 **Migration note:** the template EIP-712 domain version bump `"1"` → `"2"` invalidates all outstanding configure/identity signatures at deploy. Off-chain signers must read `kernel.registrationEpoch(account, template)`, add the `epoch` field to the struct, and use domain version `"2"`.
 
-### `registerAccount` Hardening (#4 / #9 / W1)
+### `registerAccount` Hardening
 
 The public self-registration path now requires a Safe owner-set + threshold EIP-712 signature over the `RegisterAccount` struct, verified through the Safe core `checkSignatures`. The trusted-singleton (`masterCopy()`) check is ordered ahead of any other `ISafe` call, and the proxy codehash is checked against the governance allowlist. See *Salt Binding* above.
 
-### `activateSession` Nonce-Epoch Rotation (#3)
+### `activateSession` Nonce-Epoch Rotation
 
 `revokeSession` bumps the manager and batch nonce epochs (high 128 bits, `NONCE_EPOCH_INCREMENT = 1<<128`). `activateSession` now rotates both epochs as well, so a dispatch or batch-dispatch the manager pre-signed *during* a suspension cannot execute when the session is reactivated — a revoke → activate cycle invalidates every outstanding manager/batch signature.
 
-### Fee-Policy ↔ Asset Binding (#5)
+### Fee-Policy ↔ Asset Binding
 
 A `(account, policy)` pair is pinned to the single fee asset it was first used with, via an explicit `bound` flag (not `address(0)`, since native ETH is a valid asset). Reusing the same policy instance with a different asset reverts `FeePolicyAssetMismatch`. To change an account's fee asset, point it at a fresh policy instance (which carries fresh per-account state — the correct denomination-change pattern).
 
-### Batch Consuming-Call Binding (#7)
+### Batch Consuming-Call Binding
 
 In `ApproveAndCallBatchPermission`, the consuming call's target must **be** the approved spender, and its consumed asset must be the approved token. The consumed asset is decoded for seven decodable standard-ABI selectors; any non-decodable selector is denied (fail-closed). A pre-batch zero-allowance check denies if a stale allowance already exists on the approved `(token, spender)` pair.
 
-### Borrow LTV Correctness (#6 / #11)
+### Borrow LTV Correctness
 
 `BorrowPermission` enforces a fail-closed, amount-based LTV ceiling with correct oracle-decimal handling (the prior fail-open sub-unit rounding is closed). The operator allowlists the **underlying** asset; on the Compound path the cToken target is resolved via `underlying()`, and targets with no `underlying()` (e.g. cETH) are denied — fail-closed.
 
-### `deployAndAttach` Clone Salt (#18)
+### `deployAndAttach` Clone Salt
 
 The `MandateFactory.deployAndAttach` clone CREATE2 salt binds the caller, the account, and the initialization payload (`keccak256(abi.encode(msg.sender, account, salt, keccak256(initData)))`), consistent with the kernel's bound-salt doctrine. Binding `keccak256(initData)` ties the predicted address to the exact init payload, so a registration signature cannot be reused with substituted initData. See *Salt Binding* above.
 
-### Swap Native-Value Rejection (#1)
+### Swap Native-Value Rejection
 
 `SwapPermission` and `SwapPermissionNoOracle` reject any dispatch carrying `ctx.value != 0`. These are allowance-based ERC-20 → ERC-20 templates, so no ETH is ever forwarded to a router — closing the payable-router / `refundETH()` ETH-sweep vector.
 
@@ -213,7 +213,7 @@ The `MandateFactory.deployAndAttach` clone CREATE2 salt binds the caller, the ac
 
 ### NAV is Not Verified On-Chain
 
-The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy, and the resulting fee is bounded only by the account's own balance — in the limit, approaching a full withdrawal of the account. Because the reference fee policy trusts a manager-attested NAV, a manager (in a non-self-managed deployment) could in principle report an inflated NAV and `collectFees` up to the full Safe balance (finding F1) — which is exactly why the reference `StandardFeePolicy` is scoped to self-managed SMAs (the owner controls the manager key *and* the policy's `feeManager` is the owner's own address), and a third-party allocation warrants a fee policy that validates NAV without manager attestation.
+The `currentNav` value in `collectFees` is provided by the manager. The kernel does not verify it against any oracle. A manager who inflates `currentNav` can unlock a higher `maxFee` ceiling from the fee policy, and the resulting fee is bounded only by the account's own balance — in the limit, approaching a full withdrawal of the account. Because the reference fee policy trusts a manager-attested NAV, a manager (in a non-self-managed deployment) could in principle report an inflated NAV and `collectFees` up to the full Safe balance — which is exactly why the reference `StandardFeePolicy` is scoped to self-managed SMAs (the owner controls the manager key *and* the policy's `feeManager` is the owner's own address), and a third-party allocation warrants a fee policy that validates NAV without manager attestation.
 
 **Operator responsibility:** use a fee policy that validates NAV through a trusted oracle if the manager is not fully trusted. `StandardFeePolicy` does not include oracle validation — it accepts manager-provided NAV values directly.
 
@@ -266,44 +266,44 @@ Fee collection is additionally bounded even under such a misconfiguration: `coll
 
 ---
 
-## Accepted Findings and Documented Limitations
+## Design Decisions and Documented Limitations
 
-The following findings were reviewed and **accepted** as deliberate design decisions, or scoped as documented limitations, rather than fixed in the freeze. They are recorded here so the re-audit reads them as decisions, not oversights.
+The following are deliberate design decisions, or scoped documented limitations. They are recorded here so they read as decisions, not oversights.
 
-### #10 — Performance fee on deposits / airdrops (accepted, documented)
+### Performance fee on deposits / airdrops (accepted, documented)
 
-`computeFee` charges on any NAV rise above the high-water mark with no flow-netting, so a fresh deposit or airdrop can be taxed as profit. This is the §8.2 **manager-attested-NAV** boundary, and it is deliberate: `StandardFeePolicy` computes fees from a NAV the manager reports at collection — the kernel neither computes nor validates NAV. Keeping the kernel out of valuation is a core design choice. Teaching it to measure NAV across lending / trading / borrowing / LP / etc. would expand the trusted core into an unbounded, venue-specific valuation surface; NAV measurement is therefore the manager's responsibility (and that of future audited, NAV-validating permission/fee templates), never the kernel's. The accepted consequence: a manager can crystallise a performance fee on any reported NAV rise (including fresh deposits or airdrops) and, under manager-attested NAV, can in principle report a NAV that extracts up to the account's balance. The collected fee is paid to the policy's `feeRecipient` (its `feeManager`) and the protocol cut to `treasury` — addresses *independent of the account owner*. The no-external-loss property therefore does **not** follow from "`manager == owner`" alone: for a self-managed SMA it holds when the owner controls the manager key **and** the policy's `feeManager` is the owner's own address (`feeManager == owner`), with the protocol cut at 0. `StandardFeePolicy` is the reference policy for exactly this self-managed scope; a shared / multi-tenant instance whose `feeManager` is a third party is outside it. Third-party allocation (`manager != owner`) is out of scope for this policy and requires a NAV-validating `IFeePolicy` that derives NAV from on-chain position adapters rather than manager attestation — arriving with the Marketplace phase.
+`computeFee` charges on any NAV rise above the high-water mark with no flow-netting, so a fresh deposit or airdrop can be taxed as profit. This is the §8.2 **manager-attested-NAV** boundary, and it is deliberate: `StandardFeePolicy` computes fees from a NAV the manager reports at collection — the kernel neither computes nor validates NAV. Keeping the kernel out of valuation is a core design choice. Teaching it to measure NAV across lending / trading / borrowing / LP / etc. would expand the trusted core into an unbounded, venue-specific valuation surface; NAV measurement is therefore the manager's responsibility (and that of future NAV-validating permission/fee templates), never the kernel's. The accepted consequence: a manager can crystallise a performance fee on any reported NAV rise (including fresh deposits or airdrops) and, under manager-attested NAV, can in principle report a NAV that extracts up to the account's balance. The collected fee is paid to the policy's `feeRecipient` (its `feeManager`) and the protocol cut to `treasury` — addresses *independent of the account owner*. The no-external-loss property therefore does **not** follow from "`manager == owner`" alone: for a self-managed SMA it holds when the owner controls the manager key **and** the policy's `feeManager` is the owner's own address (`feeManager == owner`), with the protocol cut at 0. `StandardFeePolicy` is the reference policy for exactly this self-managed scope; a shared / multi-tenant instance whose `feeManager` is a third party is outside it. Third-party allocation (`manager != owner`) is out of scope for this policy and requires a NAV-validating `IFeePolicy` that derives NAV from on-chain position adapters rather than manager attestation — arriving with the Marketplace phase.
 
-### #12 — Cross-oracle skew (Low, deferred post-audit)
+### Cross-oracle skew (Low, deferred)
 
 Per-feed staleness is checked, but cross-feed contemporaneity (skew between the collateral and borrow feeds) is not. Valid but deferred: a fix adds config-ABI fields with an off-chain-toolkit ripple, and no funds are at risk at launch under the self-managed model. The lending venue's own LTV enforcement is a live backstop.
 
-### #13 — `DepositPermission` `mint()` caps shares, not assets (Low, by design)
+### `DepositPermission` `mint()` caps shares, not assets (Low, by design)
 
 The `mint(shares)` path bounds shares; the `deposit(assets)` path and both Aave paths cap assets. An asset cap on the mint path would reintroduce a vault price-read into a deliberately oracle-free template. Shares remain bounded — no drain.
 
-### #14 — Replayable manager signatures / permissionless submitter (accepted, by design)
+### Replayable manager signatures / permissionless submitter (accepted, by design)
 
 Authority derives solely from the manager EIP-712 signature; the submitter is intentionally unconstrained for relayer / paymaster / ERC-4337 compatibility. Nonces are consumed only on successful execution, so a signature seen on a reverted attempt can be replayed until it succeeds or its deadline expires — but replay stays *within the signed envelope*: permissions re-evaluate against live state and recipients/params are fixed by the signature, so an attacker influences only execution timing/quality (no bypass, no fund redirection). The operational mitigation — short deadlines + private-relay submission — lives in the off-chain toolkit.
 
-### #15 — `feeAsset` not in the account salt (accepted, bounded)
+### `feeAsset` not in the account salt (accepted, bounded)
 
-The `createAccount` salt binds the principals + the `safeInitializer` (owners/threshold/module), so a squatter gains no authority and cannot collect fees. The only mutable field, `feeAsset`, is correctable by the bound `permissionSigner` via `setFeePolicy` in a single transaction — but, because the #5 fee-asset binding pins the current policy to its existing asset *before* the overwrite, a same-instance re-point to a corrected asset reverts `FeePolicyAssetMismatch`. Recovery therefore points the account at a **different** trusted policy instance (the fresh-policy-instance pattern described under #5 above). The exposure is bounded and recoverable; folding `feeAsset` into the salt would break same-address portability across the live chains.
+The `createAccount` salt binds the principals + the `safeInitializer` (owners/threshold/module), so a squatter gains no authority and cannot collect fees. The only mutable field, `feeAsset`, is correctable by the bound `permissionSigner` via `setFeePolicy` in a single transaction — but, because the fee-asset binding pins the current policy to its existing asset *before* the overwrite, a same-instance re-point to a corrected asset reverts `FeePolicyAssetMismatch`. Recovery therefore points the account at a **different** trusted policy instance (the fresh-policy-instance pattern described under *Fee-Policy ↔ Asset Binding* above). The exposure is bounded and recoverable; folding `feeAsset` into the salt would break same-address portability across the live chains.
 
-### #16 — Floor rounding in the fee split (Informational, WONTFIX)
+### Floor rounding in the fee split (Informational, WONTFIX)
 
 The protocol/distributor cut floor-divide a manager-chosen `grossFee` (only `grossFee <= maxFee` is enforced, not `==`). The shortfall accrues to Sail's own treasury/distributor (cut 0 at launch), is bounded to 1–2 base units, and cannot compound intraday (`MIN_COLLECTION_INTERVAL = 1 day`). A manager choosing `grossFee` up to `maxFee` — including under-collecting — is intended behaviour.
 
-### #17 — Permissionless `configure` submission / mempool griefing (accepted, by design)
+### Permissionless `configure` submission / mempool griefing (accepted, by design)
 
-`MandateFactory` is the untrusted UX orchestrator; it holds no privilege, and every inner call is independently signature-authenticated. A submitter cannot change *what* is configured, only *when* a pre-signed bundle lands. A mempool observer replaying a revealed `configureSig` can consume the per-account config nonce so the factory's configure → register bundle reverts, but the resulting state is benign (no permission activated) and recovery needs no new signature (submit `register*` directly with the existing kernel signature). Same family as #14.
+`MandateFactory` is the untrusted UX orchestrator; it holds no privilege, and every inner call is independently signature-authenticated. A submitter cannot change *what* is configured, only *when* a pre-signed bundle lands. A mempool observer replaying a revealed `configureSig` can consume the per-account config nonce so the factory's configure → register bundle reverts, but the resulting state is benign (no permission activated) and recovery needs no new signature (submit `register*` directly with the existing kernel signature). Same family as the replayable-manager-signature limitation above.
 
-### W2 — `Safe.setup` delegatecall target is codehash-pinned (resolved in code)
+### `Safe.setup` delegatecall target is codehash-pinned (resolved in code)
 
 The shipped helper (`SafeModuleEnabler`) is **immutable** (no constructor, no state, no proxy, no delegatecall-to-mutable, no `selfdestruct`/metamorphic redeploy). Beyond the `trustedModuleSetup` address allowlist, `createAccount` now **pins the setup target's runtime codehash**: the kernel captures the deployed `SafeModuleEnabler`'s codehash at construction into the immutable `EXPECTED_SETUP_CODEHASH`, and every non-zero setup target must match it or the call reverts `UntrustedModuleSetupCodehash`. The immutable-helper rule is therefore enforced **in code**, not merely operationally — even if governance mistakenly allowlisted a *different*, upgradeable helper at a trusted address, its bytecode would not match the pin and account creation would revert. Because the kernel and the helper ship from the same build, the pin matches the deployed enabler by construction.
 
 > **Operational note (now backstopped in code).** `trustedModuleSetup` should still only ever allowlist the immutable `SafeModuleEnabler`, but allowlisting anything else no longer opens the takeover surface: the codehash pin rejects any target whose bytecode differs from the pinned immutable helper.
 
-### F1 — Manager-attested-NAV full drain (the §8.2 boundary)
+### Manager-attested-NAV full drain (the §8.2 boundary)
 
 Recorded above under *NAV is Not Verified On-Chain*: because the reference fee policy trusts a manager-attested NAV, a manager in a non-self-managed deployment could in principle report an inflated NAV and `collectFees` up to the full Safe balance. This is why the reference policy is scoped to self-managed SMAs (the owner controls the manager key *and* the policy's `feeManager` is the owner's own address, with the protocol cut at 0); third-party allocation needs a NAV-validating policy.

@@ -161,7 +161,6 @@ for t in "${TARGET_LIST[@]}"; do
   # nonce 0; when the deployer already has on-chain history (e.g. the second
   # target in a multi-target deploy, or any redeploy), the broadcast then fails
   # with "EOA nonce changed unexpectedly. Expected 0 got N from provider."
-  # See reports/sail-protocol-base-mainnet-permission-e2e-2026-05-20.md §11.
   ARGS=(forge script "$SCRIPT_SPEC" --rpc-url "$CHAIN" --sender "$DEPLOYER_ADDRESS" --slow)
   if [[ $DRY_RUN -eq 0 ]]; then
     ARGS+=(--broadcast)

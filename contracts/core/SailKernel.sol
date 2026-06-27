@@ -33,7 +33,7 @@ interface ISafeFactory {
 /// @dev DEPLOY ASSUMPTION: only Safe v1.4.1-style proxies may be governance-codehash-allowlisted —
 ///      i.e. proxies that (a) intercept masterCopy() (0xa619486e) from storage slot 0 in their own
 ///      fallback, (b) expose nonce(), and (c) implement Safe-core checkSignatures(bytes32,bytes,bytes).
-///      registerAccount's #9 singleton pin and #4 owner-signature gate rely on all three.
+///      registerAccount's singleton pin and owner-signature gate rely on all three.
 interface ISafe {
     function execTransactionFromModule(address to, uint256 value, bytes calldata data, uint8 operation)
         external
@@ -115,7 +115,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev Large nonce step applied to managerNonces/batchNonces when a signer restriction op
     ///      (revokePermission, replacePermission, revokeSession, revokePermissions) takes effect.
     ///      Invalidates any outstanding manager-signed dispatches that pre-date the restriction
-    ///      without requiring separate nonce-rotation messages (Octane finding #7 related).
+    ///      without requiring separate nonce-rotation messages.
     ///      Also applied to the signer nonce on the emergency revoke (`revokeSession`) so a
     ///      permissionSigner operation pre-signed before the revoke cannot re-enable the session.
     uint256 private constant NONCE_EPOCH_INCREMENT = 1 << 128;
@@ -124,12 +124,14 @@ contract SailKernel is EIP712, ReentrancyGuard {
     bytes4  private constant ERC1271_MAGIC              = 0x1626ba7e;
 
     /// @dev Exact calldata length of `setManager(address)`: selector (4) + 1 static arg (32).
-    ///      Used by the W1 fallback-relay guard — a Safe FallbackManager relay appends the
-    ///      original caller's 20 bytes, so any deviation from this length flags a relayed call.
+    ///      Used by the fallback-relay calldata-length guard — a Safe FallbackManager relay
+    ///      appends the original caller's 20 bytes, so any deviation from this length flags a
+    ///      relayed call.
     uint256 private constant SET_MANAGER_CALLDATA_LEN  = 36;
 
     /// @dev Exact calldata length of `collectFees(address,uint256,uint256,address)`:
-    ///      selector (4) + 4 static args (128). See `SET_MANAGER_CALLDATA_LEN` for the W1 rationale.
+    ///      selector (4) + 4 static args (128). See `SET_MANAGER_CALLDATA_LEN` for the
+    ///      fallback-relay rationale.
     uint256 private constant COLLECT_FEES_CALLDATA_LEN = 132;
 
     // -------------------------------------------------------------------------
@@ -291,7 +293,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         MandateFactory) stamps the same epoch the dispatch later reads.
     /// @dev    Pushed into Context/BatchContext at dispatch time so a ConfigurablePermission can
     ///         compare it against the epoch it stamped at configure() time and fail closed when a
-    ///         stale configuration survives a revoke → re-register cycle (Octane #2 / #8). Distinct
+    ///         stale configuration survives a revoke → re-register cycle. Distinct
     ///         from the packed manager/batch nonce epochs (NONCE_EPOCH_INCREMENT) — this is a clean
     ///         standalone +1 counter per (account, permission).
     mapping(address account => mapping(address permission => uint256)) public registrationEpoch;
@@ -331,8 +333,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice The governance contract that stores fee parameters and the protocol cut.
     SailGovernance public immutable governance;
 
-    /// @notice Runtime codehash of the audited, immutable SafeModuleEnabler this kernel pins as
-    ///         the ONLY permissible Safe.setup delegatecall `to` target (W2). Captured at
+    /// @notice Runtime codehash of the immutable SafeModuleEnabler this kernel pins as
+    ///         the ONLY permissible Safe.setup delegatecall `to` target (the setup-target codehash
+    ///         pin). Captured at
     ///         construction from the deployed helper, so it matches the launch build by
     ///         construction — no hand-copied literal, no recompile-mismatch risk. `createAccount`
     ///         requires every non-zero `setupTarget` to carry exactly this codehash, so a
@@ -538,12 +541,12 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error ModuleNotEnabled();
 
     /// @dev Thrown by `registerAccount` when the caller Safe has not finalized setup (nonce == 0),
-    ///      blocking a setup-delegatecall helper from registering attacker-chosen principals (Octane #4).
+    ///      blocking a setup-delegatecall helper from registering attacker-chosen principals.
     error SetupNotFinalized();
 
     /// @dev Thrown by Safe-authorized functions (`registerAccount`, `setManager`, `collectFees`) when
     ///      msg.data is not the exact static length — a Safe fallback relay appends the caller's 20
-    ///      bytes, so a length mismatch flags a fallbackHandler-relayed call (Octane W1).
+    ///      bytes, so a length mismatch flags a fallbackHandler-relayed call.
     error UnexpectedCalldataLength();
 
     /// @dev Thrown by `createAccount` when the provided Safe factory is not in governance's trusted allowlist.
@@ -561,10 +564,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error UntrustedModuleSetup(address setup);
 
     /// @dev Thrown by `createAccount` when the Safe.setup delegatecall `to` target's runtime
-    ///      codehash does not match the immutable, audited SafeModuleEnabler pinned at deploy
+    ///      codehash does not match the immutable SafeModuleEnabler pinned at deploy
     ///      (`EXPECTED_SETUP_CODEHASH`). Defends against a governance mistake allowlisting a
     ///      MUTABLE helper at a trusted address: even an address-allowlisted target is rejected
-    ///      unless its deployed bytecode is byte-identical to the pinned immutable helper (W2).
+    ///      unless its deployed bytecode is byte-identical to the pinned immutable helper.
     error UntrustedModuleSetupCodehash(address setup);
 
     /// @dev Thrown by `registerAccount` when the caller's runtime codehash is not in
@@ -630,7 +633,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  _treasury      Address that will receive the protocol's share of fees.
     /// @param  _setupEnabler  The deployed, immutable SafeModuleEnabler. Its runtime codehash is
     ///                        captured into `EXPECTED_SETUP_CODEHASH` and pinned as the only
-    ///                        permissible Safe.setup delegatecall target (W2). MUST be the genuine
+    ///                        permissible Safe.setup delegatecall target (the setup-target codehash
+    ///                        pin). MUST be the genuine
     ///                        immutable helper at launch; it must already be deployed when the
     ///                        kernel is constructed so its codehash can be read here.
     constructor(address _governance, address _treasury, address _setupEnabler) EIP712("SailKernel", "1") {
@@ -686,10 +690,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Deploy a new Safe via factory and register it with the kernel in one transaction.
     /// @dev    The salt passed to the factory is derived from `keccak256(saltNonce, msg.sender,
     ///         permissionSigner, manager, feePolicy)` so that a front-runner supplying different
-    ///         principals lands at a different CREATE2 address and cannot squat the registration
-    ///         (Octane #4 / #16). The Safe.setup delegatecall `to` target embedded in
+    ///         principals lands at a different CREATE2 address and cannot squat the registration.
+    ///         The Safe.setup delegatecall `to` target embedded in
     ///         `safeInitializer` is validated against the trusted module-setup allowlist, removing
-    ///         the arbitrary-delegatecall surface (Octane #1). If a proxy already exists at the
+    ///         the arbitrary-delegatecall surface. If a proxy already exists at the
     ///         predicted address (legitimate pre-deploy or retry) the factory call is skipped.
     /// @param  safeFactory       Address of the Safe proxy factory contract.
     /// @param  safeSingleton     Address of the Safe singleton (implementation) contract.
@@ -720,8 +724,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address setupTarget = address(uint160(uint256(bytes32(safeInitializer[68:100]))));
         // address(0) means no delegatecall (vanilla Safe.setup) — always safe, no allowlist check needed.
         if (setupTarget != address(0) && !governance.trustedModuleSetup(setupTarget)) revert UntrustedModuleSetup(setupTarget);
-        // W2: address-allowlisting alone is not enough — pin the target's runtime codehash to the
-        // audited immutable SafeModuleEnabler captured at deploy. This converts the operational rule
+        // Codehash pin: address-allowlisting alone is not enough — pin the target's runtime codehash to the
+        // immutable SafeModuleEnabler captured at deploy. This converts the operational rule
         // ("only ever allowlist an IMMUTABLE helper") into a code guarantee: a governance mistake
         // allowlisting a mutable/upgradeable look-alike at a trusted address cannot satisfy the pin.
         // Gated on setupTarget != address(0) exactly like the address check, so the no-setup path
@@ -767,10 +771,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @notice Register an existing Safe that has already added this kernel as a module.
     /// @dev    MUST be called by the Safe itself (msg.sender == Safe). The caller must be a
     ///         genuine Safe proxy (verified by runtime codehash against the trusted allowlist,
-    ///         blocking arbitrary-contract self-registration — finding #4a) and must already
+    ///         blocking arbitrary-contract self-registration) and must already
     ///         have this kernel enabled as a module.
     ///
-    ///         #4 OWNER AUTHORISATION (the robust gate): registration is bound to an EIP-712
+    ///         OWNER AUTHORISATION (the robust gate): registration is bound to an EIP-712
     ///         signature over the principals, verified through the Safe's own owner-set+threshold
     ///         check (`checkSignatures`). This defeats the Safe.setup-delegatecall attack that a
     ///         view-only heuristic could not: during setup every Safe-storage signal (nonce, module
@@ -810,9 +814,9 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 deadline,
         bytes calldata ownerSig
     ) external {
-        // No exact-length W1 guard here (cf. setManager/collectFees): `ownerSig` is dynamic, so an
-        // exact length is undefined and a minimum-length check would not catch a +20-byte fallback
-        // relay. The owner-signature requirement closes the W1 fallback vector for this function
+        // No exact-length calldata guard here (cf. setManager/collectFees): `ownerSig` is dynamic,
+        // so an exact length is undefined and a minimum-length check would not catch a +20-byte
+        // fallback relay. The owner-signature requirement closes the fallback-relay vector for this function
         // directly — a relay cannot produce the owners' signature over the digest.
 
         // 1. Codehash (cheap/static; uses extcodehash, not an ISafe method call). Pins genuine
@@ -821,7 +825,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         assembly { codehash := extcodehash(caller()) }
         if (!governance.trustedSafeProxyCodehash(codehash)) revert UntrustedProxyCodehash(codehash);
 
-        // 2. #9 trusted singleton — checked BEFORE any other ISafe method runs. The codehash above
+        // 2. Trusted singleton — checked BEFORE any other ISafe method runs. The codehash above
         //    only pins proxy bytecode; a genuine proxy can still delegate to a hostile singleton that
         //    forges module execution/return data. masterCopy() is the one ISafe call that may precede
         //    this check: the proxy answers 0xa619486e from storage slot 0 in its own fallback, so a
@@ -830,7 +834,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         address singleton = ISafe(msg.sender).masterCopy();
         if (!governance.trustedSafeSingleton(singleton)) revert UntrustedSingleton(singleton);
 
-        // 3. #4 defense-in-depth: setup() never bumps the Safe nonce; execTransaction increments it
+        // 3. Defense-in-depth: setup() never bumps the Safe nonce; execTransaction increments it
         //    before the inner call runs. A value of 0 therefore flags a not-yet-finalized Safe. This is
         //    forgeable by a setup-delegatecall helper (nonce lives in slot 5), so it is NOT the gate —
         //    the owner signature below is. Kept as a cheap early reject.
@@ -839,7 +843,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         // 4. Module must be enabled.
         if (!ISafe(msg.sender).isModuleEnabled(address(this))) revert ModuleNotEnabled();
 
-        // 5. #4 owner authorisation (the robust gate). Bind the principals to an owner-set+threshold
+        // 5. Owner authorisation (the robust gate). Bind the principals to an owner-set+threshold
         //    signature so a setup helper — which holds no owner keys — cannot register. chainId is in
         //    the EIP-712 domain; no nonce is needed because registration is one-shot (`registered[]`
         //    never clears, so a replay reverts AccountAlreadyRegistered in _registerAccount).
@@ -934,7 +938,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @param  newManager New address authorised to sign dispatches. Must be non-zero and
     ///                    different from the current manager.
     function setManager(address newManager) external nonReentrant {
-        // W1: reject Safe-fallback-relayed calls. A direct call is exactly selector + 1 static arg;
+        // Fallback-relay guard: reject Safe-fallback-relayed calls. A direct call is exactly selector + 1 static arg;
         // a fallback relay appends the caller's 20 bytes (see SET_MANAGER_CALLDATA_LEN).
         if (msg.data.length != SET_MANAGER_CALLDATA_LEN) revert UnexpectedCalldataLength();
         address account = msg.sender;
@@ -968,7 +972,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
     ///         If a registered permission is upgradeable or uses a proxy, a change to its
     ///         implementation requires no new kernel signature. Operators are responsible for
-    ///         registering only non-upgradeable or audited permission contracts.
+    ///         registering only non-upgradeable or reviewed permission contracts.
     ///         See Sail Protocol whitepaper §8.2.
     /// @param  account    The registered Safe account.
     /// @param  permission Address of the permission contract to register.
@@ -1037,7 +1041,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
     ///         If a registered permission is upgradeable or uses a proxy, a change to its
     ///         implementation requires no new kernel signature. Operators are responsible for
-    ///         registering only non-upgradeable or audited permission contracts.
+    ///         registering only non-upgradeable or reviewed permission contracts.
     ///         See Sail Protocol whitepaper §8.2.
     /// @param  account        The registered Safe account.
     /// @param  oldPermission  Permission to remove.
@@ -1091,7 +1095,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
     ///         If a registered permission is upgradeable or uses a proxy, a change to its
     ///         implementation requires no new kernel signature. Operators are responsible for
-    ///         registering only non-upgradeable or audited permission contracts.
+    ///         registering only non-upgradeable or reviewed permission contracts.
     ///         See Sail Protocol whitepaper §8.2.
     /// @param  account         The registered Safe account.
     /// @param  oldPermissions  Permissions to remove (parallel to `newPermissions`).
@@ -1266,7 +1270,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
     /// @dev    PERMISSION TRUST: The kernel binds authorization to a permission address only.
     ///         If a registered permission is upgradeable or uses a proxy, a change to its
     ///         implementation requires no new kernel signature. Operators are responsible for
-    ///         registering only non-upgradeable or audited permission contracts.
+    ///         registering only non-upgradeable or reviewed permission contracts.
     ///         See Sail Protocol whitepaper §8.2.
     /// @param  account     The registered Safe account.
     /// @param  permissions Addresses of permission contracts to register.
@@ -1770,7 +1774,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         uint256 currentNav,
         address feeToken
     ) external nonReentrant whenNotPaused {
-        // W1: reject Safe-fallback-relayed calls. collectFees also accepts msg.sender == account,
+        // Fallback-relay guard: reject Safe-fallback-relayed calls. collectFees also accepts msg.sender == account,
         // so a fallbackHandler==kernel Safe could otherwise force its own fee outflows. A direct
         // call is exactly selector + 4 static args (see COLLECT_FEES_CALLDATA_LEN).
         if (msg.data.length != COLLECT_FEES_CALLDATA_LEN) revert UnexpectedCalldataLength();

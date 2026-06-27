@@ -6,11 +6,11 @@ import {SailKernel} from "../contracts/core/SailKernel.sol";
 import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
 import {TransferPermission} from "../contracts/templates/TransferPermission.sol";
 
-/// @notice Octane #2 (non-atomic configure+register front-run) and #8 (configure-sig replay across
-///         epochs) regression suite. Both findings are closed by ONE mechanism: a per-(account,
+/// @notice Config-epoch binding regression suite, covering the non-atomic configure+register
+///         front-run and configure-sig replay across epochs. Both are closed by ONE mechanism: a per-(account,
 ///         permission) registration epoch (kernel), stamped into the template's config and rechecked
 ///         (fail-closed) in evaluate(). These tests exercise the REAL kernel + a real template.
-contract Octane05_ConfigEpochTest is FactoryTestBase {
+contract ConfigEpochTest is FactoryTestBase {
     bytes4 internal constant TRANSFER_SEL = 0xa9059cbb;
     address internal constant TOKEN     = address(0x7000);
     address internal constant RECIPIENT = address(0xC0FFEE);
@@ -81,9 +81,9 @@ contract Octane05_ConfigEpochTest is FactoryTestBase {
         assertEq(safe.callCount(), before + 1, "transfer executed");
     }
 
-    // ── 2. Octane #2: front-run of the register leg under stale config ────────────
+    // ── 2. Front-run of the register leg under stale config ───────────────────────
 
-    function test_Octane2_FrontRunReregister_StaleConfigDenied() public {
+    function test_FrontRunReregister_StaleConfigDenied() public {
         _register(address(P));
         _configure(P, 1_000);             // broad config applied at epoch 0
         _dispatch(address(P), 100);       // sanity: works at epoch 0
@@ -119,9 +119,9 @@ contract Octane05_ConfigEpochTest is FactoryTestBase {
         assertEq(safe.callCount(), before + 1, "dispatch re-enabled after fresh configure");
     }
 
-    // ── 3. Octane #8: stale configure signatures cannot replay across an epoch change ─
+    // ── 3. Stale configure signatures cannot replay across an epoch change ────────────
 
-    function test_Octane8_StaleEpochConfigureSig_Rejected() public {
+    function test_StaleEpochConfigureSig_Rejected() public {
         _register(address(P));
         _configure(P, 1_000);
         _revoke(address(P));

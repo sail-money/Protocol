@@ -16,7 +16,7 @@ import {SwapPermission}          from "../contracts/templates/SwapPermission.sol
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract MockSafe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -234,12 +234,12 @@ contract SailKernelTest is Test {
         gov.setTrustedFeePolicy(address(feePolicy), true);
 
         // registerAccount now requires the caller's codehash to be an allowlisted Safe proxy
-        // (Octane #4a). All MockSafe instances share this codehash, so one seed covers the
+        // All MockSafe instances share this codehash, so one seed covers the
         // safe2/safe3/newSafe accounts created across the tests below.
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         // Safe registers itself — msg.sender must be the Safe.
         vm.prank(address(safe));
@@ -911,7 +911,7 @@ contract SailKernelTest is Test {
         address token    = address(0x1234567890123456789012345678901234567890);
         uint256 grossFee = 500;
 
-        // Change the fee asset to the ERC-20 token via a fresh policy instance (Octane #5).
+        // Change the fee asset to the ERC-20 token via a fresh policy instance.
         _setFeeAsset(token);
         feePolicy.setFee(grossFee, address(0), 0);
 
@@ -1009,7 +1009,7 @@ contract SailKernelTest is Test {
 
     function test_CollectFees_ERC20FeeAsset_ETHTokenReverts() public {
         // Denomination mismatch: feeAsset is an ERC-20 but manager passes ETH (address(0)).
-        // Finding #3: feeToken must match the bound feeAsset in both directions.
+        // feeToken must match the bound feeAsset in both directions.
         address erc20Token = address(0xE20);
         _setFeeAsset(erc20Token);
 
@@ -1020,7 +1020,7 @@ contract SailKernelTest is Test {
     }
 
     function test_CollectFees_ZeroFee_DoesNotInvokePolicy() public {
-        // Finding #9: ZeroFee must be caught before the policy is consulted, ensuring
+        // ZeroFee must be caught before the policy is consulted, ensuring
         // recordCollection is never called and lastCollectionTimestamp cannot advance.
         feePolicy.setFee(1_000, address(0), 0);
         assertFalse(feePolicy.recordCalled());
@@ -1031,7 +1031,7 @@ contract SailKernelTest is Test {
     }
 
     function test_SetFeePolicy_ClearsFeeAssetOnZeroPolicy() public {
-        // Set to a non-zero policy + non-ETH asset first (fresh instance per Octane #5).
+        // Set to a non-zero policy + non-ETH asset first (fresh instance).
         address someToken = address(0xABCD);
         _setFeeAsset(someToken);
         (,, , address fa,) = kernel.configs(address(safe));
@@ -1342,7 +1342,7 @@ contract SailKernelTest is Test {
         kernel.setFeePolicy(address(safe), address(newPolicy), address(0), type(uint256).max, _signerSig(sh));
     }
 
-    // ── Octane #5: fee-policy asset binding ─────────────────────────────────────
+    // ── Fee-policy asset binding ────────────────────────────────────────────────
     // setFeePolicy pins a policy instance to a single fee asset per account. Reusing the same
     // instance with a different asset would leave the policy's persisted high-water mark in
     // stale units and inflate the next performance fee (one-time over-collection). To change
@@ -1776,7 +1776,7 @@ contract SailKernelTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Switch the account to a FRESH trusted policy instance bound to `token`. This is the
-    ///      canonical way to change the fee asset after Octane #5: a policy instance is pinned to
+    ///      canonical way to change the fee asset: a policy instance is pinned to
     ///      one fee asset per account, so changing denomination requires a fresh instance (which
     ///      carries fresh per-account state). Reassigns `feePolicy` to the new instance and
     ///      restores `manager` as the fee recipient; configure the fee on `feePolicy` afterwards.

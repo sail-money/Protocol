@@ -41,7 +41,7 @@ The templates consume it exactly this way:
   and requiring `amount <= maxAmountAllowed`
   (`BorrowPermission._ltvCheck`, [`BorrowPermission.sol`](../contracts/templates/BorrowPermission.sol)).
   (The older `borrowScaled = mulDiv(amount, borPrice, 10^borDecimals)` framing pre-flooring the
-  borrow value is no longer used — that sub-unit-rounding fail-open was closed in Octane #6.)
+  borrow value is no longer used — that sub-unit-rounding fail-open was closed.)
 
 An adapter that returns a price in any other convention will produce wrong swap floors
 or LTV ratios.

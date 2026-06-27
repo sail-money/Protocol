@@ -12,13 +12,13 @@ import {IFeePolicy}           from "../contracts/interfaces/IFeePolicy.sol";
 // Minimal mocks — self-contained, no dependency on other test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-contract _O3Perm is IPermission {
+contract _SigPerm is IPermission {
     function evaluate(bytes calldata, Context calldata) external pure returns (bool) { return true; }
     function discriminator() external pure returns (bytes32) { return bytes32(0); }
 }
 
-contract _O3Safe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+contract _SigSafe {
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -30,7 +30,7 @@ contract _O3Safe {
     receive() external payable {}
 }
 
-contract _O3FeePolicy is IFeePolicy {
+contract _SigFeePolicy is IFeePolicy {
     function feeRecipient() external pure returns (address) { return address(0xFEE1); }
     function computeFee(address, uint256) external pure returns (uint256, address, uint256) {
         return (0, address(0), 0);
@@ -43,10 +43,10 @@ contract _O3FeePolicy is IFeePolicy {
 // Test contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// @notice Octane audit cluster-03 regression tests.
+/// @notice Signature verification regression tests.
 ///         Covers EIP-712 deadline enforcement (#7), nonce epoch invalidation (#7 related),
 ///         empty-array ETH refund (#8), and permission registration validation (#11 related).
-contract Octane03_Signatures is Test {
+contract SignatureVerificationTest is Test {
 
     // ── Keys ──────────────────────────────────────────────────────────────────
     uint256 constant SIGNER_KEY  = 0xDEAD;
@@ -55,9 +55,9 @@ contract Octane03_Signatures is Test {
     // ── Protocol fixtures ─────────────────────────────────────────────────────
     SailGovernance gov;
     SailKernel     kernel;
-    _O3Safe        safe;
-    _O3Perm        perm;
-    _O3FeePolicy   feePolicy;
+    _SigSafe        safe;
+    _SigPerm        perm;
+    _SigFeePolicy   feePolicy;
 
     address permSigner;
     address manager;
@@ -70,15 +70,15 @@ contract Octane03_Signatures is Test {
 
         gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
         kernel   = new SailKernel(address(gov), address(0x2222), address(0));
-        safe     = new _O3Safe();
-        perm     = new _O3Perm();
-        feePolicy = new _O3FeePolicy();
+        safe     = new _SigSafe();
+        perm     = new _SigPerm();
+        feePolicy = new _SigFeePolicy();
         vm.prank(address(gov.timelock()));
         gov.setTrustedFeePolicy(address(feePolicy), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
@@ -172,7 +172,7 @@ contract Octane03_Signatures is Test {
 
     function test_Deadline_ReplacePermission_ExpiredReverts() public {
         _registerPerm(address(perm));
-        _O3Perm perm2 = new _O3Perm();
+        _SigPerm perm2 = new _SigPerm();
         uint256 past  = block.timestamp - 1;
         uint256 nonce = kernel.signerNonces(address(safe));
         bytes32 sh = keccak256(abi.encode(
@@ -331,7 +331,7 @@ contract Octane03_Signatures is Test {
         );
 
         // Replace perm with perm2 — bumps managerNonces.
-        _O3Perm perm2 = new _O3Perm();
+        _SigPerm perm2 = new _SigPerm();
         {
             uint256 deadline = block.timestamp + 1 days;
             uint256 nonce    = kernel.signerNonces(address(safe));
@@ -354,7 +354,7 @@ contract Octane03_Signatures is Test {
     // 6. Epoch-bump policy on session/registry ops (#3, #7 related)
     //    activateSession (re-enabling) MUST rotate managerNonces so a dispatch
     //    the manager pre-signed while suspended cannot execute on reactivation
-    //    (Octane #3). registerPermission (widening scope) must NOT advance
+    //    registerPermission (widening scope) must NOT advance
     //    managerNonces — a sig signed beforehand must still be valid after it.
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -384,7 +384,7 @@ contract Octane03_Signatures is Test {
     }
 
     function test_NoBump_RegisterPermission_PreserveManagerSig() public {
-        _O3Perm perm2 = new _O3Perm();
+        _SigPerm perm2 = new _SigPerm();
         _registerPerm(address(perm2));   // register perm2 first for a known baseline
 
         uint256 nonceBefore  = kernel.managerNonces(address(safe));

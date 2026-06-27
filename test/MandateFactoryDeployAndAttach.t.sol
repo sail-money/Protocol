@@ -125,7 +125,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
         );
     }
 
-    /// @notice Octane #18: account-bound salt. Two DIFFERENT accounts using the same
+    /// @notice Account-bound salt. Two DIFFERENT accounts using the same
     ///         caller + impl + raw salt resolve to DIFFERENT, non-colliding clone
     ///         addresses — a shared relayer caller cannot make distinct accounts collide.
     function test_DeployAndAttach_DifferentAccountsGetDifferentCloneAddresses() public {
