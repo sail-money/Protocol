@@ -569,6 +569,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///      governance's trusted Safe-proxy-codehash allowlist.
     error UntrustedProxyCodehash(bytes32 codehash);
 
+    /// @dev Thrown by `registerAccount` when `ownerSig` carries a Safe approved-hash entry (v == 1).
+    ///      Inside `checkSignatures` msg.sender is this kernel, so Safe accepts a v==1 entry whose
+    ///      r-field encodes the kernel as "owner" (msg.sender == currentOwner) — letting a malicious
+    ///      Safe.setup delegatecall helper register with NO genuine owner key. Honest owners never
+    ///      need the shortcut: EOAs sign ECDSA and contract owners use the v==0 path.
+    error ApprovedHashSignatureNotAllowed();
+
     /// @dev Thrown by `dispatchBatch` when the calls array is empty.
     error EmptyBatch();
 
@@ -780,9 +787,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///         INVOCATION: owners sign the RegisterAccount digest off-chain; an owner-approved Safe
     ///         `execTransaction` then calls this function (so msg.sender == the Safe, satisfying the
     ///         codehash gate) carrying that signature. msg.sender == account is preserved.
-    /// @dev    `checkSignatures` is called with empty `data`, which suits EOA and approved-hash owners.
-    ///         A Safe owner that is itself a contract relying on the legacy v==0 contract-signature path
-    ///         would require non-empty `data` (keccak256(data)==digest) — a nested-Safe-owner edge case.
+    /// @dev    OWNER SIGNATURE TYPES: EOA owners sign ECDSA over the digest (Safe's v>1 path). Contract
+    ///         owners (ERC-1271 / nested Safe) use Safe's v==0 path — `checkSignatures` is given the
+    ///         EIP-712 preimage as `data`, so its keccak256(data)==digest check passes and contract-owner
+    ///         self-registration works. The v==1 approved-hash shortcut is rejected
+    ///         (`ApprovedHashSignatureNotAllowed`): inside `checkSignatures` msg.sender is the kernel, so
+    ///         a v==1 entry encoding the kernel as owner would let a setup-delegatecall helper register
+    ///         with no genuine owner key.
     /// @param  permissionSigner  Address that will sign permission-registry operations.
     /// @param  manager           Address that will sign dispatch calls.
     /// @param  feePolicy         Fee policy contract; address(0) = no fee policy.
@@ -831,7 +842,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
         //    the EIP-712 domain; no nonce is needed because registration is one-shot (`registered[]`
         //    never clears, so a replay reverts AccountAlreadyRegistered in _registerAccount).
         if (block.timestamp > deadline) revert DeadlineExpired(deadline, block.timestamp);
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+        bytes32 structHash = keccak256(abi.encode(
             REGISTER_ACCOUNT_TYPEHASH,
             msg.sender,
             permissionSigner,
@@ -839,9 +850,38 @@ contract SailKernel is EIP712, ReentrancyGuard {
             feePolicy,
             feeAsset,
             deadline
-        )));
+        ));
+        bytes32 digest = _hashTypedDataV4(structHash);
+
+        // Reject the Safe v==1 approved-hash shortcut: it lets a malicious setup helper authorize
+        //    registration without a genuine owner signature. Safe encodes `ownerSig` as 65-byte entries
+        //    (r|s|v, v at byte 64); threshold entries form the static region [0, threshold*65), and a
+        //    v==0 contract owner appends its signature in a dynamic tail beginning at that entry's `s`
+        //    pointer — which, for the first such entry, equals threshold*65 (Safe appends tails in the
+        //    order it parses entries). We scan only the static region so a tail byte is never misread
+        //    as a phantom v==1: start with the whole sig, and the first v==0 entry shrinks the limit to
+        //    its `s` (the static-region end). Bounding to the static region keeps the contract-owner
+        //    path working. (Over-scanning could only over-reject, never miss a static v==1.)
+        uint256 limit = ownerSig.length;
+        for (uint256 i; i * 65 + 64 < limit; ++i) {
+            uint256 base = i * 65;
+            uint8 v;
+            assembly { v := byte(0, calldataload(add(ownerSig.offset, add(base, 64)))) }
+            if (v == 1) revert ApprovedHashSignatureNotAllowed();
+            if (v == 0) {
+                uint256 s;
+                assembly { s := calldataload(add(ownerSig.offset, add(base, 32))) }
+                if (s < limit) limit = s;
+            }
+        }
+
+        // Pass the EIP-712 preimage as `data` so a contract owner (ERC-1271 / nested Safe) can
+        //    validate via Safe's v==0 contract-signature path: Safe requires keccak256(data) == digest,
+        //    which holds by construction because digest == keccak256(0x1901 ‖ domainSeparator ‖
+        //    structHash). The ECDSA path ignores `data`.
+        bytes memory preimage = abi.encodePacked(hex"1901", _domainSeparatorV4(), structHash);
         // Reverts (GS0xx) unless `ownerSig` satisfies the Safe's owner set + threshold.
-        ISafe(msg.sender).checkSignatures(digest, "", ownerSig);
+        ISafe(msg.sender).checkSignatures(digest, preimage, ownerSig);
 
         _registerAccount(msg.sender, permissionSigner, manager, feePolicy, feeAsset);
     }
