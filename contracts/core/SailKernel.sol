@@ -116,6 +116,8 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///      (revokePermission, replacePermission, revokeSession, revokePermissions) takes effect.
     ///      Invalidates any outstanding manager-signed dispatches that pre-date the restriction
     ///      without requiring separate nonce-rotation messages (Octane finding #7 related).
+    ///      Also applied to the signer nonce on the emergency revoke (`revokeSession`) so a
+    ///      permissionSigner operation pre-signed before the revoke cannot re-enable the session.
     uint256 private constant NONCE_EPOCH_INCREMENT = 1 << 128;
 
     /// @dev ERC-1271 magic value returned by `isValidSignature` for a valid signature.
@@ -1151,6 +1153,13 @@ contract SailKernel is EIP712, ReentrancyGuard {
 
     /// @notice Suspend the manager session for an account. All `dispatch` calls will
     ///         revert with `SessionInactive` until `activateSession` is called.
+    /// @dev    KILL SWITCH: this is the emergency revoke and must take effect in a single
+    ///         block. The signer nonce is advanced across an epoch (not merely +1) so any
+    ///         permissionSigner operation signed before the revoke — including a queued
+    ///         `activateSession` — is invalidated and cannot silently re-enable the session
+    ///         with a pre-signed message. The honest reactivation simply signs the new
+    ///         current nonce (signer ops are verified by exact equality, so the just-in-time
+    ///         flow is unaffected).
     /// @param  account  The registered Safe account.
     /// @param  deadline Unix timestamp after which the signature is invalid.
     /// @param  sig      EIP-712 signature over RevokeSession struct by permissionSigner.
@@ -1163,7 +1172,7 @@ contract SailKernel is EIP712, ReentrancyGuard {
             keccak256(abi.encode(REVOKE_SESSION_TYPEHASH, account, nonce, deadline)),
             sig
         );
-        signerNonces[account] = nonce + 1;
+        signerNonces[account] = nonce + 1 + NONCE_EPOCH_INCREMENT;
         configs[account].sessionActive = false;
         managerNonces[account] += NONCE_EPOCH_INCREMENT;
         batchNonces[account]   += NONCE_EPOCH_INCREMENT;

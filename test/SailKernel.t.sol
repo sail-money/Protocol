@@ -1290,7 +1290,7 @@ contract SailKernelTest is Test {
         (,,,, bool activeAfterFirst) = kernel.configs(address(safe));
         assertFalse(activeAfterFirst);
 
-        // Revoke again — should succeed and consume another nonce
+        // Revoke again — should succeed and advance the signer nonce across an epoch
         uint256 nonceBefore = kernel.signerNonces(address(safe));
         uint256 deadline2 = block.timestamp + 1 days;
         bytes32 sh2 = keccak256(abi.encode(kernel.REVOKE_SESSION_TYPEHASH(), address(safe), nonceBefore, deadline2));
@@ -1298,7 +1298,9 @@ contract SailKernelTest is Test {
 
         (,,,, bool activeAfterSecond) = kernel.configs(address(safe));
         assertFalse(activeAfterSecond, "session should remain inactive");
-        assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1, "nonce consumed");
+        // The emergency revoke advances the signer nonce by an epoch (not merely +1) so any
+        // operation pre-signed before the revoke is invalidated.
+        assertEq(kernel.signerNonces(address(safe)), nonceBefore + 1 + (uint256(1) << 128), "nonce consumed");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
