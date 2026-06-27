@@ -972,4 +972,214 @@ contract StandardFeePolicyTest is Test {
         (uint256 grossFee2,,) = policy.computeFee(ACCOUNT, recoveredNav);
         assertEq(grossFee2, _expectedMgmt(recoveredNav, MGMT_BPS, 1 days), "no perf below preserved HWM");
     }
+
+    // ── onAttach refreshes the applied-rate snapshots (prospective first-window pricing) ───────
+
+    /// @dev onAttach copies the current global rates into the per-account snapshots, so a rate
+    ///      changed while detached prices the first post-reattach window at today's schedule.
+    function test_OnAttach_RefreshesAppliedRateSnapshots() public {
+        _initAccount(ACCOUNT, NAV);                  // snapshots seeded at MGMT_BPS / PERF_BPS
+        vm.prank(FEE_MANAGER); policy.setManagementFeeBps(50);
+        vm.prank(FEE_MANAGER); policy.setPerformanceFeeBps(1_000);
+
+        vm.warp(T0 + 100 days);
+        vm.prank(KERNEL);
+        policy.onAttach(ACCOUNT);
+
+        assertEq(policy.appliedManagementFeeBps(ACCOUNT),  50,    "mgmt snapshot refreshed to current global");
+        assertEq(policy.appliedPerformanceFeeBps(ACCOUNT), 1_000, "perf snapshot refreshed to current global");
+    }
+
+    /// @dev Reattach after a management-rate DECREASE bills the first window at the new (lower) rate,
+    ///      not the stale pre-detach rate. (NAV == HWM so the perf leg is zero.)
+    function test_OnAttach_FirstWindowBillsNewLowerManagementRate() public {
+        _initAccount(ACCOUNT, NAV);                  // MGMT_BPS = 200
+        vm.warp(T0 + 100 days);
+        vm.prank(FEE_MANAGER); policy.setManagementFeeBps(50);   // cut while detached
+        vm.prank(KERNEL); policy.onAttach(ACCOUNT);
+        assertEq(policy.appliedManagementFeeBps(ACCOUNT), 50);
+
+        vm.warp(T0 + 130 days);                      // 30 days post-reattach
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV);
+        assertEq(grossFee, _expectedMgmt(NAV, 50, 30 days), "first window billed at new lower rate");
+        assertLt(grossFee, _expectedMgmt(NAV, MGMT_BPS, 30 days), "strictly less than the stale-rate bill");
+    }
+
+    /// @dev Mirror: reattach after a management-rate INCREASE bills the first window at the new
+    ///      (higher) rate — prospectively, over post-reattach time only.
+    function test_OnAttach_FirstWindowBillsNewHigherManagementRate() public {
+        _initAccount(ACCOUNT, NAV);                  // MGMT_BPS = 200
+        vm.warp(T0 + 100 days);
+        vm.prank(FEE_MANAGER); policy.setManagementFeeBps(500);  // raise while detached
+        vm.prank(KERNEL); policy.onAttach(ACCOUNT);
+        assertEq(policy.appliedManagementFeeBps(ACCOUNT), 500);
+
+        vm.warp(T0 + 130 days);                      // 30 days post-reattach
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV);
+        assertEq(grossFee, _expectedMgmt(NAV, 500, 30 days), "first window billed at new higher rate");
+        assertGt(grossFee, _expectedMgmt(NAV, MGMT_BPS, 30 days), "strictly more than the stale-rate bill");
+    }
+
+    // ── zero-management reattach: minimal fee clears the re-anchor latch (no deadlock) ─────────
+
+    /// @dev A 0% management / 20% performance schedule: the suppressed reattach window would
+    ///      otherwise compute a zero gross fee and deadlock (no collection can settle, so the latch
+    ///      never clears). computeFee returns a minimal fee of 1, the collection settles, the latch
+    ///      clears, and the performance leg resumes normally on the next window.
+    function test_OnAttach_ZeroManagementSchedule_NoDeadlock() public {
+        StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
+
+        vm.warp(T0 + 100 days);
+        uint256 gainedNav = NAV + 500_000e18;        // gain booked while detached
+        vm.prank(KERNEL); p.onAttach(ACCOUNT);
+        assertTrue(p.pendingReanchor(ACCOUNT));
+
+        vm.warp(T0 + 101 days);                      // >= MIN_COLLECTION_INTERVAL
+        (uint256 grossFee,,) = p.computeFee(ACCOUNT, gainedNav);
+        assertEq(grossFee, 1, "minimal fee returned to clear the latch");
+
+        vm.prank(KERNEL); p.recordCollection(ACCOUNT, grossFee, gainedNav);
+        assertFalse(p.pendingReanchor(ACCOUNT), "latch cleared by the settled collection");
+        assertEq(p.highWaterMark(ACCOUNT), gainedNav, "HWM re-anchored to reattachment NAV");
+
+        // Next window: management stays 0, performance charged normally above the re-based HWM.
+        vm.warp(T0 + 102 days);
+        uint256 higherNav = gainedNav + 100_000e18;
+        (uint256 grossFee2,,) = p.computeFee(ACCOUNT, higherNav);
+        assertEq(grossFee2, (higherNav - gainedNav) * PERF_BPS / 10_000, "perf resumes; no management leg");
+    }
+
+    /// @dev Integration through a harness that mirrors SailKernel.collectFees's guard ordering
+    ///      (ZeroFee before computeFee; FeeTooLarge; recordCollection before the fund transfer):
+    ///      the 1-unit fee passes both kernel guards end-to-end, the collection settles, and the
+    ///      latch clears. The single fee unit lands at the policy's feeRecipient.
+    function test_OnAttach_ZeroManagementSchedule_KernelGuardsPassEndToEnd() public {
+        KernelGuardHarness h = new KernelGuardHarness();
+        StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, address(h), FEE_MANAGER);
+        MockFeeToken token = new MockFeeToken();
+        token.mint(address(h), 1_000);               // the Safe (modelled by the harness) holds the fee asset
+
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
+        vm.warp(T0 + 100 days);
+        h.attach(p, ACCOUNT);
+
+        vm.warp(T0 + 101 days);
+        h.collectFees(p, ACCOUNT, 1, NAV, address(token));   // grossFee=1 clears ZeroFee and FeeTooLarge
+
+        assertFalse(p.pendingReanchor(ACCOUNT), "latch cleared end-to-end through the guard sequence");
+        assertEq(token.balanceOf(p.feeRecipient()), 1, "the single fee unit reached the recipient");
+    }
+
+    /// @dev Rounding sub-case: a tiny management rate (1 bps) on a small NAV floors the management
+    ///      leg to zero over one day. During the suppressed reattach window this would also deadlock;
+    ///      the minimal fee clears it.
+    function test_OnAttach_TinyManagementRoundsToZero_ClearsViaMinimalFee() public {
+        StandardFeePolicy p = new StandardFeePolicy(1, PERF_BPS, DISTRIBUTOR, DIST_BPS, KERNEL, FEE_MANAGER);
+        uint256 smallNav = 1_000_000;                // wei-scale: 1 bps over 1 day floors to 0
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, smallNav);
+
+        vm.warp(T0 + 10 days);
+        vm.prank(KERNEL); p.onAttach(ACCOUNT);
+
+        vm.warp(T0 + 11 days);                       // exactly MIN_COLLECTION_INTERVAL after reattach
+        assertEq(_expectedMgmt(smallNav, 1, 1 days), 0, "precondition: management leg rounds to 0");
+        (uint256 grossFee,,) = p.computeFee(ACCOUNT, smallNav);
+        assertEq(grossFee, 1, "minimal fee returned for the rounded-to-zero window");
+
+        vm.prank(KERNEL); p.recordCollection(ACCOUNT, grossFee, smallNav);
+        assertFalse(p.pendingReanchor(ACCOUNT), "latch cleared");
+    }
+
+    /// @dev No-op proof: with a non-zero management rate and no rate change, the suppressed reattach
+    ///      window returns the normal management fee — NOT the 1-unit minimal fee. The minimal-fee
+    ///      branch never fires in the common case.
+    function test_OnAttach_NonZeroManagement_DoesNotReturnMinimalFee() public {
+        _initAccount(ACCOUNT, NAV);                  // MGMT_BPS = 200
+        vm.warp(T0 + 100 days);
+        vm.prank(KERNEL); policy.onAttach(ACCOUNT);
+
+        vm.warp(T0 + 101 days);
+        (uint256 grossFee,,) = policy.computeFee(ACCOUNT, NAV);
+        uint256 expected = _expectedMgmt(NAV, MGMT_BPS, 1 days);
+        assertEq(grossFee, expected, "normal management fee, not the minimal-fee sentinel");
+        assertGt(grossFee, 1, "sanity: the real fee is larger than the 1-unit sentinel");
+    }
+
+    /// @dev Known boundary: if the Safe holds no balance of the configured fee asset, even the
+    ///      1-unit clearing transfer cannot settle, so the collection reverts and the latch stays
+    ///      set. recordCollection runs before the transfer (CEI), so the revert rolls its state
+    ///      back — the account remains stuck until it is funded. This is strictly better than the
+    ///      pre-fix behaviour (always deadlocked); it is documented and codified here, not hidden.
+    function test_OnAttach_ZeroFeeAssetBalance_ClearingCollectionReverts() public {
+        KernelGuardHarness h = new KernelGuardHarness();
+        StandardFeePolicy p = new StandardFeePolicy(0, PERF_BPS, DISTRIBUTOR, DIST_BPS, address(h), FEE_MANAGER);
+        MockFeeToken token = new MockFeeToken();      // harness (the modelled Safe) is deliberately NOT funded
+
+        vm.prank(FEE_MANAGER); p.seedHighWaterMark(ACCOUNT, NAV);
+        vm.warp(T0 + 100 days);
+        h.attach(p, ACCOUNT);
+
+        vm.warp(T0 + 101 days);
+        (uint256 maxFee,,) = p.computeFee(ACCOUNT, NAV);
+        assertEq(maxFee, 1, "minimal fee is offered");
+
+        vm.expectRevert(bytes("insufficient fee-asset balance"));
+        h.collectFees(p, ACCOUNT, 1, NAV, address(token));
+
+        assertTrue(p.pendingReanchor(ACCOUNT), "latch still set: deadlock not cleared without funds");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test support: a minimal harness mirroring SailKernel.collectFees's guard ordering, and a
+// minimal fee-asset token. These exist only to exercise the kernel↔policy handshake for the
+// zero-management reattach case; they are not the kernel and model only the relevant guards.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// @dev Minimal ERC-20-like fee asset. `transfer` reverts on insufficient balance so the
+///      zero-balance boundary is observable.
+contract MockFeeToken {
+    mapping(address => uint256) public balanceOf;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "insufficient fee-asset balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to]         += amount;
+        return true;
+    }
+}
+
+/// @dev Mirrors the relevant SailKernel.collectFees control flow: the ZeroFee guard fires before
+///      computeFee, FeeTooLarge bounds grossFee by the policy maximum, and recordCollection runs
+///      before the fund transfer (CEI) — so a failed transfer rolls back the recorded state. The
+///      harness itself holds the fee-asset balance (modelling the Safe). The protocol/distributor
+///      split is kernel-internal and out of scope here; the single fee transfer is enough to
+///      exercise the guards and the zero-balance boundary.
+contract KernelGuardHarness {
+    error ZeroFee();
+    error FeeTooLarge(uint256 requested, uint256 maxAllowed);
+
+    function attach(StandardFeePolicy policy, address account) external {
+        policy.onAttach(account);
+    }
+
+    function collectFees(
+        StandardFeePolicy policy,
+        address account,
+        uint256 grossFee,
+        uint256 currentNav,
+        address token
+    ) external {
+        if (grossFee == 0) revert ZeroFee();
+        (uint256 maxFee,,) = policy.computeFee(account, currentNav);
+        if (grossFee > maxFee) revert FeeTooLarge(grossFee, maxFee);
+        policy.recordCollection(account, grossFee, currentNav);
+        address recipient = policy.feeRecipient();
+        MockFeeToken(token).transfer(recipient, grossFee);
+    }
 }
