@@ -81,7 +81,7 @@ contract DeployCore is Script {
     // ── Global, versioned, chain-independent salts ────────────────────────────────────────────
     // One salt per contract. NO chainId is mixed in — that is the whole point: a global salt with
     // identical initCode yields the SAME address on every chain. Bump the version suffix (`.v1` →
-    // `.v2`) only when a deliberate address rotation is wanted (e.g. a new audited bytecode that
+    // `.v2`) only when a deliberate address rotation is wanted (e.g. a new reviewed bytecode that
     // must NOT collide with the previous deployment's address).
     bytes32 internal constant SALT_TIMELOCK        = keccak256("sail.timelock.v1");
     bytes32 internal constant SALT_GOVERNANCE      = keccak256("sail.governance.v1");
@@ -143,7 +143,7 @@ contract DeployCore is Script {
 
         // Self-administration assertion: confirm no EOA holds admin over the timelock's roles, so
         // roles cannot be granted/revoked and the delay cannot be altered outside the 48-hour
-        // process. NOTE: as of review finding M2, the SailGovernance constructor ALSO enforces this
+        // process. NOTE: the SailGovernance constructor ALSO enforces this
         // (it reverts with TimelockNotSelfAdministered), so this assertion is now defense-in-depth —
         // kept deliberately because it fails earlier and with a clearer, deploy-time message, and
         // additionally checks that neither the deployer nor the governance wallet holds the admin
@@ -177,12 +177,12 @@ contract DeployCore is Script {
 
         // (3a) SafeModuleEnabler — no constructor args, so its initCode (and therefore its address
         //      and runtime codehash) is trivially identical on every chain. Deployed BEFORE the
-        //      kernel so the kernel constructor can read its codehash and pin it (W2).
+        //      kernel so the kernel constructor can read its codehash and pin it (the codehash pin).
         bytes memory enablerInit = type(SafeModuleEnabler).creationCode;
         d.safeModuleEnabler = SafeModuleEnabler(_deploy2(SALT_MODULE_ENABLER, enablerInit, "SafeModuleEnabler"));
 
         // (3b) SailKernel — references the (deterministic) governance address + treasury, and pins
-        //      the just-deployed immutable SafeModuleEnabler's runtime codehash (W2). Because the
+        //      the just-deployed immutable SafeModuleEnabler's runtime codehash (the codehash pin). Because the
         //      kernel and the enabler ship from the SAME build, the pinned codehash matches the
         //      deployed helper by construction.
         bytes memory kernelInit = abi.encodePacked(

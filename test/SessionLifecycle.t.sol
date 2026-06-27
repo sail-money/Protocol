@@ -13,18 +13,18 @@ import {IFeePolicy}           from "../contracts/interfaces/IFeePolicy.sol";
 // Minimal mocks — self-contained, no dependency on other test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-contract _O4Perm is IPermission {
+contract _SessPerm is IPermission {
     function evaluate(bytes calldata, Context calldata) external pure returns (bool) { return true; }
     function discriminator() external pure returns (bytes32) { return bytes32(0); }
 }
 
-contract _O4BatchPerm is IBatchPermission {
+contract _SessBatchPerm is IBatchPermission {
     function evaluateBatch(Call[] calldata, BatchContext calldata) external pure returns (bool) { return true; }
     function isBatchPermission() external pure returns (bool) { return true; }
 }
 
-contract _O4Safe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+contract _SessSafe {
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -36,7 +36,7 @@ contract _O4Safe {
     receive() external payable {}
 }
 
-contract _O4FeePolicy is IFeePolicy {
+contract _SessFeePolicy is IFeePolicy {
     address public immutable recipient;
     constructor(address r) { recipient = r; }
     function feeRecipient() external view returns (address) { return recipient; }
@@ -52,11 +52,11 @@ contract _O4FeePolicy is IFeePolicy {
 // Test contract
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// @notice Octane audit cluster-04 regression tests.
+/// @notice Session lifecycle regression tests.
 ///         Covers:
 ///           #5  — sessionActive gate on collectFees
 ///           #6  — atomic replacePermissions (plural)
-contract Octane04_Session is Test {
+contract SessionLifecycleTest is Test {
 
     // ── Keys ──────────────────────────────────────────────────────────────────
     uint256 constant SIGNER_KEY  = 0xDEAD;
@@ -66,8 +66,8 @@ contract Octane04_Session is Test {
     // ── Protocol fixtures ─────────────────────────────────────────────────────
     SailGovernance gov;
     SailKernel     kernel;
-    _O4Safe        safe;
-    _O4FeePolicy   feePolicy;
+    _SessSafe        safe;
+    _SessFeePolicy   feePolicy;
 
     address permSigner;
     address manager;
@@ -82,14 +82,14 @@ contract Octane04_Session is Test {
 
         gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
         kernel   = new SailKernel(address(gov), address(0x2222), address(0));
-        safe     = new _O4Safe();
-        feePolicy = new _O4FeePolicy(feeRecipient);
+        safe     = new _SessSafe();
+        feePolicy = new _SessFeePolicy(feeRecipient);
         vm.prank(address(gov.timelock()));
         gov.setTrustedFeePolicy(address(feePolicy), true);
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(feePolicy), address(0), block.timestamp + 1 days, "");
@@ -195,7 +195,7 @@ contract Octane04_Session is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Finding #5 — sessionActive gate on collectFees
+    // sessionActive gate on collectFees
     // ─────────────────────────────────────────────────────────────────────────
 
     /// After revokeSession, collectFees must revert with SessionInactive.
@@ -218,7 +218,7 @@ contract Octane04_Session is Test {
 
     /// dispatch is still blocked after revokeSession — no regression.
     function test_Dispatch_StillBlockedAfterRevokeSession() public {
-        _O4Perm perm = new _O4Perm();
+        _SessPerm perm = new _SessPerm();
         _registerPerm(address(perm));
         _revokeSession();
 
@@ -237,15 +237,15 @@ contract Octane04_Session is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Finding #6 — replacePermissions (plural)
+    // replacePermissions (plural)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// Happy path: replace [A, B] with [C, D] atomically.
     function test_ReplacePermissions_HappyPath() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permB = new _O4Perm();
-        _O4Perm permC = new _O4Perm();
-        _O4Perm permD = new _O4Perm();
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permB = new _SessPerm();
+        _SessPerm permC = new _SessPerm();
+        _SessPerm permD = new _SessPerm();
 
         _registerPerm(address(permA));
         _registerPerm(address(permB));
@@ -272,8 +272,8 @@ contract Octane04_Session is Test {
 
     /// Wrong signer → InvalidSignerSignature.
     function test_ReplacePermissions_WrongSigner_Reverts() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permC = new _O4Perm();
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permC = new _SessPerm();
         _registerPerm(address(permA));
 
         uint256 deadline = block.timestamp + 1 days;
@@ -300,8 +300,8 @@ contract Octane04_Session is Test {
 
     /// Expired deadline → DeadlineExpired.
     function test_ReplacePermissions_ExpiredDeadline_Reverts() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permC = new _O4Perm();
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permC = new _SessPerm();
         _registerPerm(address(permA));
 
         uint256 past  = block.timestamp - 1;
@@ -331,8 +331,8 @@ contract Octane04_Session is Test {
 
     /// Unregistered old permission → PermissionNotRegistered.
     function test_ReplacePermissions_UnregisteredOld_Reverts() public {
-        _O4Perm permA = new _O4Perm(); // NOT registered
-        _O4Perm permC = new _O4Perm();
+        _SessPerm permA = new _SessPerm(); // NOT registered
+        _SessPerm permC = new _SessPerm();
 
         uint256 deadline = block.timestamp + 1 days;
         uint256 nonce    = kernel.signerNonces(address(safe));
@@ -350,8 +350,8 @@ contract Octane04_Session is Test {
 
     /// New permission already registered → PermissionAlreadyRegistered.
     function test_ReplacePermissions_AlreadyRegisteredNew_Reverts() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permB = new _O4Perm(); // already registered; used as newPermission
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permB = new _SessPerm(); // already registered; used as newPermission
         _registerPerm(address(permA));
         _registerPerm(address(permB));
 
@@ -384,8 +384,8 @@ contract Octane04_Session is Test {
 
     /// After replacePermissions, previously valid manager dispatch signatures are invalidated.
     function test_ReplacePermissions_NonceEpochBump_InvalidatesManagerSigs() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permC = new _O4Perm();
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permC = new _SessPerm();
         _registerPerm(address(permA));
 
         // Capture manager nonce BEFORE the replace
@@ -410,10 +410,10 @@ contract Octane04_Session is Test {
 
     /// Fee collection: N swaps → N × permissionRegistrationFee collected; excess refunded.
     function test_ReplacePermissions_FeeCollection() public {
-        _O4Perm permA = new _O4Perm();
-        _O4Perm permB = new _O4Perm();
-        _O4Perm permC = new _O4Perm();
-        _O4Perm permD = new _O4Perm();
+        _SessPerm permA = new _SessPerm();
+        _SessPerm permB = new _SessPerm();
+        _SessPerm permC = new _SessPerm();
+        _SessPerm permD = new _SessPerm();
         _registerPerm(address(permA));
         _registerPerm(address(permB));
 
@@ -438,7 +438,7 @@ contract Octane04_Session is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Finding #3 — nonce epochs rotate on session reactivation
+    // nonce epochs rotate on session reactivation
     // ─────────────────────────────────────────────────────────────────────────
 
     /// activateSession bumps BOTH manager and batch nonce epochs (mirrors revokeSession).
@@ -459,7 +459,7 @@ contract Octane04_Session is Test {
     /// A dispatch the manager pre-signs DURING suspension must NOT execute after reactivation:
     /// the epoch bump on activate invalidates the stale signature.
     function test_Dispatch_PreSignedDuringSuspension_RejectedAfterActivate() public {
-        _O4Perm perm = new _O4Perm();
+        _SessPerm perm = new _SessPerm();
         _registerPerm(address(perm));
 
         // Operator suspends the session (epoch bump #1, session inactive).
@@ -479,7 +479,7 @@ contract Octane04_Session is Test {
 
     /// Same property for dispatchBatch / batchNonces.
     function test_DispatchBatch_PreSignedDuringSuspension_RejectedAfterActivate() public {
-        _O4BatchPerm perm = new _O4BatchPerm();
+        _SessBatchPerm perm = new _SessBatchPerm();
         _registerPerm(address(perm));
 
         _revokeSession();
@@ -498,7 +498,7 @@ contract Octane04_Session is Test {
     /// Legitimate flow is unaffected: revoke → activate → manager signs FRESH (new epoch)
     /// → dispatch succeeds.
     function test_Dispatch_FreshSignAfterActivate_Succeeds() public {
-        _O4Perm perm = new _O4Perm();
+        _SessPerm perm = new _SessPerm();
         _registerPerm(address(perm));
 
         _revokeSession();
@@ -515,7 +515,7 @@ contract Octane04_Session is Test {
 
     /// Legitimate batch flow likewise succeeds after a revoke/activate cycle.
     function test_DispatchBatch_FreshSignAfterActivate_Succeeds() public {
-        _O4BatchPerm perm = new _O4BatchPerm();
+        _SessBatchPerm perm = new _SessBatchPerm();
         _registerPerm(address(perm));
 
         _revokeSession();

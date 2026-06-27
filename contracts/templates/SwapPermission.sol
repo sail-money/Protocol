@@ -9,18 +9,18 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title  SwapPermission — oracle-gated bounded swap (recommended default)
-/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
-///         trusted core. This is one of the seven launch templates Octane is auditing
-///         post-freeze: it is hardened and documented with the honest boundaries below
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the hardened reference set, NOT part of the
+///         trusted core. This is one of the seven hardened launch templates.
+///         It is documented with the honest boundaries below
 ///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
 ///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
 ///         a bug here cannot reach the kernel or accounts that have not registered it. The
 ///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
 ///         semantics, but it does NOT verify that this permission's logic correctly enforces
 ///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
-///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template
 ///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
-///         audit-scope documentation.
+///         reference-template documentation.
 ///
 ///         WHAT IT IS. The recommended default swap template. One deployment serves any number
 ///         of accounts; each account stores its own routers, token allowlists, per-tx amount cap,
@@ -51,7 +51,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///
 ///         NATIVE VALUE REJECTED. A dispatch carrying ctx.value != 0 is denied: this is an
 ///         allowance-based ERC-20 → ERC-20 template, so no ETH is ever forwarded to a router
-///         (closing the payable-router / refundETH() ETH-sweep vector — Octane #1).
+///         (closing the payable-router / refundETH() ETH-sweep vector).
 ///
 ///         GAS BUDGET (operator note). This template's own evaluate cost is light — one oracle read
 ///         plus a decode and a couple of mulDivs — but the whole evaluation runs under the kernel's
@@ -61,7 +61,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
 ///         its stored config epoch equals the kernel's current registration epoch for this
 ///         (account, permission). A configuration left over from a prior registration — e.g. after a
-///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
+///         revoke / re-register cycle — is never honoured.
 ///
 /// @dev    Config blob:
 ///             abi.encode(
@@ -179,7 +179,7 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     // ── IPermission ───────────────────────────────────────────────────────────
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
-        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        // Fail closed unless the stored config is current for this registration epoch.
         if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // Swaps pull tokenIn via ERC-20 allowance; no supported router call needs native ETH.
         // A payable router (e.g. V3 exactInputSingle) would otherwise let an attached value be
@@ -271,6 +271,11 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
         if (dec > 77) return false;
         uint256 expectedOut  = Math.mulDiv(amountIn, price, 10 ** uint256(dec));
         uint256 oracleMinOut = Math.mulDiv(expectedOut, 10_000 - s.maxSlippageBps, 10_000);
+        // Both mulDivs floor, so for very-low-decimal output tokens (especially 0-decimal) the
+        // computed oracleMinOut floor can sit up to one base unit below the exact oracle-implied
+        // minimum near an integer boundary — i.e. the band can be up to one base unit lax. This is
+        // negligible for typical 6–18 decimal tokens and bounded to a single base unit. The oracle
+        // band is a sanity bound; the manager-supplied amountOutMin remains the primary slippage floor.
         // Integer division floors: a small enough trade (low price / high-decimal token / tiny
         // amountIn) can truncate oracleMinOut to 0, at which point `amountOutMin >= 0` would wave
         // ANY minimum-out through — including 0 — silently defeating the band. Fail closed instead:

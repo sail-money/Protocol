@@ -12,7 +12,7 @@ import {TimelockDeployer} from "./TimelockDeployer.sol";
 /// @notice Records every execTransactionFromModule call and forwards plain-ETH transfers
 ///         so fee splits land in real balances.
 contract MockSafe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -94,11 +94,11 @@ abstract contract FactoryTestBase is Test {
         vm.deal(address(safe), 100 ether);
 
         // registerAccount now requires the caller's codehash to be allowlisted as a trusted
-        // Safe proxy (Octane #4a). Seed the mock's codehash via the governance timelock.
+        // Safe proxy. Seed the mock's codehash via the governance timelock.
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         // registerAccount is called by the Safe itself (msg.sender == account)
         vm.prank(address(safe));

@@ -92,8 +92,8 @@ contract FaithfulSafeProxy {
     function callCount() external view returns (uint256) { return _calls.length; }
     function setSuccess(bool s) external { moduleCallSuccess = s; }
 
-    // Octane group 1a: expose the (allowlisted) singleton and a finalized nonce so registerAccount's
-    // #9 singleton check and #4 setup-not-finalized check pass for a faithfully set-up proxy.
+    // Expose the (allowlisted) singleton and a finalized nonce so registerAccount's
+    // singleton check and setup-not-finalized check pass for a faithfully set-up proxy.
     function masterCopy() external pure returns (address) { return address(0x5A1E); }
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -137,7 +137,7 @@ contract FaithfulSafeFactory is ISafeFactory {
 }
 
 /// @dev Arbitrary non-Safe contract whose codehash is not allowlisted. Used to exercise the
-///      codehash rejection path in `registerAccount` (finding #4a self-registration).
+///      codehash rejection path in `registerAccount` (self-registration).
 contract MaliciousProxy {
     function isModuleEnabled(address) external pure returns (bool) { return true; }
     function execTransactionFromModule(address, uint256, bytes calldata, uint8) external pure returns (bool) { return true; }
@@ -195,7 +195,7 @@ contract CreateAccountTest is Test {
 
     function setUp() public {
         gov           = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, TimelockDeployer.deploy(TEAM));
-        // Deploy the enabler BEFORE the kernel so the kernel can pin its runtime codehash (W2),
+        // Deploy the enabler BEFORE the kernel so the kernel can pin its runtime codehash,
         // mirroring the launch deploy order.
         moduleEnabler = new SafeModuleEnabler();
         kernel        = new SailKernel(address(gov), TREASURY, address(moduleEnabler));
@@ -408,10 +408,10 @@ contract CreateAccountTest is Test {
 
     function test_RegisterAccount_StealthDuringSetup_Blocked() public {
         StealthSetup stealth = new StealthSetup(kernel, permSigner, manager);
-        // Allowlist the stealth helper as a module-setup target by ADDRESS. Pre-W2 this passed the
-        // `to` address check and the stealth registration was then caught one layer deeper by
-        // registerAccount's module-enabled guard (revert "proxy init failed"). With the W2 codehash
-        // pin, an address-allowlisted helper whose bytecode is NOT the audited immutable enabler is
+        // Allowlist the stealth helper as a module-setup target by ADDRESS. Before the codehash pin
+        // this passed the `to` address check and the stealth registration was then caught one layer
+        // deeper by registerAccount's module-enabled guard (revert "proxy init failed"). With the
+        // codehash pin, an address-allowlisted helper whose bytecode is NOT the immutable enabler is
         // rejected EARLIER — the stealth attack can no longer even reach Safe.setup. The deeper
         // module-enabled guard remains in code and is independently exercised by
         // test_RegisterAccount_ModuleNotEnabled_Reverts.
@@ -423,33 +423,33 @@ contract CreateAccountTest is Test {
             address(0), address(0), uint256(0), payable(address(0))
         );
 
-        // W2: stealth helper's codehash != pinned SafeModuleEnabler codehash → rejected up front.
+        // Codehash pin: stealth helper's codehash != pinned SafeModuleEnabler codehash → rejected up front.
         vm.expectRevert(abi.encodeWithSelector(SailKernel.UntrustedModuleSetupCodehash.selector, address(stealth)));
         kernel.createAccount(address(factory), SINGLETON, init, 7777, permSigner, manager, address(0), address(0));
     }
 
-    // ── 11. W2 — Safe.setup helper codehash pin ───────────────────────────────
+    // ── 11. Safe.setup helper codehash pin ─────────────────────────────────────
 
     /// @dev The kernel pins the codehash of the SafeModuleEnabler it was constructed with, so the
     ///      suite is internally consistent regardless of how the production constant is sourced.
-    function test_W2_KernelPinsTheDeployedEnablerCodehash() public view {
+    function test_KernelPinsTheDeployedEnablerCodehash() public view {
         assertEq(kernel.EXPECTED_SETUP_CODEHASH(), address(moduleEnabler).codehash);
     }
 
     /// @dev The genuine, address-allowlisted SafeModuleEnabler passes the pin: this is the same
     ///      target test_CreateAccount_HappyPath uses, so the happy path proves the pin is a no-op
-    ///      for the legitimate helper. Asserted here too for an explicit W2 happy-path anchor.
-    function test_W2_GenuineEnablerPassesPin() public {
+    ///      for the legitimate helper. Asserted here too for an explicit happy-path anchor.
+    function test_GenuineEnablerPassesPin() public {
         address account = _create(address(this), 100, permSigner, manager, address(0));
         assertTrue(kernel.registered(account));
         assertTrue(ISafe(account).isModuleEnabled(address(kernel)));
     }
 
     /// @dev A helper that is ADDRESS-allowlisted but whose runtime bytecode differs from the pinned
-    ///      immutable enabler (a mutable/look-alike) is rejected by the codehash pin — the core W2
+    ///      immutable enabler (a mutable/look-alike) is rejected by the codehash pin — the core
     ///      guarantee. The look-alike passes the address allowlist (so we reach the pin) but has a
     ///      different codehash, so createAccount reverts UntrustedModuleSetupCodehash.
-    function test_W2_RevertsOnMismatchedSetupCodehash() public {
+    function test_RevertsOnMismatchedSetupCodehash() public {
         MaliciousProxy lookAlike = new MaliciousProxy(); // deployed code != SafeModuleEnabler
         assertTrue(address(lookAlike).codehash != kernel.EXPECTED_SETUP_CODEHASH());
         _allowlist(abi.encodeCall(gov.setTrustedModuleSetup, (address(lookAlike), true)));
@@ -464,7 +464,7 @@ contract CreateAccountTest is Test {
     ///      pin is correctly skipped; execution proceeds and fails later at ModuleNotEnabled (the
     ///      proxy has no module enabled because no setup delegatecall ran), proving the pin did not
     ///      fire on the zero target.
-    function test_W2_NoSetupPath_SkipsCodehashPin() public {
+    function test_NoSetupPath_SkipsCodehashPin() public {
         bytes memory initNoSetup = abi.encodeWithSelector(
             SAFE_SETUP_SELECTOR,
             _owners1(), uint256(1), address(0), bytes(""),

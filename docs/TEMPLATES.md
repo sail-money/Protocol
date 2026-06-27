@@ -15,7 +15,7 @@ A **template** is a permission written to be **reused**: one deployment per chai
 Two framings matter, and they are easy to confuse:
 
 - **The protocol is permissionless.** Sail does not bless a fixed menu of permissions. Anyone can write and deploy their own permission contract for any venue, and the kernel will register and dispatch through *any* contract that implements the `IPermission` interface. The seven templates below are not "the protocol" — they are a **curated starting set**.
-- **These seven are the audited reference set.** They are the launch templates Octane is auditing post-freeze: hardened, and documented here with honest limits. They are **not** marked "UNAUDITED EXAMPLE" — that label is reserved for the future *experimental* set (see the end of this document), which is currently empty. "Outside the trusted core" (which they are) is a statement about *blast radius* — a bug in one template can only affect accounts that registered that template, never the kernel or other accounts — not a statement that they are unreviewed.
+- **These seven are the hardened reference set.** They are the launch templates: hardened, and documented here with honest limits. They are **not** marked "UNAUDITED — EXPERIMENTAL" — that label is reserved for the future *experimental* set (see the end of this document), which is currently empty. "Outside the trusted core" (which they are) is a statement about *blast radius* — a bug in one template can only affect accounts that registered that template, never the kernel or other accounts — not a statement that they are unreviewed.
 
 ---
 
@@ -61,7 +61,7 @@ Each of the seven follows the same four-part structure:
 
 **How evaluation decides** (in order):
 1. **Configuration current?** Deny if the account isn't configured for the current registration epoch.
-2. **Any ETH attached?** Deny if `value != 0`. These swaps pull the input token via ERC-20 allowance; no supported router call needs ETH, and allowing it would let value be forwarded to a payable router and swept back out. (This is the Octane #1 fix.)
+2. **Any ETH attached?** Deny if `value != 0`. These swaps pull the input token via ERC-20 allowance; no supported router call needs ETH, and allowing it would let value be forwarded to a payable router and swept back out.
 3. **Router allowlisted?** Deny if the call target isn't in `routers[]`.
 4. **Recognized swap shape?** It decodes exactly three standard ABIs — Uniswap V2 `swapExactTokensForTokens`, and V3 `exactInputSingle` in both the SwapRouter (with deadline) and SwapRouter02 (no deadline) layouts. Anything else: deny. For the matched shape it then checks, in order:
    - input token allowlisted → else deny;
@@ -69,7 +69,7 @@ Each of the seven follows the same four-part structure:
    - the swap's recipient is **the account itself** → else deny;
    - input amount ≤ `maxAmountPerTx` → else deny;
    - finally the **oracle band**.
-5. **The oracle band.** It reads the configured oracle for the (tokenIn, tokenOut) price. It denies if the price is stale (older than `maxPriceAgeSec`), zero, or reports an implausible decimals value. It computes the oracle-implied output, lowers it by `maxSlippageBps` to get a floor, and **allows only if the trade's own minimum-out is at least that floor.** If the floor math rounds down to zero (a dust-sized trade), it **denies** rather than wave through a zero minimum.
+5. **The oracle band.** It reads the configured oracle for the (tokenIn, tokenOut) price. It denies if the price is stale (older than `maxPriceAgeSec`), zero, or reports an implausible decimals value. It computes the oracle-implied output, lowers it by `maxSlippageBps` to get a floor, and **allows only if the trade's own minimum-out is at least that floor.** If the floor math rounds down to zero (a dust-sized trade), it **denies** rather than wave through a zero minimum. Note that because the floor math floors, for very-low-decimal output tokens (especially 0-decimal) the computed floor can sit up to one base unit below the exact oracle-implied minimum near an integer boundary — i.e. the band can be up to one base unit lax. This is negligible for typical 6–18 decimal tokens and bounded to a single base unit; the oracle band is a sanity bound, and the manager-supplied minimum-out remains the primary slippage floor.
 
 **What it cannot protect against.** The band is **only as strong as the configured oracle feed** — it does not protect against a manipulated or compromised oracle. The cap is **per-transaction, not cumulative**: a manager can make many at-cap trades. It only decodes standard router ABIs — it does **not** cover the Universal Router, Uniswap V4, or DEX aggregators (1inch/CoW/Matcha), whose parameters live in an opaque blob it won't decode; coverage of forks (PancakeSwap, SushiSwap, etc.) comes from the *router allowlist*, since those share the same ABIs byte-for-byte. And it does not judge whether a trade is *wise* — only whether it is within shape and bounds. Note also (shared with all oracle-backed templates) that a **heavy oracle adapter can exhaust the 150,000-gas cap**, which fails closed — budget your adapter's read cost.
 
@@ -107,7 +107,7 @@ Each of the seven follows the same four-part structure:
 
 **How evaluation decides** (in order):
 1. **Configuration current?** Deny if not configured for the current epoch.
-2. **Any ETH attached?** Deny if `value != 0` (no supported borrow selector is payable). This makes all 7 functional templates uniform in rejecting native ETH (Octane #1).
+2. **Any ETH attached?** Deny if `value != 0` (no supported borrow selector is payable). This makes all 7 functional templates uniform in rejecting native ETH.
 3. **Protocol allowlisted?** Deny if the call target isn't in `protocols[]`.
 4. **Recognized borrow shape?** It decodes three selectors — Aave V3 `borrow`, Morpho `borrow`, and Compound V2 `borrow`. Anything else: deny. For each:
    - the borrow **asset** must be allowlisted — for Compound, the call target is the cToken, so it resolves the **underlying** via `underlying()` and allowlists *that*; a target with no `underlying()` (e.g. cETH) resolves nothing and is **denied** (fail-closed);
@@ -115,7 +115,7 @@ Each of the seven follows the same four-part structure:
    - the position is credited to **the account** (`onBehalfOf` / `receiver` == account) → else deny;
    - **Aave only:** the interest-rate mode must be **variable** (mode `2`); a stable-rate borrow is **denied**. This is the reference template's opinionated default, not a claim that variable is universally safer — a strategy that needs stable-rate debt should use a dedicated permission. Morpho and Compound carry no rate-mode argument and are unaffected. The Aave **referral code is unconstrained** — it is off-chain attribution with no effect on funds or the resulting position;
    - then the **LTV check**.
-5. **The LTV check.** If no oracles are configured, this step passes (size-cap-only mode). If both are set: it reads collateral value and borrow price, denies on a stale or zero/implausible reading, and computes the **largest borrow amount the ceiling permits**, comparing the requested amount against it. The math is **fail-closed and amount-based**: it applies the LTV fraction to the full-precision collateral value first and collapses decimal scale last, flooring in the borrower's disfavour at every step — so a borrow over the ceiling can never slip through, and the prior bug where a sub-1-unit borrow rounded to zero LTV is closed (Octane #6/#11).
+5. **The LTV check.** If no oracles are configured, this step passes (size-cap-only mode). If both are set: it reads collateral value and borrow price, denies on a stale or zero/implausible reading, and computes the **largest borrow amount the ceiling permits**, comparing the requested amount against it. The math is **fail-closed and amount-based**: it applies the LTV fraction to the full-precision collateral value first and collapses decimal scale last, flooring in the borrower's disfavour at every step — so a borrow over the ceiling can never slip through, and the prior bug where a sub-1-unit borrow rounded to zero LTV is closed.
 
 **What it cannot protect against.** With **zero oracles**, there is **no LTV ceiling at all** — only the size cap applies (the stored `maxLtvBps` is unused in that mode). The LTV check is **per-call, not cumulative**: it bounds each borrow step against collateral at that instant, not the cumulative LTV of a position built across many borrows (a leverage loop). It is checked only at borrow time, not ongoing position health, and cannot detect a dishonest feed. For cumulative-position safety, rely on the lending protocol's own health factor and/or a separate monitoring permission. As with `SwapPermission`, a heavy oracle adapter can exhaust the gas cap and fail closed. Because the LTV math rounds conservatively at every step, a borrow that is **marginally within** the true ceiling may be rejected — the fail-closed direction, never an over-LTV approval; the recourse is to borrow slightly less. Finally, restricting Aave to variable rate means that if a market's variable-rate borrowing is paused/disabled while stable remains open, this template cannot borrow there at all (a bounded availability limitation, not a loss of funds).
 
@@ -216,9 +216,9 @@ If every check passes, the batch is allowed.
 
 ## The experimental set (currently empty)
 
-There is no experimental template directory in the repository today (`contracts/experimental/` is absent). This is where future, **not-yet-audited** templates will live — candidates include bridging, Hyperliquid/CoreWriter trading, Pendle, prediction markets, and the aggregator / Universal-Router / Uniswap-V4 "balance-delta" swap path that the audited `Swap` templates deliberately exclude.
+There is no experimental template directory in the repository today (`contracts/experimental/` is absent). This is where future, **not-yet-audited** templates will live — candidates include bridging, Hyperliquid/CoreWriter trading, Pendle, prediction markets, and the aggregator / Universal-Router / Uniswap-V4 "balance-delta" swap path that the hardened `Swap` templates deliberately exclude.
 
-When that set is populated, each contract in it will carry a loud **"UNAUDITED — EXPERIMENTAL"** banner and will **not** be part of the audited launch set described above. That banner belongs *only* to the experimental set — it does **not** apply to the seven launch templates, which are the audited reference set. Treat anything in the experimental set as unreviewed until stated otherwise, and review it against your own use before registering it.
+When that set is populated, each contract in it will carry a loud **"UNAUDITED — EXPERIMENTAL"** banner and will **not** be part of the hardened launch set described above. That banner belongs *only* to the experimental set — it does **not** apply to the seven launch templates, which are the hardened reference set. Treat anything in the experimental set as unreviewed until stated otherwise, and review it against your own use before registering it.
 
 ---
 

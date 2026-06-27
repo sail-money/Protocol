@@ -21,7 +21,7 @@
 #   core                  — 5 core protocol contracts
 #   templates-shared      — the six reference permission singletons + the ConfigurablePermission base
 #
-# (Only the audited shared/ reference templates are deployed and verified.)
+# (Only the shared/ reference templates are deployed and verified.)
 #
 # Flags:
 #   --check    Print what would be verified without actually submitting.
@@ -260,7 +260,7 @@ verify_shared_templates() {
   # The reference templates (approveAndCallBatch/borrow/swap/transfer) take
   # (address kernel, address author) — their verification requires re-encoding the
   # constructor args with the author used at deploy time. (The experimental template
-  # catalog has been removed; only the audited shared/ reference set is verified here.)
+  # catalog has been removed; only the shared/ reference set is verified here.)
   local kernel_args
   kernel_args=$(cast abi-encode "constructor(address)" "$kernel" | sed 's/0x//')
 

@@ -24,17 +24,17 @@ interface ISailKernelView {
     function registrationEpoch(address account, address permission) external view returns (uint256);
 }
 
-/// @notice Shared base for Sail's REFERENCE LAUNCH TEMPLATE set — the seven templates Octane
-///         audits post-freeze (SwapPermission, SwapPermissionNoOracle, BorrowPermission,
+/// @notice Shared base for Sail's REFERENCE LAUNCH TEMPLATE set — the seven hardened templates
+///         (SwapPermission, SwapPermissionNoOracle, BorrowPermission,
 ///         TransferPermission, DepositPermission, WithdrawPermission, ApproveAndCallBatchPermission).
-///         This abstract base is never deployed on its own; the concrete subclasses are the audited
+///         This abstract base is never deployed on its own; the concrete subclasses are the hardened
 ///         launch set, documented with honest boundaries in their own headers and in docs/TEMPLATES.md.
 ///         The base and its subclasses sit OUTSIDE the trusted core (SailKernel, SailGovernance,
 ///         MandateFactory, StandardFeePolicy, SafeModuleEnabler): a bug here cannot reach the kernel
 ///         or accounts that have not registered the subclass. Registrants remain responsible for
-///         reviewing the subclass they register. The loud "UNAUDITED EXAMPLE" banner is reserved for
+///         reviewing the subclass they register. The loud "UNAUDITED — EXPERIMENTAL" banner is reserved for
 ///         the future experimental template set (currently empty), not this hardened launch set.
-///         See docs/SECURITY.md for the audit-scope documentation.
+///         See docs/SECURITY.md for the reference-template documentation.
 ///
 ///         This base carries the per-account, multi-tenant config lifecycle the launch set inherits:
 ///         configuration is permissionSigner-authorised (EIP-712 signature, epoch-bound) and
@@ -109,7 +109,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
         // Bind the config to the CURRENT registration epoch. The signer signs `epoch` into the
         // typed data; the digest is rebuilt here with the on-chain value, so a signature produced
         // for a prior epoch (e.g. before a revoke that bumped the epoch) cannot verify — closing the
-        // stale-config-signature replay (Octane #8). The domain-version bump invalidates any sig
+        // stale-config-signature replay. The domain-version bump invalidates any sig
         // predating this upgrade outright.
         uint256 epoch = kernel.registrationEpoch(account, address(this));
         bytes32 paramsHash = keccak256(params);
@@ -219,7 +219,7 @@ abstract contract ConfigurablePermission is IConfigurablePermission, IAccountAge
     ///      kernel's current epoch for this permission (pushed by the kernel as `ctxEpoch`).
     ///      - isConfigured == false covers the never-configured / fresh-account (epoch 0) case.
     ///      - configuredEpoch != ctxEpoch covers a config left stale by a revoke → re-register cycle
-    ///        (Octane #2 front-run and #8 replay): the re-register keeps the bumped epoch, so the old
+    ///        (front-run and replay): the re-register keeps the bumped epoch, so the old
     ///        stamp no longer matches until a fresh configure for the current epoch is applied.
     ///      Subclasses MUST call this as the first check in every evaluate path.
     function _configCurrent(address account, uint256 ctxEpoch) internal view returns (bool) {

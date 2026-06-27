@@ -51,7 +51,7 @@ contract KernelGuaranteesTest is Test {
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         vm.prank(account);
         kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, ""); // no fee policy

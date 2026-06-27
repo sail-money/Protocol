@@ -178,7 +178,7 @@ contract ApproveAndCallBatchPermissionTest is Test {
         assertFalse(_eval(ROUTERA, _erc4626(V4626_DEP, OTHER)), "wrong selector denies");
     }
 
-    // ── Octane #2/#8: epoch-binding guard in evaluateBatch ────────────────────────
+    // ── Epoch-binding guard in evaluateBatch ──────────────────────────────────────
     /// @dev A well-formed batch passes while the config's stamped epoch matches the kernel's
     ///      current epoch, is denied once a revoke→re-register cycle bumps the epoch (stale config),
     ///      and passes again only after a fresh configure for the new epoch.

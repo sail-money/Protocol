@@ -19,7 +19,7 @@ import {MockAgentIdentityPermission,
 // Minimal Safe stub — records module calls, returns true.
 // ─────────────────────────────────────────────────────────────────────────────
 contract AgentTestSafe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -78,7 +78,7 @@ contract AgentIdentityTest is Test {
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(safe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         vm.prank(address(safe));
         kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");

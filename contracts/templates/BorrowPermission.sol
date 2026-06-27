@@ -15,18 +15,18 @@ interface ICErc20 {
 }
 
 /// @title  BorrowPermission — bounded borrow with optional LTV ceiling
-/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
-///         trusted core. This is one of the seven launch templates Octane is auditing
-///         post-freeze: it is hardened and documented with the honest boundaries below
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the hardened reference set, NOT part of the
+///         trusted core. This is one of the seven hardened launch templates.
+///         It is documented with the honest boundaries below
 ///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
 ///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
 ///         a bug here cannot reach the kernel or accounts that have not registered it. The
 ///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
 ///         semantics, but it does NOT verify that this permission's logic correctly enforces
 ///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
-///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template
 ///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
-///         audit-scope documentation.
+///         reference-template documentation.
 ///
 ///         WHAT IT IS. A reference borrow permission. One deployment serves any number of accounts;
 ///         each stores its own protocol and asset allowlists, a per-tx amount cap, an LTV ceiling,
@@ -62,7 +62,7 @@ interface ICErc20 {
 ///         maxLtvBps to the full-precision collateral value and collapsing the decimal scale last,
 ///         then the borrow is required to be at or under that amount. A borrow worth less than one
 ///         numeraire unit no longer rounds its value to zero and slips an LTV ceiling — the prior
-///         fail-open behaviour (Octane #6) is closed. Missing/zero prices, out-of-range decimals, or
+///         fail-open behaviour is closed. Missing/zero prices, out-of-range decimals, or
 ///         a stale feed all deny. Because every step rounds in the borrower's disfavour, a borrow
 ///         that is marginally WITHIN the true LTV ceiling may be rejected; this is the conservative,
 ///         fail-closed direction (it never permits an over-LTV borrow). Recourse is to borrow
@@ -72,7 +72,7 @@ interface ICErc20 {
 ///         path the call target is the cToken, but the amount and the allowlist/LTV are
 ///         underlying-denominated, so the template resolves cToken.underlying() and keys both on the
 ///         underlying. Targets with no underlying() (e.g. cETH) resolve nothing and are denied —
-///         fail-closed by design (Octane #11).
+///         fail-closed by design.
 ///
 ///         INTEREST-RATE MODE (Aave). Aave borrows are constrained to VARIABLE rate mode; a
 ///         stable-rate borrow is rejected. This is the reference template's opinionated default —
@@ -98,7 +98,7 @@ interface ICErc20 {
 ///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
 ///         its stored config epoch equals the kernel's current registration epoch for this
 ///         (account, permission). A configuration left over from a prior registration — e.g. after a
-///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
+///         revoke / re-register cycle — is never honoured.
 ///
 /// @dev    Config blob:
 ///             abi.encode(
@@ -209,7 +209,7 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
-        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        // Fail closed unless the stored config is current for this registration epoch.
         if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // No supported borrow selector is payable — reject native ETH.
         if (ctx.value != 0) return false;

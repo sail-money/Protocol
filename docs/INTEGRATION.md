@@ -58,7 +58,7 @@ constructor. The constructor enforces all four injected-timelock invariants and 
 
 Deploy the immutable `SafeModuleEnabler` **before** the kernel: the kernel captures the helper's
 runtime codehash at construction and pins it as the only permissible `Safe.setup` delegatecall
-target (W2 — see [SECURITY.md](./SECURITY.md)). The enabler is dependency-free (no constructor args),
+target (the codehash pin — see [SECURITY.md](./SECURITY.md)). The enabler is dependency-free (no constructor args),
 so its address and codehash are deterministic per chain.
 
 ```solidity
@@ -68,7 +68,7 @@ SafeModuleEnabler setupEnabler = new SafeModuleEnabler();
 SailKernel kernel = new SailKernel(
     address(governance),
     treasuryAddress,            // receives protocol's share of collected fees
-    address(setupEnabler)       // immutable Safe.setup helper; its codehash is pinned (W2)
+    address(setupEnabler)       // immutable Safe.setup helper; its codehash is pinned
 );
 ```
 

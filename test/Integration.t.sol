@@ -26,7 +26,7 @@ contract MockOracle is IOracle {
 // transfers (value > 0, empty data) so fee splits land in real balances.
 // ─────────────────────────────────────────────────────────────────────────────
 contract MockSafe {
-    // Octane group 1a test support: a finalized Safe reports nonce>=1 (setup never bumps it)
+    // Test support: a finalized Safe reports nonce>=1 (setup never bumps it)
     // and exposes its trusted singleton via masterCopy() (intercepted by a real SafeProxy fallback).
     function nonce() external pure returns (uint256) { return 1; }
     function checkSignatures(bytes32, bytes calldata, bytes calldata) external view {}
@@ -131,12 +131,12 @@ contract IntegrationTest is Test {
         mockSafe = new MockSafe();
         vm.deal(address(mockSafe), 100 ether); // ETH for fee-split transfers
 
-        // registerAccount requires the caller's codehash to be allowlisted (Octane #4a).
+        // registerAccount requires the caller's codehash to be allowlisted.
         // All MockSafe instances share this codehash, so one seed covers safe2 etc.
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeProxyCodehash(address(mockSafe).codehash, true);
         vm.prank(address(gov.timelock()));
-        gov.setTrustedSafeSingleton(address(0x5AFE), true); // Octane #9: trust the mock singleton
+        gov.setTrustedSafeSingleton(address(0x5AFE), true); // trust the mock singleton
 
         // 4. SwapPermission: shared multi-account deployment (config applied per-account
         //    after registration, below)

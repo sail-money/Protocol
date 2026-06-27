@@ -7,18 +7,18 @@ import {SailCapabilities} from "../interfaces/SailCapabilities.sol";
 import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 
 /// @title  DepositPermission — bounded ERC-20 deposit credited to the account
-/// @notice REFERENCE LAUNCH TEMPLATE — part of the audited reference set, NOT part of the
-///         trusted core. This is one of the seven launch templates Octane is auditing
-///         post-freeze: it is hardened and documented with the honest boundaries below
+/// @notice REFERENCE LAUNCH TEMPLATE — part of the hardened reference set, NOT part of the
+///         trusted core. This is one of the seven hardened launch templates.
+///         It is documented with the honest boundaries below
 ///         ("what this cannot protect against"). It sits OUTSIDE the trusted core
 ///         (SailKernel, SailGovernance, MandateFactory, StandardFeePolicy, SafeModuleEnabler):
 ///         a bug here cannot reach the kernel or accounts that have not registered it. The
 ///         kernel evaluates any permission safely under staticcall + a gas cap + fail-closed
 ///         semantics, but it does NOT verify that this permission's logic correctly enforces
 ///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
-///         loud "UNAUDITED EXAMPLE" banner is reserved for the future experimental template
+///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template
 ///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
-///         audit-scope documentation.
+///         reference-template documentation.
 ///
 ///         WHAT IT IS. A reference deposit template. One deployment serves any number of accounts;
 ///         each account stores its own target (protocol/vault) allowlist, token allowlist, and
@@ -58,7 +58,7 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         CONFIG FRESHNESS (fail-closed). Evaluation denies unless this account is configured AND
 ///         its stored config epoch equals the kernel's current registration epoch for this
 ///         (account, permission). A configuration left over from a prior registration — e.g. after a
-///         revoke / re-register cycle — is never honoured (Octane #2 / #8).
+///         revoke / re-register cycle — is never honoured.
 ///
 /// @dev    Config blob:
 ///             abi.encode(
@@ -137,7 +137,7 @@ contract DepositPermission is ConfigurablePermission, IPermissionIntrospection {
     }
 
     function evaluate(bytes calldata txData, Context calldata ctx) external view returns (bool) {
-        // Fail closed unless the stored config is current for this registration epoch (Octane #2/#8).
+        // Fail closed unless the stored config is current for this registration epoch.
         if (!_configCurrent(ctx.account, ctx.configEpoch)) return false;
         // No supported deposit selector is payable — reject native ETH.
         if (ctx.value != 0) return false;

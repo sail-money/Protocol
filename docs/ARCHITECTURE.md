@@ -126,7 +126,7 @@ SailKernel
   ├── pins SafeModuleEnabler          (deploy-time dependency: the immutable helper must be
   │                                    deployed BEFORE the kernel; the constructor reads its
   │                                    runtime codehash and pins it as the only valid Safe.setup
-  │                                    delegatecall target — W2)
+  │                                    delegatecall target — the codehash pin)
   └── inherits EIP712, ReentrancyGuard
 
 SailGovernance

@@ -364,7 +364,7 @@ contract SailGovernance {
 
     /// @dev Thrown by the constructor when the injected timelock's minimum delay is not exactly
     ///      REQUIRED_TIMELOCK_DELAY (48 hours). An exact match — not a lower bound — is required so
-    ///      the injected timelock reproduces the audited inline timelock's behaviour precisely.
+    ///      the injected timelock reproduces the specified inline timelock's behaviour precisely.
     error TimelockDelayMismatch();
 
     /// @dev Thrown by the constructor when `initialGovernance` does not hold PROPOSER_ROLE on the
@@ -376,8 +376,8 @@ contract SailGovernance {
     /// @dev Thrown by the constructor when `initialGovernance` does not hold EXECUTOR_ROLE on the
     ///      injected timelock. The inline timelock made `initialGovernance` the sole executor. An
     ///      injected timelock that omits this (e.g. `address(0)` as executor, OZ's "open executor"
-    ///      mode where anyone may execute after the delay) deviates from the audited model and is
-    ///      rejected. (Review finding M1.)
+    ///      mode where anyone may execute after the delay) deviates from the intended model and is
+    ///      rejected.
     error GovernanceNotExecutor();
 
     /// @dev Thrown by the constructor when the injected timelock is not self-administered — i.e. the
@@ -385,8 +385,8 @@ contract SailGovernance {
     ///      holds that admin role. The inline timelock was deployed with `admin == address(0)`, so
     ///      only the timelock holds its own admin role and every role change must pass through the
     ///      48-hour timelock. A timelock where the governance EOA holds the admin role could re-grant
-    ///      roles or alter the delay outside the timelock process, so it is rejected. (Review finding
-    ///      M2.) See the constructor NatSpec for the detection limitation.
+    ///      roles or alter the delay outside the timelock process, so it is rejected.
+    ///      See the constructor NatSpec for the detection limitation.
     error TimelockNotSelfAdministered();
 
     // -------------------------------------------------------------------------
@@ -417,7 +417,7 @@ contract SailGovernance {
 
     /// @notice The exact timelock delay this contract requires (48 hours).
     /// @dev    The TimelockController is now deployed separately and injected via the
-    ///         constructor (see `_timelock` below). To preserve the audited governance
+    ///         constructor (see `_timelock` below). To preserve the intended governance
     ///         behaviour byte-for-byte, the constructor REQUIRES the injected timelock to
     ///         have a minimum delay of exactly this value — not merely at least this value.
     ///         An exact match prevents a misconfigured timelock (faster OR slower) from
@@ -439,12 +439,12 @@ contract SailGovernance {
     ///           • non-zero address (`ZeroAddress`),
     ///           • minimum delay of exactly REQUIRED_TIMELOCK_DELAY / 48 hours (`TimelockDelayMismatch`),
     ///           • `initialGovernance` holds PROPOSER_ROLE (`GovernanceNotProposer`),
-    ///           • `initialGovernance` holds EXECUTOR_ROLE (`GovernanceNotExecutor`; review finding M1),
+    ///           • `initialGovernance` holds EXECUTOR_ROLE (`GovernanceNotExecutor`),
     ///           • the timelock self-administers its roles — the admin role of PROPOSER_ROLE is held
     ///             by the timelock itself AND is NOT held by `initialGovernance`
-    ///             (`TimelockNotSelfAdministered`; review finding M2).
+    ///             (`TimelockNotSelfAdministered`).
     ///
-    ///         M2 detection limitation: a real OpenZeppelin `TimelockController` ALWAYS self-grants
+    ///         Self-administration detection limitation: a real OpenZeppelin `TimelockController` ALWAYS self-grants
     ///         `DEFAULT_ADMIN_ROLE` to itself in its constructor, so the "timelock holds its own admin
     ///         role" half of the check is a no-op for genuine timelocks. The operative half rejects
     ///         the realistic misconfiguration — deploying the timelock with `admin == initialGovernance`
@@ -478,17 +478,17 @@ contract SailGovernance {
         if (maxPermissionFeeWei              > 0.01 ether)              revert FeeExceedsCap(maxPermissionFeeWei,             0.01 ether);
         if (initialPermissionRegistrationFee > maxPermissionFeeWei) revert FeeExceedsCap(initialPermissionRegistrationFee, maxPermissionFeeWei);
 
-        // Preserve the audited timelock behaviour exactly. The TimelockController used to be
+        // Preserve the intended timelock behaviour exactly. The TimelockController used to be
         // built inline as `new TimelockController(48 hours, [initialGovernance], [initialGovernance],
         // address(0))`. Now that it is injected, enforce every invariant the inline call guaranteed
         // by construction:
         //   • the minimum delay is EXACTLY 48 hours (not just "at least"),
         //   • `initialGovernance` holds PROPOSER_ROLE (it was the sole proposer inline),
         //   • `initialGovernance` holds EXECUTOR_ROLE (it was the sole executor inline — rejecting
-        //     an injected timelock with an open/foreign executor; review finding M1), and
+        //     an injected timelock with an open/foreign executor), and
         //   • the timelock self-administers its roles, i.e. the admin role of PROPOSER_ROLE is held
-        //     by the timelock itself and not by any EOA (the inline timelock used admin=address(0);
-        //     review finding M2). A self-administered timelock cannot re-grant roles or change the
+        //     by the timelock itself and not by any EOA (the inline timelock used admin=address(0)).
+        //     A self-administered timelock cannot re-grant roles or change the
         //     delay outside the 48-hour process, so these checks cannot be satisfied by a timelock
         //     that later weakens its own guarantees without a public, delayed operation.
         if (_timelock.getMinDelay() != REQUIRED_TIMELOCK_DELAY) revert TimelockDelayMismatch();

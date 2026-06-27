@@ -322,6 +322,8 @@ struct AccountConfig {
   6. Evaluates `permission.evaluate(data, ctx)` via `staticcall` under `PERMISSION_GAS_CAP`; reverts `PermissionDenied` if the call returns `false`, reverts, or exhausts gas.
   7. Calls `ISafe(account).execTransactionFromModule(target, value, data, 0)`.
   8. Emits `Dispatched(account, permission, target, selector, value)`.
+
+> **Return-data note.** Dispatch checks only the boolean success of the Safe module call (step 7) and does not inspect the target's return data. Venues that signal failure via a non-reverting status code rather than a revert (e.g. Compound V2, which returns a non-zero error code) can therefore report a successful dispatch on a no-op — a manager nonce is consumed and `Dispatched` is emitted even though nothing happened. For such venues, prefer batch flows with explicit postconditions.
 - **Parameters:**
 
 | Parameter | Description |
@@ -446,6 +448,6 @@ struct AccountConfig {
 | `UntrustedSingleton(singleton)` | `createAccount` given a Safe singleton not in governance's trusted allowlist |
 | `InvalidInitializer()` | `createAccount` `safeInitializer` too short to contain the Safe.setup `to` field (< 100 bytes) |
 | `UntrustedModuleSetup(setup)` | `createAccount` Safe.setup delegatecall `to` target not in governance's trusted module-setup allowlist |
-| `UntrustedModuleSetupCodehash(setup)` | `createAccount` setup target's runtime codehash != the pinned `EXPECTED_SETUP_CODEHASH` (the immutable SafeModuleEnabler — W2) |
+| `UntrustedModuleSetupCodehash(setup)` | `createAccount` setup target's runtime codehash != the pinned `EXPECTED_SETUP_CODEHASH` (the immutable SafeModuleEnabler) |
 | `UntrustedProxyCodehash(codehash)` | `createAccount`/`registerAccount` account's runtime codehash not in governance's trusted Safe-proxy-codehash allowlist |
 | `ModuleNotEnabled()` | `createAccount`/`registerAccount` Safe does not have this kernel enabled as a module |
