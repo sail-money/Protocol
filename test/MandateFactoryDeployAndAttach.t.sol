@@ -19,9 +19,9 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
     function test_DeployAndAttach_GoldenPath() public {
         bytes32 salt = _salt(address(impl), "golden-path");
-        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt);
-
         bytes memory initData = _initData(address(safe), permSigner);
+        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
+
         uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
@@ -42,13 +42,14 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
     function test_DeployAndAttach_BubblesInitializeRevert() public {
         bytes32 salt = _salt(address(impl), "bubble-init-revert");
-        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt);
 
         // maxAmountPerTx == 0 makes the clone's initialize() revert with InvalidConfig.
         bytes memory initData = abi.encodeCall(
             MockClonePermission.initialize,
             (address(safe), _one(USDC), 0, permSigner)
         );
+        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
+
         uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
@@ -61,7 +62,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
     function test_DeployAndAttach_ShortInitDataReverts() public {
         bytes32 salt = _salt(address(impl), "short-init-data");
-        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt);
+        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt, hex"123456");
         uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
@@ -76,11 +77,12 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
 
     function test_DeployAndAttach_SuccessfulNonInitializerCallReverts() public {
         bytes32 salt = _salt(address(impl), "non-initializer-call");
-        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt);
 
         // A successful non-initializer call (discriminator) leaves initialized() == false,
         // so the factory's liveness guard reverts with CloneInitFailed.
         bytes memory initData = abi.encodeCall(MockClonePermission.discriminator, ());
+        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
+
         uint256 kDeadline = block.timestamp + 1 days;
         bytes memory kernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
@@ -98,9 +100,9 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
     ///         single-address-per-namespace guarantee after caller+account binding.
     function test_DeployAndAttach_SameCallerAccountSaltCannotBeReused() public {
         bytes32 salt = _salt(address(impl), "reuse-same-account");
-        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt);
-
         bytes memory initData = _initData(address(safe), permSigner);
+        address predicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
+
         uint256 kDeadline = block.timestamp + 1 days;
         bytes memory firstKernelSig = _signRegisterPermission(
             address(safe), predicted, kernel.signerNonces(address(safe))
@@ -134,8 +136,10 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
         kernel.registerAccount(permSigner, manager, address(0), address(0), block.timestamp + 1 days, "");
 
         // Same caller (this test contract) + same impl + same raw salt, two accounts.
-        address predictedSafe  = factory.predictCloneAddress(address(impl), address(safe), salt);
-        address predictedOther = factory.predictCloneAddress(address(impl), address(otherSafe), salt);
+        bytes memory safeInit  = _initData(address(safe), permSigner);
+        bytes memory otherInit = _initData(address(otherSafe), permSigner);
+        address predictedSafe  = factory.predictCloneAddress(address(impl), address(safe), salt, safeInit);
+        address predictedOther = factory.predictCloneAddress(address(impl), address(otherSafe), salt, otherInit);
         assertTrue(predictedSafe != predictedOther, "account binding must separate address spaces");
 
         uint256 kDeadline = block.timestamp + 1 days;
@@ -144,7 +148,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
             address(otherSafe), predictedOther, kernel.signerNonces(address(otherSafe))
         );
         factory.deployAndAttach{value: _calcFee(predictedOther)}(
-            address(otherSafe), address(impl), salt, _initData(address(otherSafe), permSigner), kDeadline, otherSig
+            address(otherSafe), address(impl), salt, otherInit, kDeadline, otherSig
         );
         assertTrue(kernel.isPermissionRegistered(address(otherSafe), predictedOther));
 
@@ -154,7 +158,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
             address(safe), predictedSafe, kernel.signerNonces(address(safe))
         );
         address clone = factory.deployAndAttach{value: _calcFee(predictedSafe)}(
-            address(safe), address(impl), salt, _initData(address(safe), permSigner), kDeadline, safeSig
+            address(safe), address(impl), salt, safeInit, kDeadline, safeSig
         );
         assertEq(clone, predictedSafe, "safe's clone lands at its own account-bound address");
         assertTrue(kernel.isPermissionRegistered(address(safe), predictedSafe));
@@ -165,16 +169,17 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
     ///         lands at its caller+account-bound address.
     function test_DeployAndAttach_ThirdPartyCallerCannotSquatPredictedAddress() public {
         bytes32 salt = _salt(address(impl), "squat-attempt");
+        bytes memory initData = _initData(address(safe), permSigner);
 
         // Victim predicts from its own caller (this test contract) + account.
-        address victimPredicted = factory.predictCloneAddress(address(impl), address(safe), salt);
+        address victimPredicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
 
         // Attacker (a distinct EOA) deploys with the SAME impl + raw salt + victim account,
         // but a different msg.sender => a different namespace => a different address.
         address attacker = address(0xBADBAD);
         vm.deal(attacker, 10 ether);
         vm.prank(attacker);
-        address attackerPredicted = factory.predictCloneAddress(address(impl), address(safe), salt);
+        address attackerPredicted = factory.predictCloneAddress(address(impl), address(safe), salt, initData);
         assertTrue(attackerPredicted != victimPredicted, "different caller => different address");
 
         uint256 kDeadline = block.timestamp + 1 days;
@@ -188,7 +193,7 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
         uint256 attackerFee = _calcFee(attackerPredicted);
         vm.prank(attacker);
         factory.deployAndAttach{value: attackerFee}(
-            address(safe), address(impl), salt, _initData(address(safe), permSigner), kDeadline, attackerSig
+            address(safe), address(impl), salt, initData, kDeadline, attackerSig
         );
 
         // Victim's own deploy is unaffected: it lands at the victim's predicted address.
@@ -196,10 +201,55 @@ contract MandateFactoryDeployAndAttachTest is FactoryTestBase {
             address(safe), victimPredicted, kernel.signerNonces(address(safe))
         );
         address clone = factory.deployAndAttach{value: _calcFee(victimPredicted)}(
-            address(safe), address(impl), salt, _initData(address(safe), permSigner), kDeadline, victimSig
+            address(safe), address(impl), salt, initData, kDeadline, victimSig
         );
         assertEq(clone, victimPredicted, "victim's clone unaffected by third-party pre-deploy");
         assertTrue(kernel.isPermissionRegistered(address(safe), victimPredicted));
+    }
+
+    /// @notice The predicted clone address binds the initialization payload: the same caller,
+    ///         account, and salt but different initData resolve to different addresses. This is
+    ///         what prevents reusing a registration signature (which authorizes one specific
+    ///         address) with a substituted init payload.
+    function test_DeployAndAttach_DifferentInitDataDifferentCloneAddress() public {
+        bytes32 salt = _salt(address(impl), "init-data-binding");
+
+        // initData_V: the benign payload the victim intends and signs over.
+        bytes memory initDataV = _initData(address(safe), permSigner);
+        // initData_M: a substituted payload (different bounds) an attacker might prefer.
+        bytes memory initDataM = abi.encodeCall(
+            MockClonePermission.initialize,
+            (address(safe), _one(USDC), 1_000_000 ether, permSigner)
+        );
+        assertTrue(keccak256(initDataV) != keccak256(initDataM), "payloads must differ");
+
+        address predictedV = factory.predictCloneAddress(address(impl), address(safe), salt, initDataV);
+        address predictedM = factory.predictCloneAddress(address(impl), address(safe), salt, initDataM);
+        assertTrue(predictedV != predictedM, "different initData must map to different addresses");
+
+        uint256 kDeadline = block.timestamp + 1 days;
+
+        // The victim's signature authorizes predictedV (the address bound to initDataV).
+        bytes memory victimSig = _signRegisterPermission(
+            address(safe), predictedV, kernel.signerNonces(address(safe))
+        );
+
+        // Deploying with the substituted payload lands at predictedM, not predictedV, so the
+        // victim's signature (bound to predictedV) does not authorize it. The kernel verifies
+        // the signature against the freshly deployed clone (predictedM) and rejects it.
+        uint256 feeM = _calcFee(predictedM);
+        vm.expectRevert();
+        factory.deployAndAttach{value: feeM}(
+            address(safe), address(impl), salt, initDataM, kDeadline, victimSig
+        );
+
+        // The legitimate flow still matches: the victim's signed-over payload deploys at the
+        // predicted address and registers successfully.
+        address clone = factory.deployAndAttach{value: _calcFee(predictedV)}(
+            address(safe), address(impl), salt, initDataV, kDeadline, victimSig
+        );
+        assertEq(clone, predictedV, "legitimate initData lands at the predicted, signed-for address");
+        assertTrue(kernel.isPermissionRegistered(address(safe), predictedV));
     }
 
     function _initData(address recipient, address signer) internal pure returns (bytes memory) {
