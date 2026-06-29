@@ -6,6 +6,7 @@ import {Context}          from "../contracts/interfaces/IPermission.sol";
 import {IOracle}          from "../contracts/interfaces/IOracle.sol";
 import {SailCapabilities} from "../contracts/interfaces/SailCapabilities.sol";
 import {BorrowPermission} from "../contracts/templates/BorrowPermission.sol";
+import {ConfigurablePermission} from "../contracts/templates/ConfigurablePermission.sol";
 
 /// @dev Minimal kernel view: every account registered; this test contract is the permissionSigner.
 contract BorrowMockKernel {
@@ -96,6 +97,28 @@ contract BorrowPermissionTest is Test {
         address[] memory protocols = _three(AAVE, MORPHO, CTOKEN);
         address[] memory assets    = _two(ASSET, CTOKEN);
         borrow.configureDirect(ACCOUNT, abi.encode(protocols, assets, CAP, maxLtv, col, bor, ageSec));
+    }
+
+    // ── config validation (parity with the sibling templates) ─────────────────
+    function test_Configure_RevertsOnEmptyProtocols() public {
+        address[] memory empty = new address[](0);
+        vm.expectRevert(BorrowPermission.EmptyAllowlist.selector);
+        borrow.configureDirect(ACCOUNT, abi.encode(empty, _two(ASSET, CTOKEN), CAP, uint256(0), address(0), address(0), uint256(0)));
+    }
+    function test_Configure_RevertsOnEmptyAssets() public {
+        address[] memory empty = new address[](0);
+        vm.expectRevert(BorrowPermission.EmptyAllowlist.selector);
+        borrow.configureDirect(ACCOUNT, abi.encode(_three(AAVE, MORPHO, CTOKEN), empty, CAP, uint256(0), address(0), address(0), uint256(0)));
+    }
+    function test_Configure_RevertsOnZeroAddressAsset() public {
+        vm.expectRevert(ConfigurablePermission.ZeroAddress.selector);
+        borrow.configureDirect(ACCOUNT, abi.encode(_three(AAVE, MORPHO, CTOKEN), _two(ASSET, address(0)), CAP, uint256(0), address(0), address(0), uint256(0)));
+    }
+    function test_Configure_RevertsOnTooLongAllowlist() public {
+        address[] memory many = new address[](51);
+        for (uint256 i; i < 51; i++) many[i] = address(uint160(i + 1));
+        vm.expectRevert(BorrowPermission.AllowlistTooLong.selector);
+        borrow.configureDirect(ACCOUNT, abi.encode(many, _two(ASSET, CTOKEN), CAP, uint256(0), address(0), address(0), uint256(0)));
     }
 
     function _ctx(address target, bytes4 selector) internal view returns (Context memory c) {

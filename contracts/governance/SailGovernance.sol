@@ -560,7 +560,12 @@ contract SailGovernance {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
         // Enforce that rotateTimelockRoles was called before acceptGovernance, preventing
         // a governance handoff window where the old governance still holds timelock roles.
-        if (!timelock.hasRole(timelock.PROPOSER_ROLE(), msg.sender)) revert RolesNotYetRotated();
+        // All THREE roles that rotateTimelockRoles grants must be present on the candidate, so the
+        // handoff cannot complete into a split-control state (e.g. candidate holds PROPOSER but the
+        // outgoing governance retains EXECUTOR/CANCELLER and can cancel everything the new one queues).
+        if (!timelock.hasRole(timelock.PROPOSER_ROLE(),  msg.sender)) revert RolesNotYetRotated();
+        if (!timelock.hasRole(timelock.EXECUTOR_ROLE(),  msg.sender)) revert RolesNotYetRotated();
+        if (!timelock.hasRole(timelock.CANCELLER_ROLE(), msg.sender)) revert RolesNotYetRotated();
         address previous  = governance;
         governance        = pendingGovernance;
         pendingGovernance = address(0);
@@ -646,9 +651,14 @@ contract SailGovernance {
     }
 
     /// @notice Lift the pause early.
+    /// @dev    `lastPauseTimestamp` is intentionally NOT reset here. The PAUSE_COOLDOWN is measured
+    ///         from the start of the most recent pause regardless of an intervening early unpause, so
+    ///         a (compromised) emergency admin cannot defeat the cooldown by pausing → unpausing →
+    ///         re-pausing in a tight loop. Trade-off: after an early unpause the admin must wait out
+    ///         the remaining cooldown before it can pause again; recovery paths (`setManager`, the
+    ///         revoke* family) are pause-exempt regardless, so this never blocks owner recovery.
     function unpause() external onlyEmergencyAdmin {
         pauseExpiry = 0;
-        lastPauseTimestamp = 0; // allow immediate re-pause after early unpause
         emit Unpaused();
     }
 

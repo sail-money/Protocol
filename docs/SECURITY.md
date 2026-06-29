@@ -65,16 +65,13 @@ The worst-case impact is bounded to the specific set of calls the compromised `e
 
 ## Reentrancy
 
-`nonReentrant` (OpenZeppelin `ReentrancyGuard`) is applied to all mutating kernel functions:
-`registerPermission`, `revokePermission`, `replacePermission`, `registerPermissions`, `revokePermissions`, `dispatch`, `collectFees`.
-
-`revokeSession`, `activateSession`, `setFeePolicy`, `recordDeposit`, and `recordWithdrawal` do not carry reentrancy risk (no external calls to untrusted contracts) and are not marked `nonReentrant`.
+`nonReentrant` (OpenZeppelin `ReentrancyGuard`) is applied to **every** mutating kernel entry point — including `dispatch`, `dispatchBatch`, `collectFees`, the full permission-registry family (`registerPermission(s)`, `revokePermission(s)`, `replacePermission(s)`), `setManager`, `revokeSession`, `activateSession`, `setFeePolicy`, `recordDeposit`, and `recordWithdrawal`. The guard is load-bearing on `setFeePolicy` in particular, which makes a trusted external call to `IFeePolicy.onAttach` after finalising its own state (CEI), so a buggy/hostile policy cannot re-enter any kernel mutator.
 
 ---
 
 ## Deny-by-Default
 
-An account with zero registered permissions cannot dispatch. `dispatch` reverts with `NoPermissionsRegistered`. There is no implicit allow-all state. Accounts must explicitly register at least one permission before any transaction can be executed.
+An account with zero registered permissions cannot dispatch. `dispatch` reverts with `PermissionNotRegistered` (the named permission is not in the account's registry). There is no implicit allow-all state. Accounts must explicitly register at least one permission before any transaction can be executed.
 
 ---
 

@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../contracts/safe/SafeModuleEnabler.sol";
 import {SailKernel}           from "../contracts/core/SailKernel.sol";
 import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
@@ -150,7 +151,7 @@ contract SelectiveDispatchTest is Test {
         vm.deal(address(this), 10 ether);
 
         gov    = new SailGovernance(address(this), MAX_PERM_FEE, address(this), BASE_FEE, TimelockDeployer.deploy(address(this)));
-        kernel = new SailKernel(address(gov), TREASURY, address(0));
+        kernel = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         safe   = new MockSafe();
         vm.deal(address(safe), 1 ether);
 

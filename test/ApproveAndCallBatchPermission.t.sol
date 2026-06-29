@@ -312,6 +312,22 @@ contract ApproveAndCallBatchPermissionTest is Test {
         assertFalse(_eval(ROUTERA, mismatched));
     }
 
+    /// @dev requireAmountMatch is selector-aware: for ERC-4626 deposit(assets,receiver) the consumed
+    ///      amount is word 0 (assets), so a deposit of exactly the approved amount passes.
+    function test_RequireAmountMatch_ERC4626Deposit_BindsAssetsWord() public {
+        _configure(_pairs1(address(vault), V4626_DEP), true, false);
+        assertTrue(_eval(address(vault), _erc4626(V4626_DEP, ACCOUNT)));
+    }
+
+    /// @dev For ERC-4626 mint(shares,receiver) the pulled assets are previewMint(shares) — NOT in
+    ///      calldata — so the approved amount cannot be bound to it. requireAmountMatch must fail
+    ///      closed (deny) rather than mis-bind the shares word, which the old word-0 read did.
+    function test_RequireAmountMatch_ERC4626Mint_FailsClosed() public {
+        bytes4 mintSel = 0x94bf804d; // mint(uint256,address)
+        _configure(_pairs1(address(vault), mintSel), true, false);
+        assertFalse(_eval(address(vault), _erc4626(mintSel, ACCOUNT)));
+    }
+
     // ── configure() validation ───────────────────────────────────────────────────
 
     function test_Configure_RejectsZeroSelectorPair() public {

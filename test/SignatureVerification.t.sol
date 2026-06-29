@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test}                 from "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../contracts/safe/SafeModuleEnabler.sol";
 import {SailKernel}           from "../contracts/core/SailKernel.sol";
 import {SailGovernance}       from "../contracts/governance/SailGovernance.sol";
 import {TimelockDeployer}     from "./support/TimelockDeployer.sol";
@@ -69,7 +70,7 @@ contract SignatureVerificationTest is Test {
         manager    = vm.addr(MANAGER_KEY);
 
         gov      = new SailGovernance(address(0x1111), 0 /* fee */, address(0xEEEE), 0, TimelockDeployer.deploy(address(0x1111)));
-        kernel   = new SailKernel(address(gov), address(0x2222), address(0));
+        kernel   = new SailKernel(address(gov), address(0x2222), address(new SafeModuleEnabler()));
         safe     = new _SigSafe();
         perm     = new _SigPerm();
         feePolicy = new _SigFeePolicy();
