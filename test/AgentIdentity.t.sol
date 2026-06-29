@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../contracts/safe/SafeModuleEnabler.sol";
 
 import {IAgentIdentityResolver,
         IAccountAgentIdentityResolver,
@@ -72,7 +73,7 @@ contract AgentIdentityTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
 
         gov    = new SailGovernance(address(this), 0.001 ether, address(this), 0, TimelockDeployer.deploy(address(this)));
-        kernel = new SailKernel(address(gov), TREASURY, address(0));
+        kernel = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         safe   = new AgentTestSafe();
 
         vm.prank(address(gov.timelock()));

@@ -10,6 +10,7 @@ import {IPermission, Context}    from "../contracts/interfaces/IPermission.sol";
 import {IFeePolicy}              from "../contracts/interfaces/IFeePolicy.sol";
 import {IOracle}                 from "../contracts/interfaces/IOracle.sol";
 import {SwapPermission}          from "../contracts/templates/SwapPermission.sol";
+import {SafeModuleEnabler}       from "../contracts/safe/SafeModuleEnabler.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -225,7 +226,7 @@ contract SailKernelTest is Test {
         permSigner = vm.addr(SIGNER_KEY);
 
         gov      = new SailGovernance(TEAM, 0.001 ether, EMERGENCY_ADMIN, 0, TimelockDeployer.deploy(TEAM));
-        kernel   = new SailKernel(address(gov), TREASURY, address(0));
+        kernel   = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         safe     = new MockSafe();
         perm     = new MockPermission();
         feePolicy = new MockFeePolicy();
@@ -397,7 +398,7 @@ contract SailKernelTest is Test {
     function test_CreateAccount_DeploysAndRegisters() public {
         MockSafeFactory factory = new MockSafeFactory();
         address singleton   = address(0xBEEF);
-        address moduleSetup = address(0xD00D);
+        address moduleSetup = address(new SafeModuleEnabler()); // codehash matches the kernel's pinned enabler
 
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
@@ -420,7 +421,7 @@ contract SailKernelTest is Test {
     function test_CreateAccount_RevertsOnZeroPermissionSigner() public {
         MockSafeFactory factory = new MockSafeFactory();
         address singleton   = address(0xBEEF); // non-zero dummy; MockSafeFactory ignores it
-        address moduleSetup = address(0xD00D);
+        address moduleSetup = address(new SafeModuleEnabler()); // codehash matches the kernel's pinned enabler
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
@@ -434,7 +435,7 @@ contract SailKernelTest is Test {
     function test_CreateAccount_RevertsOnZeroManager() public {
         MockSafeFactory factory = new MockSafeFactory();
         address singleton   = address(0xBEEF); // non-zero dummy; MockSafeFactory ignores it
-        address moduleSetup = address(0xD00D);
+        address moduleSetup = address(new SafeModuleEnabler()); // codehash matches the kernel's pinned enabler
         vm.prank(address(gov.timelock()));
         gov.setTrustedSafeFactory(address(factory), true);
         vm.prank(address(gov.timelock()));
@@ -1769,6 +1770,13 @@ contract SailKernelTest is Test {
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectRevert(SailKernel.ZeroAddress.selector);
         new SailKernel(address(gov), predicted, address(0));
+    }
+
+    /// @dev The constructor rejects a code-less `_setupEnabler`, which would otherwise leave the
+    ///      setup-target codehash pin (EXPECTED_SETUP_CODEHASH) degenerate at bytes32(0).
+    function test_Constructor_RevertsOnCodelessSetupEnabler() public {
+        vm.expectRevert(SailKernel.SetupEnablerHasNoCode.selector);
+        new SailKernel(address(gov), TREASURY, address(0xBEEF)); // 0xBEEF has no code
     }
 
     // ─────────────────────────────────────────────────────────────────────────

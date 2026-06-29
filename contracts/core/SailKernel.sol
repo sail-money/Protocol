@@ -628,6 +628,10 @@ contract SailKernel is EIP712, ReentrancyGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
+    /// @dev Thrown by the constructor when `_setupEnabler` has no deployed code, which would
+    ///      leave the setup-target codehash pin (`EXPECTED_SETUP_CODEHASH`) at bytes32(0).
+    error SetupEnablerHasNoCode();
+
     /// @notice Deploy the kernel with a governance contract, treasury, and the Safe.setup helper.
     /// @param  _governance    Address of the deployed SailGovernance contract.
     /// @param  _treasury      Address that will receive the protocol's share of fees.
@@ -639,6 +643,11 @@ contract SailKernel is EIP712, ReentrancyGuard {
     ///                        kernel is constructed so its codehash can be read here.
     constructor(address _governance, address _treasury, address _setupEnabler) EIP712("SailKernel", "1") {
         if (_governance == address(0) || _treasury == address(0) || _treasury == address(this)) revert ZeroAddress();
+        // The setup-target codehash pin is only meaningful if it captures real bytecode. A zero or
+        // code-less `_setupEnabler` would make EXPECTED_SETUP_CODEHASH == bytes32(0), and any
+        // allowlisted setup target with empty runtime code (e.g. a self-destructed/undeployed
+        // address) would then satisfy the pin. Require deployed code so the pin can never degenerate.
+        if (_setupEnabler.code.length == 0) revert SetupEnablerHasNoCode();
         governance             = SailGovernance(_governance);
         treasury               = _treasury;
         EXPECTED_SETUP_CODEHASH = _setupEnabler.codehash;

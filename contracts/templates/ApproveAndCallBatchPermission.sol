@@ -357,7 +357,13 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         if (consumedAsset != token) return false;
 
         if (_cfg[account].requireAmountMatch) {
-            uint256 consumedAmount = _decodeFirstUint256(c1.data);
+            // The "consumed amount" lives at a different calldata word per selector, so it must be
+            // decoded selector-aware (a fixed word-0 read would compare the approved amount against a
+            // token ADDRESS for the V3/Aave shapes, or against a SHARE count for ERC-4626 mint).
+            // A selector whose consumed amount cannot be located in calldata (e.g. mint, where the
+            // pulled assets are previewMint(shares), off-chain) is reported not-decodable → deny.
+            (bool amtDecodable, uint256 consumedAmount) = _decodeConsumedAmount(sel, c1.data);
+            if (!amtDecodable) return false;
             if (consumedAmount != approveAmount) return false;
         }
 
@@ -401,10 +407,44 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         amount  = uint256(bytes32(data[36:68]));
     }
 
-    /// @dev Decode the first uint256 argument of an arbitrary call. Caller must
-    ///      ensure data.length >= 36.
-    function _decodeFirstUint256(bytes calldata data) internal pure returns (uint256) {
-        return uint256(bytes32(data[4:36]));
+    /// @dev Decode the amount the consuming call pulls from the account, selector-aware, for the same
+    ///      decodable selector set the asset/recipient pins use. Returns (true, amount) when the
+    ///      pulled amount sits at a known fixed head-word offset; (false, 0) otherwise so the caller
+    ///      denies (fail closed). The offset differs per shape, so this must NOT read a fixed word:
+    ///        - swapExactTokensForTokens: amountIn  @ word 0  ([4:36])
+    ///        - ERC-4626 deposit(assets,receiver): assets @ word 0 ([4:36])
+    ///        - Aave V3 supply / V2 deposit:        amount @ word 1 ([36:68])
+    ///        - V3 exactInputSingle (SwapRouter, w/ deadline): amountIn @ word 5 ([164:196])
+    ///        - V3 exactInputSingle (SwapRouter02, no deadline): amountIn @ word 4 ([132:164])
+    ///        - ERC-4626 mint(shares,receiver): the pulled assets are previewMint(shares), which is
+    ///          NOT in calldata, so the approved amount cannot be bound to it → not decodable.
+    ///      Each branch length-guards before slicing.
+    function _decodeConsumedAmount(bytes4 sel, bytes calldata data)
+        internal
+        pure
+        returns (bool decodable, uint256 amount)
+    {
+        // amount at word 0 — caller guarantees data.length >= CONSUMING_MIN_LEN (36).
+        if (sel == SWAP_EXACT_TOKENS_FOR_TOKENS || sel == ERC4626_DEPOSIT) {
+            return (true, uint256(bytes32(data[4:36])));
+        }
+        // amount at word 1: Aave supply/deposit (asset, amount, ...).
+        if (sel == AAVE_V3_SUPPLY || sel == AAVE_V2_DEPOSIT) {
+            if (data.length < 68) return (false, 0);
+            return (true, uint256(bytes32(data[36:68])));
+        }
+        // amountIn at word 5: Uniswap V3 SwapRouter exactInputSingle (params struct carries a deadline).
+        if (sel == EXACT_INPUT_SINGLE) {
+            if (data.length < 196) return (false, 0);
+            return (true, uint256(bytes32(data[164:196])));
+        }
+        // amountIn at word 4: SwapRouter02 exactInputSingle (no deadline field).
+        if (sel == EXACT_INPUT_SINGLE_02) {
+            if (data.length < 164) return (false, 0);
+            return (true, uint256(bytes32(data[132:164])));
+        }
+        // ERC-4626 mint and any other selector: consumed amount not locatable in calldata → deny.
+        return (false, 0);
     }
 
     /// @dev Decode the output recipient of a consuming call for the selectors whose recipient sits

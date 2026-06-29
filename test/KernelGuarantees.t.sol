@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {Test} from "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../contracts/safe/SafeModuleEnabler.sol";
 import {SailKernel}        from "../contracts/core/SailKernel.sol";
 import {SailGovernance}    from "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
@@ -44,7 +45,7 @@ contract KernelGuaranteesTest is Test {
 
         TimelockController tl = TimelockDeployer.deploy(TEAM);
         gov    = new SailGovernance(TEAM, 0.001 ether, EMERGENCY, 0, tl); // fee 0
-        kernel = new SailKernel(address(gov), TREASURY, address(0));
+        kernel = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         safe   = new MockSafe();
         account = address(safe);
 

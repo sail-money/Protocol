@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../contracts/safe/SafeModuleEnabler.sol";
 import "../contracts/core/SailKernel.sol";
 import "../contracts/governance/SailGovernance.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
@@ -125,7 +126,7 @@ contract IntegrationTest is Test {
         vm.warp(T0); // reset after timelock warps so fee policy timestamps anchor at T0
 
         // 2. Kernel
-        kernel = new SailKernel(address(gov), TREASURY, address(0));
+        kernel = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
 
         // 3. MockSafe
         mockSafe = new MockSafe();

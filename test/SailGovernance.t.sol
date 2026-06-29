@@ -398,12 +398,16 @@ contract SailGovernanceTest is Test {
     ///      holds PROPOSER_ROLE on the timelock (i.e., rotateTimelockRoles was called first).
     function _rotateAndAccept(address newGov) internal {
         TimelockController tl = gov.timelock();
-        bytes32 proposerRole = tl.PROPOSER_ROLE();
-        bytes32 executorRole = tl.EXECUTOR_ROLE();
-        vm.prank(address(tl));
-        tl.grantRole(proposerRole, newGov);
-        vm.prank(address(tl));
-        tl.grantRole(executorRole, newGov);
+        // acceptGovernance now requires the candidate to hold all three roles that
+        // rotateTimelockRoles grants (PROPOSER + EXECUTOR + CANCELLER), so the handoff cannot
+        // complete into a split-control state. Cache the role IDs BEFORE pranking — a view call
+        // between vm.prank and grantRole would otherwise consume the prank.
+        bytes32 proposer  = tl.PROPOSER_ROLE();
+        bytes32 executor  = tl.EXECUTOR_ROLE();
+        bytes32 canceller = tl.CANCELLER_ROLE();
+        vm.prank(address(tl)); tl.grantRole(proposer,  newGov);
+        vm.prank(address(tl)); tl.grantRole(executor,  newGov);
+        vm.prank(address(tl)); tl.grantRole(canceller, newGov);
         vm.prank(newGov);
         gov.acceptGovernance();
     }
@@ -423,12 +427,12 @@ contract SailGovernanceTest is Test {
     function test_AcceptGovernance_EmitsEvent() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
         TimelockController tl = gov.timelock();
-        bytes32 proposerRole = tl.PROPOSER_ROLE();
-        bytes32 executorRole = tl.EXECUTOR_ROLE();
-        vm.prank(address(tl));
-        tl.grantRole(proposerRole, ALICE);
-        vm.prank(address(tl));
-        tl.grantRole(executorRole, ALICE);
+        bytes32 proposer  = tl.PROPOSER_ROLE();
+        bytes32 executor  = tl.EXECUTOR_ROLE();
+        bytes32 canceller = tl.CANCELLER_ROLE();
+        vm.prank(address(tl)); tl.grantRole(proposer,  ALICE);
+        vm.prank(address(tl)); tl.grantRole(executor,  ALICE);
+        vm.prank(address(tl)); tl.grantRole(canceller, ALICE);
         vm.expectEmit(true, true, false, false);
         emit GovernanceTransferred(TEAM, ALICE);
         vm.prank(ALICE);
@@ -451,6 +455,22 @@ contract SailGovernanceTest is Test {
     function test_AcceptGovernance_RevertsIfRolesNotRotated() public {
         _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
         // ALICE doesn't have PROPOSER_ROLE yet — rotateTimelockRoles not called
+        vm.prank(ALICE);
+        vm.expectRevert(SailGovernance.RolesNotYetRotated.selector);
+        gov.acceptGovernance();
+    }
+
+    /// @dev acceptGovernance requires ALL three timelock roles, so a partial rotation (e.g. PROPOSER
+    ///      + EXECUTOR granted but CANCELLER withheld) cannot complete the handoff — preventing a
+    ///      split-control state where the outgoing governance keeps CANCELLER.
+    function test_AcceptGovernance_RevertsIfCancellerNotRotated() public {
+        _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
+        TimelockController tl = gov.timelock();
+        bytes32 proposer = tl.PROPOSER_ROLE();
+        bytes32 executor = tl.EXECUTOR_ROLE();
+        vm.prank(address(tl)); tl.grantRole(proposer, ALICE);
+        vm.prank(address(tl)); tl.grantRole(executor, ALICE);
+        // CANCELLER_ROLE deliberately withheld.
         vm.prank(ALICE);
         vm.expectRevert(SailGovernance.RolesNotYetRotated.selector);
         gov.acceptGovernance();
@@ -547,41 +567,58 @@ contract SailGovernanceTest is Test {
         assertFalse(gov.isPaused());
     }
 
-    // Pause cooldown reset on unpause
+    // Pause cooldown persists across an early unpause (anti-pause-griefing)
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_EarlyUnpause_AllowsImmediateRepause() public {
-        // pause at t0, unpause at t0 + 1h — cooldown must not block re-pause
+    function test_EarlyUnpause_DoesNotResetCooldown() public {
+        // pause at t0, unpause early at t0 + 1h. The cooldown is measured from the pause START and is
+        // NOT reset by the unpause, so an immediate re-pause is blocked until PAUSE_COOLDOWN elapses —
+        // a (compromised) emergency admin cannot defeat the cooldown by pause→unpause→re-pause looping.
         vm.prank(EMERGENCY_ADMIN);
         gov.pause();
+        uint256 pausedAt = gov.lastPauseTimestamp();
         vm.warp(block.timestamp + 1 hours);
         vm.prank(EMERGENCY_ADMIN);
         gov.unpause();
-        // should succeed immediately with no PauseCooldown revert
+        // immediate re-pause reverts on the still-running cooldown. Precompute the expected revert
+        // arg BEFORE pranking — a view call here would otherwise consume the prank.
+        uint256 cooldownEnd = pausedAt + gov.PAUSE_COOLDOWN();
+        vm.prank(EMERGENCY_ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(SailGovernance.PauseCooldown.selector, cooldownEnd));
+        gov.pause();
+        // once the cooldown fully elapses, a fresh pause succeeds
+        vm.warp(cooldownEnd);
         vm.prank(EMERGENCY_ADMIN);
         gov.pause();
         assertTrue(gov.isPaused());
     }
 
-    function test_NormalUnpause_AfterFullExpiry_Unchanged() public {
-        // pause, let pauseExpiry pass, then unpause — should still work
+    function test_NormalUnpause_AfterFullExpiry_PreservesTimestamp() public {
+        // pause, let pauseExpiry pass, then unpause. lastPauseTimestamp is preserved (not reset), but
+        // the cooldown from the original pause has elapsed, so a fresh pause is allowed.
         vm.prank(EMERGENCY_ADMIN);
         gov.pause();
+        uint256 pausedAt = gov.lastPauseTimestamp();
         vm.warp(block.timestamp + 72 hours + 1);
         assertFalse(gov.isPaused());
         vm.prank(EMERGENCY_ADMIN);
         gov.unpause();
         assertEq(gov.pauseExpiry(), 0);
-        assertEq(gov.lastPauseTimestamp(), 0);
-    }
-
-    function test_Unpause_ResetsLastPauseTimestamp() public {
+        assertEq(gov.lastPauseTimestamp(), pausedAt);
         vm.prank(EMERGENCY_ADMIN);
         gov.pause();
-        assertGt(gov.lastPauseTimestamp(), 0);
+        assertTrue(gov.isPaused());
+    }
+
+    function test_Unpause_PreservesLastPauseTimestamp() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        uint256 pausedAt = gov.lastPauseTimestamp();
+        assertGt(pausedAt, 0);
         vm.prank(EMERGENCY_ADMIN);
         gov.unpause();
-        assertEq(gov.lastPauseTimestamp(), 0);
+        // NOT reset to zero — the cooldown persists across the early unpause.
+        assertEq(gov.lastPauseTimestamp(), pausedAt);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -112,8 +112,15 @@ interface ICErc20 {
 ///             )
 contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     bytes4 private constant AAVE_BORROW     = bytes4(keccak256("borrow(address,uint256,uint256,uint16,address)"));
+    /// @dev `borrow(address,uint256,address,address)` — the Morpho Optimizer / Morpho-Aave style
+    ///      borrow ABI, NOT Morpho Blue (whose `borrow((MarketParams),uint256,uint256,address,address)`
+    ///      has a different selector and will simply not match here, i.e. fail closed). Operators
+    ///      targeting Morpho Blue need a Blue-specific permission, not this template.
     bytes4 private constant MORPHO_BORROW   = bytes4(keccak256("borrow(address,uint256,address,address)"));
     bytes4 private constant COMPOUND_BORROW = bytes4(keccak256("borrow(uint256)"));
+
+    /// @dev Upper bound on each configured allowlist, mirroring the sibling templates.
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
 
     /// @dev Aave interest-rate mode for variable-rate debt (stable-rate is 1). The Aave borrow
     ///      branch constrains the decoded rate mode to this value — see the INTEREST-RATE MODE note.
@@ -145,6 +152,10 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
     ///         collateral value; a single feed prices only one side and cannot form the ratio.
     ///         Configure either zero oracles (amount-cap-only) or both.
     error OracleConfigInconsistent();
+    /// @notice Thrown when a configured allowlist exceeds MAX_ALLOWLIST_LENGTH.
+    error AllowlistTooLong();
+    /// @notice Thrown when the protocols or assets allowlist is empty (would deny all borrows).
+    error EmptyAllowlist();
 
     constructor(address _kernel, address _author)
         ConfigurablePermission(_kernel, "BorrowPermission", "2")
@@ -179,6 +190,16 @@ contract BorrowPermission is ConfigurablePermission, IPermissionIntrospection {
             address borrowOracle,
             uint256 maxPriceAgeSec
         ) = abi.decode(params, (address[], address[], uint256, uint256, address, address, uint256));
+
+        // Config validation (reference-grade, matching the sibling templates): bound both allowlists,
+        // reject empty arrays, and reject zero-address entries. maxAmountPerTx == 0 stays allowed
+        // (fail-closed: it simply denies every borrow). A zero-address asset combined with a
+        // non-reverting target whose underlying() returns address(0) would otherwise pass the asset
+        // check, so this also closes that defense-in-depth gap.
+        if (protocols.length > MAX_ALLOWLIST_LENGTH || assets.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
+        if (protocols.length == 0 || assets.length == 0) revert EmptyAllowlist();
+        for (uint256 i; i < protocols.length; i++) if (protocols[i] == address(0)) revert ZeroAddress();
+        for (uint256 i; i < assets.length; i++)    if (assets[i]    == address(0)) revert ZeroAddress();
 
         if (maxLtvBps > 10_000) revert LtvBpsTooLarge(maxLtvBps);
         // Oracles must come as a matched pair. LTV is a ratio of borrow value to collateral value;

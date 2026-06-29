@@ -15,6 +15,7 @@ pragma solidity 0.8.26;
 // ─────────────────────────────────────────────────────────────────────────────
 
 import "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
 import "forge-std/console.sol";
 
 import {SailKernel}              from "../../contracts/core/SailKernel.sol";
@@ -182,7 +183,7 @@ abstract contract RedTeamBase is Test {
         gov.setPermissionRegistrationFee(0.001 ether);
         vm.stopPrank();
 
-        kernel  = new SailKernel(address(gov), TREASURY, address(0));
+        kernel  = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();

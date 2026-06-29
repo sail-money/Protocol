@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import "forge-std/Test.sol";
+import {SafeModuleEnabler} from "../../contracts/safe/SafeModuleEnabler.sol";
 import "../../contracts/core/SailKernel.sol";
 import "../../contracts/governance/SailGovernance.sol";
 import "../../contracts/factory/MandateFactory.sol";
@@ -87,7 +88,7 @@ abstract contract FactoryTestBase is Test {
         vm.prank(address(gov.timelock()));
         gov.setProtocolCutBps(PROTOCOL_CUT_BPS);
 
-        kernel  = new SailKernel(address(gov), TREASURY, address(0));
+        kernel  = new SailKernel(address(gov), TREASURY, address(new SafeModuleEnabler()));
         factory = new MandateFactory(address(kernel));
 
         safe = new MockSafe();
