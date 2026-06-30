@@ -17,6 +17,8 @@ Two framings matter, and they are easy to confuse:
 - **The protocol is permissionless.** Sail does not bless a fixed menu of permissions. Anyone can write and deploy their own permission contract for any venue, and the kernel will register and dispatch through *any* contract that implements the `IPermission` interface. The seven templates below are not "the protocol" — they are a **curated starting set**.
 - **These seven are the hardened reference set.** They are the launch templates: hardened, and documented here with honest limits. They are **not** marked "UNAUDITED — EXPERIMENTAL" — that label is reserved for the future *experimental* set (see the end of this document), which is currently empty. "Outside the trusted core" (which they are) is a statement about *blast radius* — a bug in one template can only affect accounts that registered that template, never the kernel or other accounts — not a statement that they are unreviewed.
 
+The shared permission templates were reviewed by Octane Security alongside the core contracts across multiple analyses; all findings resolved or acknowledged. The most recent analysis (2026-06-29) identified no critical- or high-severity findings (see [Security](../README.md#security) and [docs/security](./security/)). Each template documents the boundary of what it enforces — review a template against your intended use before registering it.
+
 ---
 
 ## The shared model (read this once)
