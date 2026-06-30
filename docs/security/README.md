@@ -8,9 +8,9 @@ These analyses are one part of the protocol's pre-launch security process, along
 
 | Date | Reviewer | Report |
 |------|----------|--------|
-| 2026-06-29 | Octane Security | [Security Analysis of SailMoney: Protocol](./octane-security-analysis-03-2026-06-29.pdf) |
-| 2026-06-26 | Octane Security | [Security Analysis of SailMoney: Protocol](./octane-security-analysis-02-2026-06-26.pdf) |
-| 2026-06-24 | Octane Security | [Security Analysis of SailMoney: Protocol](./octane-security-analysis-01-2026-06-24.pdf) |
+| 2026-06-29 | Octane Security | [Security Analysis of SailMoney: Protocol](https://github.com/sail-money/Protocol/raw/main/docs/security/octane-security-analysis-03-2026-06-29.pdf) |
+| 2026-06-26 | Octane Security | [Security Analysis of SailMoney: Protocol](https://github.com/sail-money/Protocol/raw/main/docs/security/octane-security-analysis-02-2026-06-26.pdf) |
+| 2026-06-24 | Octane Security | [Security Analysis of SailMoney: Protocol](https://github.com/sail-money/Protocol/raw/main/docs/security/octane-security-analysis-01-2026-06-24.pdf) |
 
 The most recent review (2026-06-29) reflects the current state of the analyzed code; earlier reviews are retained for transparency.
 
