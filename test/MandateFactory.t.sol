@@ -315,4 +315,40 @@ contract MandateFactoryTest is FactoryTestBase {
         arr = new address[](1);
         arr[0] = a;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // reconfigure: reject spoofable no-op events on invalid / unregistered templates
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Reconfigure_ZeroTemplate_Reverts() public {
+        bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
+        vm.expectRevert(MandateFactory.ZeroAddress.selector);
+        factory.reconfigure(address(safe), address(0), params, block.timestamp + 1 hours, "");
+    }
+
+    function test_Reconfigure_CodelessTemplate_Reverts() public {
+        bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
+        // A code-less address: configure() is void, so without the guard the call would succeed as a
+        // no-op and still emit Reconfigured. The guard rejects it.
+        vm.expectRevert(MandateFactory.NotAContract.selector);
+        factory.reconfigure(address(safe), address(0xDEAD), params, block.timestamp + 1 hours, "");
+    }
+
+    function test_Reconfigure_UnregisteredTemplate_Reverts() public {
+        // A real, deployed template that was never attached to this account.
+        SwapPermission unattached = new SwapPermission(address(kernel), address(0xA11CE));
+        bytes memory params = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
+        vm.expectRevert(MandateFactory.TemplateNotRegistered.selector);
+        factory.reconfigure(address(safe), address(unattached), params, block.timestamp + 1 hours, "");
+    }
+
+    function test_Reconfigure_RegisteredTemplate_Succeeds() public {
+        _attachSwap(_one(ROUTER), _one(WETH), _one(USDC), 5 ether, 100, address(0));
+        bytes memory params2 = _swapParams(_one(ROUTER), _one(WETH), _one(USDC), 9 ether, 100, address(0));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory cfgSig = _signConfigure(swap, address(safe), params2, deadline, PERM_SIGNER_KEY);
+        factory.reconfigure(address(safe), address(swap), params2, deadline, cfgSig);
+        (,,,uint256 cap,,,) = swap.getConfig(address(safe));
+        assertEq(cap, 9 ether, "registered template reconfigures normally");
+    }
 }

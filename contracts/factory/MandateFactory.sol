@@ -30,6 +30,7 @@ interface ISailKernelFactory {
         uint256 deadline,
         bytes calldata sig
     ) external;
+    function isPermissionRegistered(address account, address permission) external view returns (bool);
 }
 
 /// @notice Orchestrator that bundles (configure → register) into a single transaction.
@@ -72,6 +73,8 @@ contract MandateFactory is ReentrancyGuard {
     error ZeroAddress();
     error InitDataTooShort();
     error CloneInitFailed();
+    error NotAContract();
+    error TemplateNotRegistered();
 
     constructor(address _kernel) {
         if (_kernel == address(0)) revert ZeroAddress();
@@ -156,6 +159,13 @@ contract MandateFactory is ReentrancyGuard {
         uint256 deadline,
         bytes calldata configureSig
     ) external {
+        // configure() is void, so a high-level call to a code-less address would succeed as a no-op
+        // and still emit Reconfigured — letting anyone spoof the event for any address with no valid
+        // signature. Require a real, kernel-registered template so the event is trustworthy. The
+        // factory holds no privileges; this only protects off-chain observers (indexers/dashboards).
+        if (template == address(0)) revert ZeroAddress();
+        if (template.code.length == 0) revert NotAContract();
+        if (!kernel.isPermissionRegistered(account, template)) revert TemplateNotRegistered();
         IConfigurablePermission(template).configure(account, params, deadline, configureSig);
         emit Reconfigured(account, template, keccak256(params));
     }
