@@ -119,6 +119,10 @@ Each of the seven follows the same four-part structure:
 
 **What it cannot protect against.** With **zero oracles**, there is **no LTV ceiling at all** — only the size cap applies (the stored `maxLtvBps` is unused in that mode). The LTV check is **per-call, not cumulative**: it bounds each borrow step against collateral at that instant, not the cumulative LTV of a position built across many borrows (a leverage loop). It is checked only at borrow time, not ongoing position health, and cannot detect a dishonest feed. For cumulative-position safety, rely on the lending protocol's own health factor and/or a separate monitoring permission. As with `SwapPermission`, a heavy oracle adapter can exhaust the gas cap and fail closed. Because the LTV math rounds conservatively at every step, a borrow that is **marginally within** the true ceiling may be rejected — the fail-closed direction, never an over-LTV approval; the recourse is to borrow slightly less. Finally, restricting Aave to variable rate means that if a market's variable-rate borrowing is paused/disabled while stable remains open, this template cannot borrow there at all (a bounded availability limitation, not a loss of funds).
 
+**Compound V2 soft-fail (nonce burn).** Aave and Morpho borrows **revert** on failure, so a failed borrow leaves the manager's signing nonce intact. Compound V2's `borrow` is different: it returns a non-zero **status code without reverting** on a soft-fail (borrow cap reached, insufficient market cash, comptroller rejection). The kernel treats any non-reverting module call as success (it is venue-agnostic by design and does not decode return data), so a Compound V2 soft-fail in that window **consumes the manager's pre-signed dispatch nonce with no borrow executed** — a recoverable nonce-burn (re-sign with the next nonce), no funds at risk. Operators registering Compound V2 borrow should be aware of this; Aave/Morpho are unaffected.
+
+**Mixed-decimal size cap.** `maxAmountPerTx` is a single raw-unit cap applied uniformly to every allowlisted borrow asset; it does **not** normalize for token decimals (a value sized for an 18-decimal asset permits a far larger token count for a low-decimal asset). Deliberate oracle-free tradeoff; the borrow is still bounded in raw units and credited to the account. Operators mixing decimals should size for the lowest-decimal asset or use separate instances — the same boundary as the swap and deposit templates.
+
 ---
 
 ## 4. TransferPermission — ERC-20 transfer to an allowlisted recipient set
@@ -161,7 +165,11 @@ Each of the seven follows the same four-part structure:
    - amount (or shares — see below) ≤ `maxAmountPerTx` → else deny;
    - the position recipient (`receiver` for ERC-4626, `onBehalfOf` for Aave-style) is **the account** → else deny.
 
-**What it cannot protect against.** On the `mint(shares, receiver)` path, the cap is denominated in **shares, not underlying assets** — by design. The `deposit(assets, ...)` path and both Aave paths cap the *asset* amount directly; `mint` bounds *shares*, whose asset/USD value floats with the share price. These templates are intentionally oracle-free, so an asset cap on the mint path would reintroduce a vault price-read; shares stay bounded, so there is no drain, but an operator sizing a mint cap must account for the share price. The cap is per-transaction, not cumulative, and an allowlisted-but-malicious vault is not vetted.
+**What it cannot protect against.** On the `mint(shares, receiver)` path, the cap is denominated in **shares, not underlying assets** — by design. The `deposit(assets, ...)` path and both Aave paths cap the *asset* amount directly; `mint` bounds *shares*, whose asset/USD value floats with the share price. These templates are intentionally oracle-free, so an asset cap on the mint path would reintroduce a vault price-read; shares stay bounded, so there is no drain, but an operator sizing a mint cap must account for the share price.
+
+For ERC-4626, **`mint(shares)` is the donation-safe path**: it pins the share outcome (you receive exactly `shares`, credited to the account). The `deposit(assets)` path has no minimum-shares guard, so a classic vault **donation/inflation attack** can cause a manager-triggered `deposit(assets)` to mint near-zero shares to the account. This is **negative-EV griefing** (the attacker must donate more than they destroy) and the assets/shares stay credited to the account (griefing, not theft) — but operators wanting a pinned outcome should prefer `mint(shares)`.
+
+`maxAmountPerTx` is a single raw-unit cap applied uniformly across all allowlisted assets; it does **not** normalize for token decimals (the same mixed-decimal boundary as the swap and borrow templates) — size for the lowest-decimal asset or use separate instances. The cap is per-transaction, not cumulative, and an allowlisted-but-malicious vault is not vetted.
 
 ---
 
@@ -196,7 +204,7 @@ Each of the seven follows the same four-part structure:
 - `spenders[]` — the addresses that may receive the allowance.
 - `consumingPairs[]` — bound `(target, selector)` pairs: a selector is valid **only** on the target it is paired with, never on any other allowlisted target.
 - `requireAmountMatch` (bool) — optionally require the consuming call's leading amount to equal the approved amount.
-- `requireRecipientIsAccount` (bool, default off) — optionally pin the consuming call's output recipient to the account.
+- `allowUnconstrainedRecipient` (bool, **default off → recipient pinned**) — the consuming call's output recipient is pinned to the account **by default**; set this flag true to deliberately opt out and leave the recipient unconstrained. **Note:** this is a change from the prior default, which left the recipient unconstrained unless a pin was explicitly enabled.
 
 **How evaluation decides** (in order, on the three-call batch):
 1. **Configuration current?** Deny if not configured for the current epoch.
@@ -205,12 +213,12 @@ Each of the seven follows the same four-part structure:
 4. **Call 1 — the consuming call.** Must carry no ETH; long enough to decode; its `(target, selector)` must be an allowlisted **pair**. Then two unconditional bindings:
    - the call's target must **be the approved spender** (you approve the router/pool/vault and call that same address);
    - the **asset it pulls must be the approved token**, decoded for the seven decodable standard-ABI selectors (the V2/V3 swaps, Aave `supply`/`deposit`, ERC-4626 `deposit`/`mint`); a selector whose consumed asset can't be located safely is **denied** (fail-closed).
-   Then, if configured: `requireAmountMatch` checks the leading amount equals the approve amount; `requireRecipientIsAccount` decodes the output recipient and requires it to equal the account (and denies any selector outside the decodable set).
+   Then: `requireAmountMatch` (if set) checks the leading amount equals the approve amount; and **by default** the output recipient is decoded and required to equal the account (denying any selector outside the decodable set), unless `allowUnconstrainedRecipient` was set to opt out.
 5. **Call 2 — the reset.** Must carry no ETH; must be `approve(spender, 0)` on the **same** token and spender as call 0, resetting the allowance to exactly zero.
 
 If every check passes, the batch is allowed.
 
-**What it cannot protect against.** With `requireRecipientIsAccount` **off** (the default), it does **not** constrain where the consuming call sends its output — the bracket bounds the *allowance* (and binds it to the approved token and spender), not the destination. Turn the mode **on** whenever every consuming selector you authorize is in the decodable set; it is the safer configuration. The consuming selector **must** be one of the seven decodable standard-ABI selectors — aggregators, the Universal Router, Uniswap V4, and opaque command payloads are **out of scope by design** (non-decodable → fail-closed). It does not vet the venue behind an allowlisted pair. The batch is capped at 16 sub-calls and 1,000,000 gas.
+**What it cannot protect against.** By default the output recipient is pinned to the account. If you set `allowUnconstrainedRecipient` to opt out, the template no longer constrains where the consuming call sends its output — the bracket then bounds the *allowance* (and binds it to the approved token and spender), not the destination. Opt out only when an authorized consuming selector falls outside the decodable set and an unconstrained recipient is genuinely intended; the default pin is the safer configuration. The consuming selector **must** be one of the seven decodable standard-ABI selectors — aggregators, the Universal Router, Uniswap V4, and opaque command payloads are **out of scope by design** (non-decodable → fail-closed). It does not vet the venue behind an allowlisted pair. The batch is capped at 16 sub-calls and 1,000,000 gas.
 
 ---
 
