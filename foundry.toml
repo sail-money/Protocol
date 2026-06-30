@@ -40,4 +40,4 @@ optimism      = { key = "${ETHERSCAN_API_KEY}", chain = 10,       url = "https:/
 unichain      = { key = "${ETHERSCAN_API_KEY}", chain = 130,      url = "https://api.etherscan.io/v2/api?chainid=130" }
 bsc           = { key = "${ETHERSCAN_API_KEY}", chain = 56,       url = "https://api.etherscan.io/v2/api?chainid=56" }
 world         = { key = "${ETHERSCAN_API_KEY}", chain = 480,      url = "https://api.etherscan.io/v2/api?chainid=480" }
-# megaeth (4326): not on the Etherscan v2 unified API — verify via its native explorer separately.
+megaeth       = { key = "${ETHERSCAN_API_KEY}", chain = 4326,     url = "https://api.etherscan.io/v2/api?chainid=4326" }
