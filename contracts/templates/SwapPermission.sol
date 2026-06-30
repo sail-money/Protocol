@@ -85,6 +85,10 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     uint256 private constant LEN_V3_V2  = 228;
     uint256 private constant LEN_V2_MIN = 196;
 
+    /// @dev Cap on each config allowlist length, matching the other launch templates. Bounds the
+    ///      gas of a later reconfigure so a too-large config cannot brick the permission.
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     struct Slot {
         address[] routers;
         address[] tokensIn;
@@ -108,6 +112,8 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
     ///         mandatory by design: this template must never run reference-free. Accounts that
     ///         deliberately want no on-chain band must use SwapPermissionNoOracle instead.
     error OracleRequired();
+    /// @notice Thrown when a config allowlist exceeds MAX_ALLOWLIST_LENGTH.
+    error AllowlistTooLong();
 
     constructor(address _kernel, address _author)
         ConfigurablePermission(_kernel, "SwapPermission", "2")
@@ -147,6 +153,9 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
             uint256 maxPriceAgeSec
         ) = abi.decode(params, (address[], address[], address[], uint256, uint256, address, uint256));
 
+        if (routers.length > MAX_ALLOWLIST_LENGTH
+            || tokensIn.length > MAX_ALLOWLIST_LENGTH
+            || tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
         if (maxSlippageBps > 9_999) revert SlippageBpsTooLarge(maxSlippageBps);
         // The oracle is mandatory by design: without it the template would have no on-chain price
         // reference and could only fall back to trusting the manager's quote. That reference-free
@@ -202,6 +211,9 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
                 txData[4:],
                 (address, address, uint24, address, uint256, uint256, uint256, uint160)
             );
+            // A token-for-itself swap is value-destroying by definition (no legitimate use) and,
+            // with an oracle reporting a fresh base==quote price, would otherwise clear the band.
+            if (tokenIn == tokenOut)                       return false;
             if (!isAllowedTokenIn[ctx.account][tokenIn])   return false;
             if (!isAllowedTokenOut[ctx.account][tokenOut]) return false;
             if (recipient != ctx.account)                  return false;
@@ -222,6 +234,7 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
                 txData[4:],
                 (address, address, uint24, address, uint256, uint256, uint160)
             );
+            if (tokenIn == tokenOut)                       return false;
             if (!isAllowedTokenIn[ctx.account][tokenIn])   return false;
             if (!isAllowedTokenOut[ctx.account][tokenOut]) return false;
             if (recipient != ctx.account)                  return false;
@@ -238,6 +251,9 @@ contract SwapPermission is ConfigurablePermission, IPermissionIntrospection {
                 address to,
             ) = abi.decode(txData[4:], (uint256, uint256, address[], address, uint256));
             if (path.length < 2)                                          return false;
+            // Load-bearing self-route guard: a round-trip path (e.g. [A,B,A]) executes and burns
+            // AMM fees while the oracle's base==quote price clears the band. Reject equal endpoints.
+            if (path[0] == path[path.length - 1])                         return false;
             if (!isAllowedTokenIn[ctx.account][path[0]])                  return false;
             if (!isAllowedTokenOut[ctx.account][path[path.length - 1]])   return false;
             if (to != ctx.account)                                        return false;

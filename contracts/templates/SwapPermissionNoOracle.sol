@@ -120,6 +120,12 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
     ///      meaningless, so it is rejected at configure().
     uint256 private constant MAX_TOLERANCE_BPS = 5_000;
 
+    /// @dev Cap on each config allowlist length, matching the other launch templates. Bounds the
+    ///      gas of a later reconfigure. No separate referencePools cap is needed: with the token
+    ///      lists capped, the (tokensIn × tokensOut) coverage requirement already bounds the
+    ///      reference-pool set.
+    uint256 private constant MAX_ALLOWLIST_LENGTH = 50;
+
     enum PoolKind { V2, V3 }
 
     /// @notice Operator-declared reference pool for a directional (tokenIn, tokenOut) pair.
@@ -164,6 +170,8 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
     error PairNotAllowlisted(address tokenIn, address tokenOut);
     error PoolTokenMismatch(address pool);
     error MissingReferencePool(address tokenIn, address tokenOut);
+    /// @notice Thrown when a config allowlist exceeds MAX_ALLOWLIST_LENGTH.
+    error AllowlistTooLong();
 
     constructor(address _kernel, address _author)
         ConfigurablePermission(_kernel, "SwapPermissionNoOracle", "2")
@@ -206,6 +214,10 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
             uint256 maxAmountPerTx,
             ReferencePool[] memory referencePools
         ) = abi.decode(params, (address[], address[], address[], uint256, ReferencePool[]));
+
+        if (routers.length > MAX_ALLOWLIST_LENGTH
+            || tokensIn.length > MAX_ALLOWLIST_LENGTH
+            || tokensOut.length > MAX_ALLOWLIST_LENGTH) revert AllowlistTooLong();
 
         Slot storage s = _slots[account];
 
@@ -392,14 +404,17 @@ contract SwapPermissionNoOracle is ConfigurablePermission, IPermissionIntrospect
                 if (sqrtP == 0) return (false, 0);
                 try IUniswapV3PoolLike(rp.pool).liquidity() returns (uint128 liq) {
                     if (liq == 0) return (false, 0);
+                    // Round the projection UP at each step so the tolerance floor derived from it
+                    // can only tighten or stay equal (fail-closed): a floored projection would
+                    // under-estimate the spot-implied output and loosen the floor.
                     if (rp.tokenInIsToken0) {
                         // price = (sqrtP / 2^96)^2 token1 per token0; out = in * price
-                        uint256 tmp = Math.mulDiv(amountIn, sqrtP, Q96);
-                        return (true, Math.mulDiv(tmp, sqrtP, Q96));
+                        uint256 tmp = Math.mulDiv(amountIn, sqrtP, Q96, Math.Rounding.Ceil);
+                        return (true, Math.mulDiv(tmp, sqrtP, Q96, Math.Rounding.Ceil));
                     } else {
                         // out = in / price
-                        uint256 tmp = Math.mulDiv(amountIn, Q96, sqrtP);
-                        return (true, Math.mulDiv(tmp, Q96, sqrtP));
+                        uint256 tmp = Math.mulDiv(amountIn, Q96, sqrtP, Math.Rounding.Ceil);
+                        return (true, Math.mulDiv(tmp, Q96, sqrtP, Math.Rounding.Ceil));
                     }
                 } catch {
                     return (false, 0);

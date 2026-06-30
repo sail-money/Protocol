@@ -454,4 +454,63 @@ contract SwapPermissionNoOracleTest is Test {
         // amountIn 1 → expectedOut 1 → floor mulDiv(1, 9800, 10000) = 0 → deny.
         assertFalse(swap.evaluate(_v3cd(TOKIN, TOKOUT, ACCOUNT, 1, 1), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
     }
+
+    // ── F2: V3 projection rounds up, tightening the no-oracle floor ──────────────
+
+    /// @dev sqrtP = 1.5·2^96 ⇒ price 2.25; for amountIn = 1 the exact out is fractional. The old
+    ///      floor→floor math projected expectedOut = 1; rounding up projects 3. With tolerance 0 the
+    ///      floor equals the projection, so amountOutMin of 1 (which the looser floored floor would
+    ///      have allowed) and 2 (inside the gap) are now rejected, while 3 passes — the floor tightened.
+    function test_F2_V3ProjectionRoundsUp_TightensFloor() public {
+        v3.set(uint160(3 * (2 ** 95)), 1 ether); // 3·2^95 = 1.5·2^96
+        _configV3(0);
+        assertFalse(swap.evaluate(_v3cd(TOKIN, TOKOUT, ACCOUNT, 1, 1), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
+        assertFalse(swap.evaluate(_v3cd(TOKIN, TOKOUT, ACCOUNT, 1, 2), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
+        assertTrue(swap.evaluate(_v3cd(TOKIN, TOKOUT, ACCOUNT, 1, 3), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
+    }
+
+    // ── F3: allowlist length cap (parity); NO referencePools cap (option b) ──────
+
+    function _addrs(uint256 n) internal pure returns (address[] memory a) {
+        a = new address[](n);
+        for (uint256 i; i < n; i++) a[i] = address(uint160(i + 1));
+    }
+
+    function _noRefs() internal pure returns (SwapPermissionNoOracle.ReferencePool[] memory) {
+        return new SwapPermissionNoOracle.ReferencePool[](0);
+    }
+
+    function test_Config_RevertsTooLongRouters() public {
+        vm.expectRevert(SwapPermissionNoOracle.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_addrs(51), _one(TOKIN), _one(TOKOUT), uint256(1000 ether), _noRefs()));
+    }
+
+    function test_Config_RevertsTooLongTokensIn() public {
+        vm.expectRevert(SwapPermissionNoOracle.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_one(ROUTER), _addrs(51), _one(TOKOUT), uint256(1000 ether), _noRefs()));
+    }
+
+    function test_Config_RevertsTooLongTokensOut() public {
+        vm.expectRevert(SwapPermissionNoOracle.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_one(ROUTER), _one(TOKIN), _addrs(51), uint256(1000 ether), _noRefs()));
+    }
+
+    /// @dev No referencePools cap (option b): a dense but valid config — every (tokensIn × tokensOut)
+    ///      pair covered by a reference pool — configures successfully. Proves the coverage-driven
+    ///      reference set is not rejected by any separate referencePools length cap.
+    function test_Config_DenseReferencePools_NoCap_Succeeds() public {
+        address[] memory tin  = new address[](2); tin[0]  = TOKIN;  tin[1]  = DAI;
+        address[] memory tout = new address[](2); tout[0] = TOKOUT; tout[1] = OTHER;
+        MockV3Pool p00 = new MockV3Pool(TOKIN, TOKOUT);
+        MockV3Pool p01 = new MockV3Pool(TOKIN, OTHER);
+        MockV3Pool p10 = new MockV3Pool(DAI,   TOKOUT);
+        MockV3Pool p11 = new MockV3Pool(DAI,   OTHER);
+        SwapPermissionNoOracle.ReferencePool[] memory refs = new SwapPermissionNoOracle.ReferencePool[](4);
+        refs[0] = _ref(TOKIN, TOKOUT, address(p00), SwapPermissionNoOracle.PoolKind.V3, 200);
+        refs[1] = _ref(TOKIN, OTHER,  address(p01), SwapPermissionNoOracle.PoolKind.V3, 200);
+        refs[2] = _ref(DAI,   TOKOUT, address(p10), SwapPermissionNoOracle.PoolKind.V3, 200);
+        refs[3] = _ref(DAI,   OTHER,  address(p11), SwapPermissionNoOracle.PoolKind.V3, 200);
+        swap.configureDirect(ACCOUNT, abi.encode(_one(ROUTER), tin, tout, uint256(1000 ether), refs));
+        assertTrue(swap.isConfigured(ACCOUNT));
+    }
 }

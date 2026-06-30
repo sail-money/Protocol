@@ -303,4 +303,70 @@ contract SwapPermissionTest is Test {
         bytes memory short = abi.encodeWithSelector(SWAP_EXACT_TOKENS, uint256(1));
         assertFalse(swap.evaluate(short, _ctx(ROUTER, SWAP_EXACT_TOKENS)));
     }
+
+    // ── F1: same-token (self-route) denials ─────────────────────────────────────
+
+    /// @dev Config where TOKIN is allowed as BOTH input and output, so a self-route would clear the
+    ///      allowlists — isolating the same-token guard as the reason for denial.
+    function _configureSelfRoutable() internal {
+        address[] memory tin  = new address[](1); tin[0]  = TOKIN;
+        address[] memory tout = new address[](2); tout[0] = TOKOUT; tout[1] = TOKIN;
+        swap.configureDirect(
+            ACCOUNT,
+            abi.encode(_one(ROUTER), tin, tout, uint256(1000 ether), uint256(200), address(oracle), uint256(3600))
+        );
+    }
+
+    /// @dev Load-bearing case: a V2 round-trip path [A,B,A] executes and burns AMM fees; denied.
+    function test_SelfRoute_V2RoundTrip_Denied() public {
+        _configureSelfRoutable();
+        address[] memory path = new address[](3);
+        path[0] = TOKIN; path[1] = TOKOUT; path[2] = TOKIN;
+        assertFalse(swap.evaluate(_v2(path, ACCOUNT, 100e18, 196e18), _ctx(ROUTER, SWAP_EXACT_TOKENS)));
+    }
+
+    /// @dev V3 same-token denied at the permission (earlier clean deny than the router's own revert).
+    function test_SelfRoute_V3SameToken_Denied() public {
+        _configureSelfRoutable();
+        assertFalse(swap.evaluate(_v3(TOKIN, TOKIN, ACCOUNT, 100e18, 1), _ctx(ROUTER, EXACT_INPUT_SINGLE_V1)));
+    }
+
+    function test_SelfRoute_V3_02SameToken_Denied() public {
+        _configureSelfRoutable();
+        assertFalse(swap.evaluate(_v3_02(TOKIN, TOKIN, ACCOUNT, 100e18, 1), _ctx(ROUTER, EXACT_INPUT_SINGLE_V2)));
+    }
+
+    /// @dev A distinct-token multi-hop route [A,B,C] (distinct endpoints) is unaffected by the guard.
+    function test_DistinctRoute_V2MultiHop_StillAllowed() public view {
+        address[] memory path = new address[](3);
+        path[0] = TOKIN; path[1] = OTHER; path[2] = TOKOUT; // endpoints distinct; intermediate unchecked
+        assertTrue(swap.evaluate(_v2(path, ACCOUNT, 100e18, 196e18), _ctx(ROUTER, SWAP_EXACT_TOKENS)));
+    }
+
+    // ── F3: allowlist length cap (parity with the other launch templates) ───────
+
+    function _addrs(uint256 n) internal pure returns (address[] memory a) {
+        a = new address[](n);
+        for (uint256 i; i < n; i++) a[i] = address(uint160(i + 1));
+    }
+
+    function test_Config_RevertsTooLongRouters() public {
+        vm.expectRevert(SwapPermission.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_addrs(51), _one(TOKIN), _one(TOKOUT), uint256(1), uint256(200), address(oracle), uint256(3600)));
+    }
+
+    function test_Config_RevertsTooLongTokensIn() public {
+        vm.expectRevert(SwapPermission.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_one(ROUTER), _addrs(51), _one(TOKOUT), uint256(1), uint256(200), address(oracle), uint256(3600)));
+    }
+
+    function test_Config_RevertsTooLongTokensOut() public {
+        vm.expectRevert(SwapPermission.AllowlistTooLong.selector);
+        swap.configureDirect(ACCOUNT, abi.encode(_one(ROUTER), _one(TOKIN), _addrs(51), uint256(1), uint256(200), address(oracle), uint256(3600)));
+    }
+
+    function test_Config_AtCap_Succeeds() public {
+        swap.configureDirect(ACCOUNT, abi.encode(_addrs(50), _addrs(50), _addrs(50), uint256(1), uint256(200), address(oracle), uint256(3600)));
+        assertTrue(swap.isConfigured(ACCOUNT));
+    }
 }
