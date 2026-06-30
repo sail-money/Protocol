@@ -447,7 +447,7 @@ struct AccountConfig {
 | `ProtocolPaused()` | `dispatch` or `collectFees` called while the protocol is paused |
 | `UntrustedFactory(factory)` | `createAccount` given a Safe factory not in governance's trusted allowlist |
 | `UntrustedSingleton(singleton)` | `createAccount` given a Safe singleton not in governance's trusted allowlist |
-| `InvalidInitializer()` | `createAccount` `safeInitializer` too short to contain the Safe.setup `to` field (< 100 bytes) |
+| `InvalidInitializer()` | `createAccount` `safeInitializer` too short to contain the Safe.setup head words through `paymentReceiver` (< 260 bytes) |
 | `UntrustedModuleSetup(setup)` | `createAccount` Safe.setup delegatecall `to` target not in governance's trusted module-setup allowlist |
 | `UntrustedModuleSetupCodehash(setup)` | `createAccount` setup target's runtime codehash != the pinned `EXPECTED_SETUP_CODEHASH` (the immutable SafeModuleEnabler) |
 | `UntrustedProxyCodehash(codehash)` | `createAccount`/`registerAccount` account's runtime codehash not in governance's trusted Safe-proxy-codehash allowlist |
