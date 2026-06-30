@@ -355,8 +355,10 @@ contract SailGovernance {
     error SameAddress();
 
     /// @dev Thrown by `acceptGovernance` when the candidate does not yet hold PROPOSER_ROLE
-    ///      on the timelock. `rotateTimelockRoles` must be executed before `acceptGovernance`
-    ///      can complete, eliminating the window where old governance retains timelock keys.
+    ///      on the timelock. The candidate's three timelock roles must be rotated to it (via
+    ///      scheduled timelock self-calls — see `rotateTimelockRoles` NatSpec) before
+    ///      `acceptGovernance` can complete, eliminating the window where old governance retains
+    ///      timelock keys.
     error RolesNotYetRotated();
 
     /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
@@ -541,15 +543,17 @@ contract SailGovernance {
     ///         storage variable but does NOT yet hold `PROPOSER_ROLE` or `EXECUTOR_ROLE` on
     ///         the TimelockController (those roles remain with the old governance).
     ///         Before or concurrent with the two-step transfer, the current governance MUST
-    ///         schedule and execute a `rotateTimelockRoles(newGovernance)` call via the
-    ///         timelock to hand over scheduling and execution rights. Failure to do so leaves
-    ///         the new governance unable to enact any timelocked parameter changes.
+    ///         rotate the three timelock roles (`PROPOSER_ROLE` / `EXECUTOR_ROLE` /
+    ///         `CANCELLER_ROLE`) to the candidate by scheduling timelock SELF-calls (target ==
+    ///         the timelock), since only the timelock holds `DEFAULT_ADMIN_ROLE` over its own
+    ///         roles. Failure to do so leaves the new governance unable to enact any timelocked
+    ///         parameter changes.
     ///
     ///         Recommended sequence:
     ///           1. Current governance calls `proposeGovernance(candidate)`.
-    ///           2. Current governance schedules `rotateTimelockRoles(candidate)` via the
-    ///              timelock (48-hour delay).
-    ///           3. After 48 hours, current governance executes `rotateTimelockRoles`.
+    ///           2. Current governance schedules timelock self-calls (48-hour delay) that grant
+    ///              the three roles to the candidate and revoke them from the outgoing governance.
+    ///           3. After 48 hours, current governance executes those self-calls.
     ///           4. Candidate calls `acceptGovernance()` to finalise the transfer.
     ///
     /// @param  candidate Address being nominated as the next governance.
@@ -565,9 +569,10 @@ contract SailGovernance {
     /// @notice Step 2: nominated address accepts, completing the transfer.
     /// @dev    Clears `pendingGovernance` after the transfer. See `proposeGovernance` for the
     ///         required timelock role rotation procedure that must precede this call.
-    ///         Requires that `rotateTimelockRoles` has already been executed — i.e., the
-    ///         candidate already holds PROPOSER_ROLE on the timelock. This eliminates the
-    ///         window where old governance retains timelock scheduling rights after handoff.
+    ///         Requires that the candidate's timelock roles have already been rotated (via the
+    ///         scheduled timelock self-calls) — i.e., the candidate already holds PROPOSER_ROLE
+    ///         on the timelock. This eliminates the window where old governance retains timelock
+    ///         scheduling rights after handoff.
     function acceptGovernance() external {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
         // Enforce that rotateTimelockRoles was called before acceptGovernance, preventing
