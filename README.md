@@ -233,7 +233,9 @@ Contributions are welcome. `main` is protected and changes land via pull request
 
 ## Security
 
-To report a vulnerability: security@sail.money. Please do not open public issues for security reports.
+The protocol has undergone independent, AI-driven security analysis by Octane Security across multiple reviews during pre-launch; all findings have been resolved or acknowledged. Full reports and the security log are in [docs/security](./docs/security/).
+
+To report a vulnerability: hello@sail.money. Please do not open public issues for security reports.
 
 ## License
 
