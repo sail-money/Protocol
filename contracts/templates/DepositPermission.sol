@@ -66,7 +66,7 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///                 address[] tokens,
 ///                 uint256   maxAmountPerTx
 ///             )
-/// @custom:security-contact security@sail.money
+/// @custom:security-contact hello@sail.money
 contract DepositPermission is ConfigurablePermission, IPermissionIntrospection {
     /// @dev deposit(uint256 assets, address receiver) — ERC-4626 / simple vault.
     bytes4 private constant DEPOSIT_SIMPLE = bytes4(keccak256("deposit(uint256,address)"));

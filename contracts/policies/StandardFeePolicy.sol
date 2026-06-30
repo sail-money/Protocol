@@ -26,7 +26,7 @@ import {Math}       from "@openzeppelin/contracts/utils/math/Math.sol";
 ///         The HWM seeding guard (`HWMNotSeeded`) prevents a manager from
 ///         claiming a performance fee on the full portfolio on the very first collection
 ///         by seeding HWM at 0.
-/// @custom:security-contact security@sail.money
+/// @custom:security-contact hello@sail.money
 contract StandardFeePolicy is IFeePolicy {
     // -------------------------------------------------------------------------
     // Constants

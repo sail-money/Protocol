@@ -83,7 +83,7 @@ interface ISafe {
 ///             permission-registry operations, preventing cross-operation replay.
 ///           • ERC-1271 support: both manager and permissionSigner may be smart contracts.
 ///
-/// @custom:security-contact security@sail.money
+/// @custom:security-contact hello@sail.money
 contract SailKernel is EIP712, ReentrancyGuard {
     // -------------------------------------------------------------------------
     // Constants

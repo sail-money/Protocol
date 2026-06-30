@@ -16,7 +16,7 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
 ///
 ///         All parameter changes flow through `timelock` (48-hour delay).
 ///         The `emergencyAdmin` may pause the kernel for up to 72 hours without a timelock.
-/// @custom:security-contact security@sail.money
+/// @custom:security-contact hello@sail.money
 contract SailGovernance {
     // -------------------------------------------------------------------------
     // Constitutional caps — immutable; no governance procedure can raise these

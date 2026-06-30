@@ -55,7 +55,7 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///                 address   allowedRecipient,
 ///                 uint256   maxAmountPerTx
 ///             )
-/// @custom:security-contact security@sail.money
+/// @custom:security-contact hello@sail.money
 contract WithdrawPermission is ConfigurablePermission, IPermissionIntrospection {
     /// @dev transfer(address,uint256) — ERC-20 standard transfer.
     bytes4 private constant TRANSFER_SELECTOR     = 0xa9059cbb;
