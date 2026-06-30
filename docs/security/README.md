@@ -1,8 +1,6 @@
 # Security
 
-The Sail Protocol smart contracts have undergone independent, AI-driven security analysis by Octane Security ([www.octane.security](https://www.octane.security)) across multiple iterative reviews during pre-launch. Across all three reviews, all findings have been resolved or acknowledged. The full reports are below.
-
-These analyses are one part of the protocol's pre-launch security process, alongside its test suite; they are not a guarantee of security.
+The Sail Protocol core contracts and shared permission templates were reviewed by Octane Security ([www.octane.security](https://www.octane.security)) across multiple analyses during pre-launch; all reported vulnerabilities have been resolved or acknowledged, and the remaining lower-severity warnings are documented or accepted by design. The full reports are below.
 
 ## Reports
 
@@ -12,7 +10,7 @@ These analyses are one part of the protocol's pre-launch security process, along
 | 2026-06-26 | Octane Security | [Security Analysis of SailMoney: Protocol](https://github.com/sail-money/Protocol/raw/main/docs/security/octane-security-analysis-02-2026-06-26.pdf) |
 | 2026-06-24 | Octane Security | [Security Analysis of SailMoney: Protocol](https://github.com/sail-money/Protocol/raw/main/docs/security/octane-security-analysis-01-2026-06-24.pdf) |
 
-The most recent review (2026-06-29) reflects the current state of the analyzed code; earlier reviews are retained for transparency.
+The most recent review (2026-06-29) reflects the current state of the analyzed code and identified no critical- or high-severity findings; earlier reviews are retained for transparency.
 
 ## Reporting a vulnerability
 

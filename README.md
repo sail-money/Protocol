@@ -14,6 +14,8 @@
 
 Sail Protocol is an onchain primitive for separately managed accounts (SMAs) run by agents. Capital stays in a self-custodial Safe the owner controls; a designated manager — typically an autonomous agent — executes only what a mandate allows. The mandate is a set of user-deployed Solidity permission contracts registered to the account; on each dispatch the manager names one registered permission, and the kernel evaluates that permission under a gas cap via `staticcall`, forwarding the call to the Safe only if it returns true. Because permissions are arbitrary Solidity, any DeFi primitive can be expressed as one. Protocol fees are bounded by immutable constitutional caps.
 
+The core contracts and shared permission templates were reviewed by Octane Security across multiple analyses; all reported vulnerabilities resolved or acknowledged. The most recent analysis (2026-06-29) identified no critical- or high-severity findings. See [Security](#security).
+
 ## Why it exists
 
 Autonomous agents can act onchain continuously, but to operate capital they do not own they need two things at once: the ability to sign transactions, and enforceable limits on what they may do. A legal mandate cannot bind software executing at machine speed — the bounds must be code, evaluated on every transaction and revocable in a single block. Encoding the mandate onchain also changes what a strategy can be: instead of one template applied uniformly across a book of accounts, an agent can run *dynamic asset management* — a distinct strategy per account, continuously calibrated to each owner's balance, risk tolerance, time horizon, and liquidity needs.
@@ -233,7 +235,7 @@ Contributions are welcome. `main` is protected and changes land via pull request
 
 ## Security
 
-The protocol has undergone independent, AI-driven security analysis by Octane Security across multiple reviews during pre-launch; all findings have been resolved or acknowledged. Full reports and the security log are in [docs/security](./docs/security/).
+The core contracts and shared permission templates were reviewed by Octane Security across multiple analyses during pre-launch; all reported vulnerabilities have been resolved or acknowledged, and the remaining lower-severity warnings are documented or accepted by design. The most recent analysis (2026-06-29) identified no critical- or high-severity findings. Full reports and the security log are in [docs/security](./docs/security/).
 
 To report a vulnerability: hello@sail.money. Please do not open public issues for security reports.
 
