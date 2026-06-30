@@ -201,7 +201,7 @@ contract BatchDispatchTest is Test {
     uint256 internal constant DEFAULT_CAP  = 1_000 ether;
 
     /// @dev V2 consuming calldata: amountIn at word 0 (so requireAmountMatch holds), path[0] is the
-    ///      consumed asset (== approved token), `to` unconstrained (requireRecipientIsAccount off).
+    ///      consumed asset (== approved token), `to` == the account (satisfies the default recipient pin).
     function _swapData(uint256 amountIn) internal view returns (bytes memory) {
         address[] memory path = new address[](2);
         path[0] = address(tokenA);

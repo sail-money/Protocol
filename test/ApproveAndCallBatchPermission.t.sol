@@ -93,7 +93,9 @@ contract ApproveAndCallBatchPermissionTest is Test {
         cfg.consumingPairs = pairs;
         cfg.maxApprovalAmounts = new uint256[](1); cfg.maxApprovalAmounts[0] = CAP;
         cfg.requireAmountMatch = reqAmount;
-        cfg.requireRecipientIsAccount = reqRecipient;
+        // The helper's `reqRecipient` keeps its intent (true = pin recipient to account). The config
+        // field is now the opt-OUT `allowUnconstrainedRecipient`, so translate: pin ⇔ not-opted-out.
+        cfg.allowUnconstrainedRecipient = !reqRecipient;
         batchPerm.configureDirect(ACCOUNT, abi.encode(cfg));
     }
 
@@ -264,9 +266,25 @@ contract ApproveAndCallBatchPermissionTest is Test {
     // ── T-1 mode OFF: recipient unconstrained (documents the boundary) ───────────
 
     function test_RecipientMode_Off_RecipientUnconstrained() public {
+        // Explicit opt-out: reqRecipient=false makes the helper set allowUnconstrainedRecipient=true.
         _configure(_pairs1(ROUTERA, SWAP_V2), false, false);
-        // Output goes to OTHER, not the account — still passes with the mode OFF.
-        assertTrue(_eval(ROUTERA, _swapV2(OTHER)), "mode OFF: output recipient is unconstrained");
+        // Output goes to OTHER, not the account — still passes once the operator explicitly opts out.
+        assertTrue(_eval(ROUTERA, _swapV2(OTHER)), "explicit opt-out: output recipient is unconstrained");
+    }
+
+    /// @dev DEFAULT posture: a config that does NOT set `allowUnconstrainedRecipient` (left at its
+    ///      zero/false default) pins the recipient to the account — fail-closed by default. Leaving
+    ///      the recipient unconstrained now requires the explicit opt-out exercised in the test above.
+    function test_RecipientPinnedByDefault() public {
+        ApproveAndCallBatchPermission.Config memory cfg;
+        cfg.tokens = new address[](1);             cfg.tokens[0] = TOKEN;
+        cfg.spenders = new address[](1);           cfg.spenders[0] = ROUTERA;
+        cfg.consumingPairs = _pairs1(ROUTERA, SWAP_V2);
+        cfg.maxApprovalAmounts = new uint256[](1); cfg.maxApprovalAmounts[0] = CAP;
+        // requireAmountMatch and allowUnconstrainedRecipient deliberately left at zero (false).
+        batchPerm.configureDirect(ACCOUNT, abi.encode(cfg));
+        assertTrue(_eval(ROUTERA, _swapV2(ACCOUNT)), "default: recipient==account passes");
+        assertFalse(_eval(ROUTERA, _swapV2(OTHER)),  "default: recipient!=account denied (pinned by default)");
     }
 
     // ── bounds safety: a too-short payload fails closed under recipient mode ──────
@@ -495,7 +513,7 @@ contract ApproveAndCallBatchPermissionTest is Test {
     }
 
     // Shape 3 — aggregator / opaque consuming selector: the consumed asset cannot be located, so the
-    // call is denied (fail closed) even with requireRecipientIsAccount OFF — not just under the mode.
+    // call is denied (fail closed) even when the recipient pin is opted out — not just under the pin.
     function test_Sec7_NonDecodableSelector_FailsClosed_ModeOff() public {
         _configure(_pairs1(ROUTERA, EXACT_INPUT), false, false);
         bytes memory opaque = abi.encodeWithSelector(EXACT_INPUT, ACCOUNT, ACCOUNT, ACCOUNT, ACCOUNT, ACCOUNT);
