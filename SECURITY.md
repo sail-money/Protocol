@@ -1,6 +1,6 @@
 # Security Policy
 
-The Sail Protocol core contracts and shared permission templates were reviewed by Octane Security across multiple analyses during pre-launch; all findings have been resolved or acknowledged, and the most recent analysis (2026-06-29) identified no critical- or high-severity findings. The full reports and security log are in [docs/security](./docs/security/).
+The Sail Protocol core contracts and shared permission templates were reviewed by Octane Security across multiple analyses during pre-launch; all reported vulnerabilities have been resolved or acknowledged, the remaining lower-severity warnings are documented or accepted by design, and the most recent analysis (2026-06-29) identified no critical- or high-severity findings. The full reports and security log are in [docs/security](./docs/security/).
 
 ## Reporting a vulnerability
 

@@ -1,6 +1,6 @@
 # Security
 
-The Sail Protocol core contracts and shared permission templates were reviewed by Octane Security ([www.octane.security](https://www.octane.security)) across multiple analyses during pre-launch; all findings have been resolved or acknowledged. The full reports are below.
+The Sail Protocol core contracts and shared permission templates were reviewed by Octane Security ([www.octane.security](https://www.octane.security)) across multiple analyses during pre-launch; all reported vulnerabilities have been resolved or acknowledged, and the remaining lower-severity warnings are documented or accepted by design. The full reports are below.
 
 ## Reports
 
