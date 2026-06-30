@@ -14,8 +14,6 @@ These analyses are one part of the protocol's pre-launch security process, along
 
 The most recent review (2026-06-29) reflects the current state of the analyzed code; earlier reviews are retained for transparency.
 
-> The report links download the PDF directly. GitHub's in-browser preview cannot render large PDFs, so open the downloaded file in a PDF reader (the bytes are intact — SHA-256 verified).
-
 ## Reporting a vulnerability
 
 To report a vulnerability: hello@sail.money. Please do not open public issues for security reports.
