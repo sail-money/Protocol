@@ -261,6 +261,8 @@ Both are outside the protocol's custody model. A module enabled on the Safe can 
 
 Fee collection is additionally bounded even under such a misconfiguration: `collectFees` pays only the recipient configured by the fee policy (never the caller), the amount is capped by the policy's computed maximum, and collection frequency is rate-limited by the policy's minimum collection interval. Under the self-managed model (`feeManager == owner`) the recipient is the owner, so a module-triggered collection pays the owner.
 
+The same fallback-handler requirement extends to a Safe used as a `permissionSigner`. The advisory counters `recordDeposit` / `recordWithdrawal` authorize on `msg.sender == permissionSigner`, so a `permissionSigner` Safe that sets the kernel as its fallback handler could have those counters inflated by a relayed call. These counters are informational only — no on-chain logic (fee, NAV, or limit) reads them — so the effect is confined to off-chain accounting, and the single requirement (never set the kernel as any Sail-related Safe's fallback handler) prevents it.
+
 ---
 
 ## Design Decisions and Documented Limitations
