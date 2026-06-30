@@ -776,4 +776,85 @@ contract SailGovernanceTest is Test {
         vm.prank(TEAM);
         tl.execute(address(gov), 0, data, bytes32(0), salt);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // pause()/unpause() calldata-length guard (reject fallback-relayed calls)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev A genuine selector-only call from the emergency admin succeeds (positive control).
+    function test_Pause_SelectorOnly_Succeeds() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        assertTrue(gov.isPaused());
+    }
+
+    function test_Unpause_SelectorOnly_Succeeds() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        assertFalse(gov.isPaused());
+    }
+
+    /// @dev Simulate a Safe FallbackManager relay: selector + 20 appended caller bytes. The call
+    ///      comes from the emergency admin (so onlyEmergencyAdmin passes) but carries 24 bytes, so
+    ///      the length guard rejects it. A relay can never shrink the payload back to 4 bytes.
+    function test_Pause_RelayedCalldata_Reverts() public {
+        bytes memory relayed = abi.encodePacked(gov.pause.selector, bytes20(uint160(EMERGENCY_ADMIN)));
+        vm.prank(EMERGENCY_ADMIN);
+        (bool ok, bytes memory ret) = address(gov).call(relayed);
+        assertFalse(ok, "relayed pause must revert");
+        assertEq(bytes4(ret), SailGovernance.UnexpectedCalldataLength.selector);
+    }
+
+    function test_Unpause_RelayedCalldata_Reverts() public {
+        // Establish an active pause first via a genuine call, so we prove the relay is rejected by
+        // the length guard and not by some prior state.
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        bytes memory relayed = abi.encodePacked(gov.unpause.selector, bytes20(uint160(EMERGENCY_ADMIN)));
+        vm.prank(EMERGENCY_ADMIN);
+        (bool ok, bytes memory ret) = address(gov).call(relayed);
+        assertFalse(ok, "relayed unpause must revert");
+        assertEq(bytes4(ret), SailGovernance.UnexpectedCalldataLength.selector);
+        assertTrue(gov.isPaused(), "pause remains in effect");
+    }
+
+    /// @dev The guard must not disturb the cooldown anti-griefing behavior: pause → early unpause →
+    ///      immediate re-pause still reverts on the running cooldown.
+    function test_Guard_DoesNotDisturbCooldown() public {
+        vm.prank(EMERGENCY_ADMIN);
+        gov.pause();
+        uint256 pausedAt = gov.lastPauseTimestamp();
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(EMERGENCY_ADMIN);
+        gov.unpause();
+        // Precompute the cooldown end BEFORE pranking — a view call between vm.prank and gov.pause()
+        // would otherwise consume the prank.
+        uint256 cooldownEnd = pausedAt + gov.PAUSE_COOLDOWN();
+        vm.prank(EMERGENCY_ADMIN);
+        vm.expectRevert(abi.encodeWithSelector(SailGovernance.PauseCooldown.selector, cooldownEnd));
+        gov.pause();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // rotateTimelockRoles is non-functional under a self-administered timelock
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev The helper always reverts: only the timelock holds DEFAULT_ADMIN_ROLE over its roles,
+    ///      and the inner grant/revoke would be made by this contract, not the timelock.
+    function test_RotateTimelockRoles_AlwaysReverts() public {
+        TimelockController tl = gov.timelock();
+        vm.prank(address(tl)); // satisfies onlyTimelock
+        vm.expectRevert(SailGovernance.TimelockMustSelfAdministerRoles.selector);
+        gov.rotateTimelockRoles(TEAM, ALICE);
+    }
+
+    /// @dev The correct handoff — granting the three roles via timelock self-calls, then
+    ///      acceptGovernance — works without rotateTimelockRoles. (Mirrors _rotateAndAccept.)
+    function test_CorrectHandoff_WithoutRotateHelper_Succeeds() public {
+        _timelockExec(abi.encodeCall(gov.proposeGovernance, (ALICE)));
+        _rotateAndAccept(ALICE);
+        assertEq(gov.governance(), ALICE);
+    }
 }

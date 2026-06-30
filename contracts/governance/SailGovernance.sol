@@ -355,8 +355,10 @@ contract SailGovernance {
     error SameAddress();
 
     /// @dev Thrown by `acceptGovernance` when the candidate does not yet hold PROPOSER_ROLE
-    ///      on the timelock. `rotateTimelockRoles` must be executed before `acceptGovernance`
-    ///      can complete, eliminating the window where old governance retains timelock keys.
+    ///      on the timelock. The candidate's three timelock roles must be rotated to it (via
+    ///      scheduled timelock self-calls — see `rotateTimelockRoles` NatSpec) before
+    ///      `acceptGovernance` can complete, eliminating the window where old governance retains
+    ///      timelock keys.
     error RolesNotYetRotated();
 
     /// @dev Thrown when `pause()` is called before PAUSE_COOLDOWN has elapsed since the last pause.
@@ -388,6 +390,18 @@ contract SailGovernance {
     ///      roles or alter the delay outside the timelock process, so it is rejected.
     ///      See the constructor NatSpec for the detection limitation.
     error TimelockNotSelfAdministered();
+
+    /// @dev Thrown by `pause`/`unpause` when msg.data is not the exact selector-only length (4).
+    ///      Both are zero-argument; a Safe FallbackManager relay appends the caller's 20 bytes, so
+    ///      any length other than 4 flags a fallback-relayed call (which a relay can never shrink
+    ///      back to 4, since the relayed payload is at least selector + 20 bytes).
+    error UnexpectedCalldataLength();
+
+    /// @dev Thrown by `rotateTimelockRoles`, which is non-functional under a self-administered
+    ///      timelock: the inner grant/revoke calls are made by this contract, but only the timelock
+    ///      holds DEFAULT_ADMIN_ROLE over the roles. Roles are rotated by scheduling timelock
+    ///      self-calls instead — see the function NatSpec.
+    error TimelockMustSelfAdministerRoles();
 
     // -------------------------------------------------------------------------
     // Modifiers
@@ -529,15 +543,17 @@ contract SailGovernance {
     ///         storage variable but does NOT yet hold `PROPOSER_ROLE` or `EXECUTOR_ROLE` on
     ///         the TimelockController (those roles remain with the old governance).
     ///         Before or concurrent with the two-step transfer, the current governance MUST
-    ///         schedule and execute a `rotateTimelockRoles(newGovernance)` call via the
-    ///         timelock to hand over scheduling and execution rights. Failure to do so leaves
-    ///         the new governance unable to enact any timelocked parameter changes.
+    ///         rotate the three timelock roles (`PROPOSER_ROLE` / `EXECUTOR_ROLE` /
+    ///         `CANCELLER_ROLE`) to the candidate by scheduling timelock SELF-calls (target ==
+    ///         the timelock), since only the timelock holds `DEFAULT_ADMIN_ROLE` over its own
+    ///         roles. Failure to do so leaves the new governance unable to enact any timelocked
+    ///         parameter changes.
     ///
     ///         Recommended sequence:
     ///           1. Current governance calls `proposeGovernance(candidate)`.
-    ///           2. Current governance schedules `rotateTimelockRoles(candidate)` via the
-    ///              timelock (48-hour delay).
-    ///           3. After 48 hours, current governance executes `rotateTimelockRoles`.
+    ///           2. Current governance schedules timelock self-calls (48-hour delay) that grant
+    ///              the three roles to the candidate and revoke them from the outgoing governance.
+    ///           3. After 48 hours, current governance executes those self-calls.
     ///           4. Candidate calls `acceptGovernance()` to finalise the transfer.
     ///
     /// @param  candidate Address being nominated as the next governance.
@@ -553,9 +569,10 @@ contract SailGovernance {
     /// @notice Step 2: nominated address accepts, completing the transfer.
     /// @dev    Clears `pendingGovernance` after the transfer. See `proposeGovernance` for the
     ///         required timelock role rotation procedure that must precede this call.
-    ///         Requires that `rotateTimelockRoles` has already been executed — i.e., the
-    ///         candidate already holds PROPOSER_ROLE on the timelock. This eliminates the
-    ///         window where old governance retains timelock scheduling rights after handoff.
+    ///         Requires that the candidate's timelock roles have already been rotated (via the
+    ///         scheduled timelock self-calls) — i.e., the candidate already holds PROPOSER_ROLE
+    ///         on the timelock. This eliminates the window where old governance retains timelock
+    ///         scheduling rights after handoff.
     function acceptGovernance() external {
         if (msg.sender != pendingGovernance) revert NotPendingGovernance();
         // Enforce that rotateTimelockRoles was called before acceptGovernance, preventing
@@ -572,29 +589,20 @@ contract SailGovernance {
         emit GovernanceTransferred(previous, governance);
     }
 
-    /// @notice Rotate PROPOSER_ROLE and EXECUTOR_ROLE on the timelock from `oldGov` to `newGov`.
-    /// @dev    Must be called via the 48-hour timelock (scheduled by the current PROPOSER).
-    ///         Intended to be executed as part of a governance handoff — grants roles to the
-    ///         incoming governance and revokes them from the outgoing governance in one atomic
-    ///         operation.
+    /// @notice Non-functional under a self-administered timelock; always reverts. Retained only to
+    ///         document the correct role-rotation procedure.
+    /// @dev    The timelock holds its own DEFAULT_ADMIN_ROLE (admin == address(0) in its
+    ///         constructor), so AccessControl permits role changes only when the CALLER is the
+    ///         timelock. This function's inner grant/revoke calls would be made by this contract,
+    ///         which does not hold that admin role — so they revert. Rather than expose a helper
+    ///         that fails at handoff time, it reverts immediately.
     ///
-    ///         The timelock holds its own DEFAULT_ADMIN_ROLE (admin=address(0) in constructor),
-    ///         so only the timelock itself can grant or revoke roles. This function provides a
-    ///         safe entry point for that operation.
-    ///
-    /// @param  oldGov Address to revoke PROPOSER_ROLE and EXECUTOR_ROLE from.
-    /// @param  newGov Address to grant PROPOSER_ROLE and EXECUTOR_ROLE to.
-    function rotateTimelockRoles(address oldGov, address newGov) external onlyTimelock {
-        if (newGov == address(0)) revert ZeroAddress();
-        bytes32 proposer  = timelock.PROPOSER_ROLE();
-        bytes32 executor  = timelock.EXECUTOR_ROLE();
-        bytes32 canceller = timelock.CANCELLER_ROLE();
-        timelock.grantRole(proposer,  newGov);
-        timelock.grantRole(executor,  newGov);
-        timelock.grantRole(canceller, newGov);
-        timelock.revokeRole(proposer,  oldGov);
-        timelock.revokeRole(executor,  oldGov);
-        timelock.revokeRole(canceller, oldGov);
+    ///         CORRECT HANDOFF: schedule timelock SELF-calls (target == address(timelock)) that
+    ///         grant PROPOSER_ROLE / EXECUTOR_ROLE / CANCELLER_ROLE to the incoming governor and
+    ///         revoke them from the outgoing one; once the candidate holds all three, it calls
+    ///         `acceptGovernance()`.
+    function rotateTimelockRoles(address, address) external view onlyTimelock {
+        revert TimelockMustSelfAdministerRoles();
     }
 
     // -------------------------------------------------------------------------
@@ -643,6 +651,10 @@ contract SailGovernance {
     /// @notice Pause the kernel for up to 72 hours. Can be called without a timelock delay.
     ///         Subject to a PAUSE_COOLDOWN between consecutive calls to prevent spam.
     function pause() external onlyEmergencyAdmin {
+        // Reject fallback-relayed calls: pause() is zero-argument, so a direct call is exactly the
+        // 4-byte selector. A Safe fallback relay appends the caller's 20 bytes (>= 24 total), which
+        // can never equal 4 — so this guard cannot be bypassed by sizing the relayed payload.
+        if (msg.data.length != 4) revert UnexpectedCalldataLength();
         if (lastPauseTimestamp != 0 && block.timestamp < lastPauseTimestamp + PAUSE_COOLDOWN)
             revert PauseCooldown(lastPauseTimestamp + PAUSE_COOLDOWN);
         lastPauseTimestamp = block.timestamp;
@@ -658,6 +670,9 @@ contract SailGovernance {
     ///         the remaining cooldown before it can pause again; recovery paths (`setManager`, the
     ///         revoke* family) are pause-exempt regardless, so this never blocks owner recovery.
     function unpause() external onlyEmergencyAdmin {
+        // Reject fallback-relayed calls (see pause()): unpause() is zero-argument, so a direct call
+        // is exactly the 4-byte selector and a relay (>= 24 bytes) can never match.
+        if (msg.data.length != 4) revert UnexpectedCalldataLength();
         pauseExpiry = 0;
         emit Unpaused();
     }

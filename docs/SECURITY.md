@@ -263,6 +263,8 @@ Fee collection is additionally bounded even under such a misconfiguration: `coll
 
 The same fallback-handler requirement extends to a Safe used as a `permissionSigner`. The advisory counters `recordDeposit` / `recordWithdrawal` authorize on `msg.sender == permissionSigner`, so a `permissionSigner` Safe that sets the kernel as its fallback handler could have those counters inflated by a relayed call. These counters are informational only — no on-chain logic (fee, NAV, or limit) reads them — so the effect is confined to off-chain accounting, and the single requirement (never set the kernel as any Sail-related Safe's fallback handler) prevents it.
 
+It also extends to the configurable permission templates. Their direct (unsigned) paths — `configureDirect` and `setAgentIdentityDirect` — authorize on `msg.sender == permissionSigner`. If a `permissionSigner` Safe sets a template as its fallback handler, a crafted external call could be relayed to reconfigure the account (e.g. widen recipient/router allowlists), which an adversarial manager could then exploit. **Operator requirement:** never set a permission template as a `permissionSigner` Safe's fallback handler. A contract/Safe signer should configure through the signed paths (`configure` / `setAgentIdentity`, verified by EIP-712 / ERC-1271), which a relay cannot forge; the direct paths are a convenience for an EOA signer. As with the kernel and policy, the dangerous state is an attacker-uninducible misconfiguration, not a default.
+
 ---
 
 ## Design Decisions and Documented Limitations
@@ -296,6 +298,8 @@ The protocol/distributor cut floor-divide a manager-chosen `grossFee` (only `gro
 ### Permissionless `configure` submission / mempool griefing (accepted, by design)
 
 `MandateFactory` is the untrusted UX orchestrator; it holds no privilege, and every inner call is independently signature-authenticated. A submitter cannot change *what* is configured, only *when* a pre-signed bundle lands. A mempool observer replaying a revealed `configureSig` can consume the per-account config nonce so the factory's configure → register bundle reverts, but the resulting state is benign (no permission activated) and recovery needs no new signature (submit `register*` directly with the existing kernel signature). Same family as the replayable-manager-signature limitation above.
+
+The factory's configure → register (and the `replace`) bundle is **two independently signed legs**: the template `configureSig` and the kernel registration signature, which does **not** bind the config params. A mempool observer can therefore front-run the kernel leg. Every outcome is recoverable and stays within the signer-approved envelope: either an older same-epoch config the signer already authorized activates, or the permission ends up **registered-but-unconfigured** — in which case evaluation **fails closed** (the template's `isConfigured` + epoch freshness gate denies every dispatch) until a single `configure()` is applied. To tighten an existing permission's bounds atomically, use `replacePermission` rather than reconfiguring in place; to avoid the race entirely, submit the bundle via private orderflow. This is accepted and documented; binding the config into the kernel registration signature would expand the trusted core and is deliberately not done.
 
 ### `Safe.setup` delegatecall target is codehash-pinned (resolved in code)
 
