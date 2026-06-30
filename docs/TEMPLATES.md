@@ -53,8 +53,8 @@ Each of the seven follows the same four-part structure:
 **Purpose.** Gate DEX swaps to allowlisted tokens and routers, within a size cap, with a slippage floor measured against an **independent price oracle** (not the pool being traded).
 
 **What you configure.**
-- `routers[]`, `tokensIn[]`, `tokensOut[]` — the allowlists of which router contracts and which input/output tokens are permitted.
-- `maxAmountPerTx` — the cap on the input amount per single trade. (Per trade, not cumulative.)
+- `routers[]`, `tokensIn[]`, `tokensOut[]` — the allowlists of which router contracts and which input/output tokens are permitted. Each list is capped at **50 entries** (matching the other launch templates); a longer list reverts `AllowlistTooLong` at configure time.
+- `maxAmountPerTx` — the cap on the input amount per single trade. (Per trade, not cumulative.) It is a single **raw-unit** cap applied uniformly to every allowlisted input token, so it does **not** normalize for token decimals: a value sized for an 18-decimal asset permits a far larger token count for a low-decimal asset (a `5e18` cap is 5 tokens of an 18-decimal asset but 5,000,000,000,000 tokens of a 6-decimal asset). This is a deliberate, oracle-free tradeoff — value still stays in the account and the per-trade bound still holds in raw units. Operators mixing tokens of different decimals under one instance should size the cap for the **lowest-decimal** asset, or use a separate instance per decimal class.
 - `maxSlippageBps` — how far below the oracle-implied output the trade's minimum-out may sit, in basis points (0–9,999). `0` means "exact oracle price or better" — the strictest setting, never a bypass.
 - `priceOracle` — an injected `IOracle` adapter. **Mandatory:** configuring without one reverts (`OracleRequired`). This is deliberately *not* the pool being traded, so the price reference is independent of the spot price an attacker could move.
 - `maxPriceAgeSec` — how old the oracle's price may be before it is rejected. Must be non-zero whenever an oracle is set (a zero would silently accept arbitrarily stale prices).
@@ -80,7 +80,7 @@ Each of the seven follows the same four-part structure:
 **Purpose.** Gate swaps for tokens that have **no independent price feed**, using a sanity band measured against an operator-named **reference pool's live price**. This is the non-oracle tier; for manipulation-resistant pricing use `SwapPermission` instead. It is **not** zero protection, and it is **not** a slippage defense — read the boundary carefully.
 
 **What you configure.**
-- `routers[]`, `tokensIn[]`, `tokensOut[]`, `maxAmountPerTx` — same meaning as `SwapPermission`.
+- `routers[]`, `tokensIn[]`, `tokensOut[]`, `maxAmountPerTx` — same meaning as `SwapPermission` (allowlists capped at 50 entries; `maxAmountPerTx` is the same single raw-unit, decimal-unnormalized per-trade cap — see the mixed-decimal note above). The per-pair `referencePools` set is **not** separately capped: with the token lists capped at 50, the (tokensIn × tokensOut) coverage requirement already bounds it.
 - A **reference pool per tradeable pair** — each entry is the pool's address, an operator-declared kind (`V2` or `V3`), and a per-pair tolerance band in basis points (capped at 50%). Configuration is strict: every tradeable (tokenIn, tokenOut) pair must have a reference pool whose two tokens actually match the pair (orientation is fixed at configure time), each tolerance ≤ 50%, and each pool non-zero — otherwise `configure()` reverts. Surfacing a gap at configure time is clearer than silent denials later.
 
 **How evaluation decides** (in order):
