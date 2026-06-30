@@ -42,15 +42,15 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///         closed); optionally that the consuming call's leading uint256 argument equals the approved
 ///         amount (requireAmountMatch); and that calls[2] resets the same token/spender allowance to
 ///         zero. Because the consumed asset must be decodable, the consuming selector is restricted to
-///         the decodable set below regardless of requireRecipientIsAccount.
+///         the decodable set below regardless of the recipient-pin setting.
 ///
-///         OUTPUT RECIPIENT (requireRecipientIsAccount). The consuming call's output destination
-///         is, by default, NOT constrained — see the honest boundary below. The OPTIONAL
-///         per-account mode `requireRecipientIsAccount` tightens this: when ON, the consuming
-///         call's output recipient is decoded and must equal the account. Because a recipient can
-///         only be located for selectors whose calldata layout places it at a known fixed offset,
-///         the mode covers a specific decodable set and DENIES every other consuming selector
-///         (fail closed). The decodable set is:
+///         OUTPUT RECIPIENT (allowUnconstrainedRecipient). By DEFAULT the consuming call's output
+///         recipient is decoded and must equal the account — the safe, fail-closed posture. Because a
+///         recipient can only be located for selectors whose calldata layout places it at a known
+///         fixed offset, the default pin covers a specific decodable set and DENIES every other
+///         consuming selector (fail closed). An operator may set the OPT-OUT flag
+///         `allowUnconstrainedRecipient = true` to deliberately leave the output recipient
+///         unconstrained (e.g. to authorize a selector outside the decodable set). The decodable set is:
 ///           - swapExactTokensForTokens(uint256,uint256,address[],address,uint256)   — `to`
 ///           - exactInputSingle(...)  (Uniswap V3 SwapRouter, with deadline)         — `recipient`
 ///           - exactInputSingle(...)  (Uniswap SwapRouter02, no deadline)            — `recipient`
@@ -60,19 +60,19 @@ import {ConfigurablePermission}                 from "./ConfigurablePermission.s
 ///           - mint(uint256,address)    (ERC-4626)                                   — `receiver`
 ///         Selectors whose recipient is nested behind a dynamic offset or inside an opaque blob —
 ///         e.g. Uniswap V3 exactInput (dynamic `bytes path`), the Universal Router execute, or
-///         bridge/aggregator calldata — are intentionally NOT decoded and DENY under this mode.
-///         OPERATORS SHOULD PREFER requireRecipientIsAccount = true whenever every consuming
-///         selector they authorize is in the decodable set; it is the safer configuration.
+///         bridge/aggregator calldata — are intentionally NOT decoded and DENY under the default pin.
+///         The default pin is the safer configuration; opt out only when an authorized consuming
+///         selector falls outside the decodable set and an unconstrained recipient is intended.
 ///
-///         HONEST BOUNDARY — what it does NOT do. With requireRecipientIsAccount OFF (the default),
-///         the output recipient of the consuming call is UNCONSTRAINED: the bracket bounds how much
-///         the spender may pull (≤ the cap), binds that pull to the approved (token, spender), and
-///         guarantees the allowance is reset to zero, but it does NOT constrain where the consuming
-///         call delivers its output. With the mode ON, the output recipient is additionally pinned to
-///         the account. Either way the consuming selector must be in the decodable set above (so the
-///         consumed asset can be bound); any other selector is denied, and the operator must still
-///         understand which consuming calls they authorize. This template does not inspect token
-///         balances or post-conditions.
+///         HONEST BOUNDARY — what it does NOT do. With `allowUnconstrainedRecipient = true` (a
+///         deliberate opt-out), the output recipient of the consuming call is UNCONSTRAINED: the
+///         bracket bounds how much the spender may pull (≤ the cap), binds that pull to the approved
+///         (token, spender), and guarantees the allowance is reset to zero, but it does NOT constrain
+///         where the consuming call delivers its output. Under the DEFAULT (flag false), the output
+///         recipient is pinned to the account. Either way the consuming selector must be in the
+///         decodable set above (so the consumed asset can be bound); any other selector is denied
+///         under the default pin, and the operator must still understand which consuming calls they
+///         authorize. This template does not inspect token balances or post-conditions.
 ///
 ///         CONFIG FRESHNESS (fail-closed). evaluateBatch denies unless this account is configured AND
 ///         its stored config epoch equals the kernel's current registration epoch for this
@@ -159,10 +159,13 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         ///      calldata must equal the approve amount. Useful for swaps and
         ///      transfers where the consumed amount is the leading arg.
         bool      requireAmountMatch;
-        /// @dev When true, the consuming call's output recipient is decoded and must equal the
-        ///      account; consuming selectors outside the decodable set are denied (fail closed).
-        ///      When false (default), the output recipient is unconstrained.
-        bool      requireRecipientIsAccount;
+        /// @dev OPT-OUT of the recipient pin. When false (the default — i.e. a config that does not
+        ///      set this field), the consuming call's output recipient is decoded and must equal the
+        ///      account, and consuming selectors outside the decodable set are denied (fail closed).
+        ///      Set true ONLY to deliberately leave the output recipient unconstrained. The safe
+        ///      posture (recipient pinned to the account) is therefore the default; leaving the
+        ///      recipient unconstrained now requires an explicit opt-out.
+        bool      allowUnconstrainedRecipient;
     }
 
     mapping(address account => Config) private _cfg;
@@ -294,7 +297,7 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
     ///      Any deviation — wrong length, wrong token/spender, non-zero pre-batch allowance,
     ///      unauthorised (target, selector) pair, consuming target != spender, consumed asset != token,
     ///      non-decodable consuming selector, amount above cap, amount mismatch (when configured),
-    ///      recipient not the account (when requireRecipientIsAccount is on), non-zero reset, malformed
+    ///      recipient not the account (under the default pin, i.e. unless opted out), non-zero reset, malformed
     ///      calldata — causes the function to return false or revert (kernel treats either as denial).
     function evaluateBatch(Call[] calldata calls, BatchContext calldata ctx)
         external
@@ -342,7 +345,7 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
         if (!isConsumingPair[account][_pairKey(c1.target, sel)]) return false;
 
         // ── Bind the consuming call to the approved (token, spender) ──────────────────
-        // Two bindings, both unconditional (independent of requireRecipientIsAccount):
+        // Two bindings, both unconditional (independent of the recipient-pin setting):
         //   (i)  the consuming call must hit the exact spender approved in calls[0]. Combined with
         //        the pre-batch allowance==0 check above, the ONLY allowance this call can draw is the
         //        one this batch grants (≤ cap) and resets — never a stale allowance to some other
@@ -367,8 +370,10 @@ contract ApproveAndCallBatchPermission is ConfigurablePermission, IBatchPermissi
             if (consumedAmount != approveAmount) return false;
         }
 
-        // Optional: constrain where the consuming call delivers its output to the account itself.
-        if (_cfg[account].requireRecipientIsAccount) {
+        // Constrain where the consuming call delivers its output to the account itself, UNLESS the
+        // operator explicitly opted out. The pin is the default (fail-closed); opting out leaves the
+        // recipient unconstrained and is a deliberate per-account choice.
+        if (!_cfg[account].allowUnconstrainedRecipient) {
             (bool decodable, address recipient) = _decodeRecipient(sel, c1.data);
             // A selector outside the decodable set has no recipient at a known fixed offset.
             // Guessing an offset could assert a recipient that does not exist, so deny instead.
