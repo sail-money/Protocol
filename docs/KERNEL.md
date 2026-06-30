@@ -159,6 +159,7 @@ struct AccountConfig {
 - **What it does:** Sets `paused = true`. All subsequent `dispatch` and `collectFees` calls revert with `ProtocolPaused`.
 - **Events:** `Paused(by)`
 - **Errors:** `NotGovernance`
+- **Scope of intent:** pause gates the fund-moving paths (`dispatch`, `collectFees`). Account creation, registration, and policy attachment are intentionally **not** gated — they move no funds, so registering an account or attaching a policy during a pause cannot extract anything before the pause lifts (and `collectFees` stays blocked until it does).
 
 ---
 

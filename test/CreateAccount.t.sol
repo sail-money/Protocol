@@ -473,4 +473,61 @@ contract CreateAccountTest is Test {
         vm.expectRevert(SailKernel.ModuleNotEnabled.selector);
         kernel.createAccount(address(factory), SINGLETON, initNoSetup, 333, permSigner, manager, address(0), address(0));
     }
+
+    // ── 11. Safe.setup deployment-payment fields are rejected ─────────────────
+    // createAccount must not deploy a Safe whose setup() carries a non-zero payment field, which
+    // would transfer funds out of the freshly deployed proxy during deployment.
+
+    /// @dev Build an initializer enabling the kernel module, with explicit setup() payment fields.
+    function _initializerPay(address payToken, uint256 pay, address payReceiver)
+        internal view returns (bytes memory)
+    {
+        bytes memory enableData = abi.encodeWithSelector(SafeModuleEnabler.enable.selector, address(kernel));
+        return abi.encodeWithSelector(
+            SAFE_SETUP_SELECTOR,
+            _owners1(), uint256(1), address(moduleEnabler), enableData,
+            address(0), payToken, pay, payable(payReceiver)
+        );
+    }
+
+    function test_CreateAccount_RevertsOnNonZeroPaymentToken() public {
+        bytes memory init = _initializerPay(address(0xC0FFEE), 0, address(0));
+        vm.expectRevert(SailKernel.SetupPaymentNotAllowed.selector);
+        kernel.createAccount(address(factory), SINGLETON, init, 0, permSigner, manager, address(0), address(0));
+    }
+
+    function test_CreateAccount_RevertsOnNonZeroPayment() public {
+        bytes memory init = _initializerPay(address(0), 1, address(0));
+        vm.expectRevert(SailKernel.SetupPaymentNotAllowed.selector);
+        kernel.createAccount(address(factory), SINGLETON, init, 0, permSigner, manager, address(0), address(0));
+    }
+
+    function test_CreateAccount_RevertsOnNonZeroPaymentReceiver() public {
+        bytes memory init = _initializerPay(address(0), 0, address(0xBEEF));
+        vm.expectRevert(SailKernel.SetupPaymentNotAllowed.selector);
+        kernel.createAccount(address(factory), SINGLETON, init, 0, permSigner, manager, address(0), address(0));
+    }
+
+    /// @dev All three payment fields zero (the only shape honest onboarding produces) is a no-op
+    ///      for the guard: deployment + registration proceed exactly as before.
+    function test_CreateAccount_ZeroPaymentFields_Succeeds() public {
+        bytes memory init = _initializerPay(address(0), 0, address(0));
+        address account = kernel.createAccount(
+            address(factory), SINGLETON, init, 0, permSigner, manager, address(0), address(0)
+        );
+        assertTrue(kernel.registered(account), "zero-payment initializer registers normally");
+        assertTrue(ISafe(account).isModuleEnabled(address(kernel)));
+    }
+
+    /// @dev The guard is independent of the setup `to` target: a no-setup (to == 0) initializer
+    ///      carrying a non-zero payment field is still rejected.
+    function test_CreateAccount_NoSetupPath_RejectsPayment() public {
+        bytes memory init = abi.encodeWithSelector(
+            SAFE_SETUP_SELECTOR,
+            _owners1(), uint256(1), address(0), bytes(""),
+            address(0), address(0), uint256(1), payable(address(0))
+        );
+        vm.expectRevert(SailKernel.SetupPaymentNotAllowed.selector);
+        kernel.createAccount(address(factory), SINGLETON, init, 444, permSigner, manager, address(0), address(0));
+    }
 }

@@ -58,6 +58,8 @@ On reattach `StandardFeePolicy` also refreshes its per-account applied-rate snap
 
 **Zero-management reattach.** On a schedule whose management rate is `0` (or a tiny rate that floors to zero on a small NAV), the suppressed first post-reattach window would otherwise compute a zero gross fee. The kernel rejects a zero fee (`ZeroFee`), and the re-anchor flag only clears once a collection settles — so the account could never collect again. To avoid this, `computeFee` returns a minimal fee of `1` for that window so a collection can settle and clear the flag; normal pricing resumes immediately afterward. **Boundary:** if the Safe holds no balance of the configured fee asset, even this 1-unit transfer cannot settle and the account stays stuck until it is funded.
 
+**First registration with a pre-configured policy (operator step).** Registration (`createAccount` / `registerAccount` with a non-zero `feePolicy`) stores the policy and asset but does **not** call `onAttach` — registration is not a reattach, so it also does not bind the policy's asset. If the policy is a freshly deployed instance with no prior per-account accounting, this is fine. But if it is a **pre-seeded** stateful instance (one that already carries a high-water mark or `lastCollectionTimestamp` for this account from before), the first `collectFees` would bill management over the interval since that stale timestamp and performance against the stale high-water mark. To anchor a pre-seeded policy to the moment of registration, call `setFeePolicy(samePolicy)` once after registering — this triggers `onAttach` (re-anchor) and binds the asset — before the first collection.
+
 ---
 
 ## Fee Split Mechanics (in Kernel)
@@ -74,6 +76,8 @@ managerTake    = remainder - distributorCut
 ```
 
 Each non-zero component is transferred from the Safe (via `execTransactionFromModule`) to its respective recipient. If `feeToken == address(0)`, transfers are native ETH; otherwise they are ERC-20 `transfer` calls.
+
+ERC-20 transfers follow SafeERC20 semantics: a token that returns nothing is tolerated as success (some non-standard tokens, e.g. certain USDT deployments, return no data). A consequence is that the configured `feeAsset` **must be a deployed ERC-20 token contract** — a call to a non-contract address returns success with empty data, which would advance fee state while moving nothing. Only the account's trusted roles set `feeAsset`, so configure it to a real token.
 
 All arithmetic uses `Math.mulDiv` (OpenZeppelin) to prevent intermediate overflow.
 

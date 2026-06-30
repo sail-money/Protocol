@@ -556,8 +556,14 @@ contract SailKernel is EIP712, ReentrancyGuard {
     error UntrustedSingleton(address singleton);
 
     /// @dev Thrown by `createAccount` when `safeInitializer` is too short to contain the
-    ///      Safe.setup `to` field (selector + owners offset + threshold + to = 100 bytes).
+    ///      Safe.setup head words through paymentReceiver (selector + 8 head words = 260 bytes).
     error InvalidInitializer();
+
+    /// @dev Thrown by `createAccount` when `safeInitializer` carries a non-zero Safe.setup
+    ///      payment field (paymentToken / payment / paymentReceiver). Account creation must not
+    ///      perform a deployment-time transfer out of the freshly deployed proxy, which could
+    ///      skim an address funded counterfactually from an initializer its funder did not build.
+    error SetupPaymentNotAllowed();
 
     /// @dev Thrown by `createAccount` when the Safe.setup delegatecall `to` target is not
     ///      in governance's trusted module-setup allowlist.
@@ -726,10 +732,14 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (!governance.trustedSafeFactory(safeFactory))     revert UntrustedFactory(safeFactory);
         if (!governance.trustedSafeSingleton(safeSingleton)) revert UntrustedSingleton(safeSingleton);
 
-        // Enforce that the delegatecall target inside Safe.setup is an allowlisted helper.
-        // setup() ABI layout: selector(4) + owners_offset(32) + threshold(32) + to(32) + ...
-        // 'to' is at bytes [68:100].
-        if (safeInitializer.length < 100) revert InvalidInitializer();
+        // Parse Safe.setup head words. setup() ABI layout (selector + 8 fixed head words):
+        //   selector(4) | owners_off[4:36] | threshold[36:68] | to[68:100] | data_off[100:132]
+        //   | fallbackHandler[132:164] | paymentToken[164:196] | payment[196:228]
+        //   | paymentReceiver[228:260]
+        // Require the full head region so both `to` (allowlist gate below) and the payment fields
+        // (rejected below) are in bounds. Honest setup() calldata is always longer than this — the
+        // dynamic owners/data tails follow the head — so this never blocks a legitimate caller.
+        if (safeInitializer.length < 260) revert InvalidInitializer();
         address setupTarget = address(uint160(uint256(bytes32(safeInitializer[68:100]))));
         // address(0) means no delegatecall (vanilla Safe.setup) — always safe, no allowlist check needed.
         if (setupTarget != address(0) && !governance.trustedModuleSetup(setupTarget)) revert UntrustedModuleSetup(setupTarget);
@@ -742,6 +752,21 @@ contract SailKernel is EIP712, ReentrancyGuard {
         if (setupTarget != address(0) && setupTarget.codehash != EXPECTED_SETUP_CODEHASH) {
             revert UntrustedModuleSetupCodehash(setupTarget);
         }
+
+        // Reject Safe.setup's optional deployment-payment fields. When `payment` is non-zero,
+        // Safe.setup transfers funds out of the just-deployed proxy at deployment time (ERC-20 to
+        // paymentReceiver, or native ETH to tx.origin when paymentReceiver == 0). Because these
+        // fields are part of the initializer and the initializer is folded into the account's
+        // CREATE2 address, an address funded counterfactually from an initializer its funder did
+        // not construct could be skimmed here. Account creation must carry no hidden outflow, so
+        // any non-zero payment field is rejected (fail-closed). Comparing the full head word to 0
+        // (rather than decoding to address) also rejects dirty high bytes. These words are
+        // independent of `to`, so the no-setup (setupTarget == 0) path is gated identically.
+        if (
+            uint256(bytes32(safeInitializer[164:196])) != 0 || // paymentToken
+            uint256(bytes32(safeInitializer[196:228])) != 0 || // payment
+            uint256(bytes32(safeInitializer[228:260])) != 0    // paymentReceiver
+        ) revert SetupPaymentNotAllowed();
 
         uint256 boundSalt = uint256(keccak256(abi.encode(saltNonce, msg.sender, permissionSigner, manager, feePolicy)));
 
