@@ -1,0 +1,240 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-07-01",
+  "protocol": "Sail Protocol",
+  "create2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  "canonicalAddresses": {
+    "core": {
+      "Timelock": "0xC1E5F9A581D4100Aa949f80204540a33aD97A7b6",
+      "SailGovernance": "0x4315B37cA4A315A7042af1Fcb37F8436f4D24356",
+      "SailKernel": "0x38b508756c976e876EFF05a29E731A4d348BA6ED",
+      "MandateFactory": "0x6d2C802ffa0d9A8Ed69A5Bf22c1b63ccB566B8Fc",
+      "StandardFeePolicy": "0x1087312447C8a2BfA15EB9cE23590E3502DBA04b",
+      "SafeModuleEnabler": "0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F"
+    },
+    "sharedTemplates": {
+      "ApproveAndCallBatchPermission": "0x0535A4D51333484ef583103DAB1a9449756ab732",
+      "BorrowPermission": "0x3e2666051599223cEAb10De55C89A0842857d8AF",
+      "DepositPermission": "0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f",
+      "SwapPermission": "0x35cEEa0db96997Cc3CF3beB42FFa36A499342F7C",
+      "SwapPermissionNoOracle": "0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519",
+      "TransferPermission": "0xda909a1CC584fb7559Ce4A828b008B473Da095e1",
+      "WithdrawPermission": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8"
+    }
+  },
+  "governance": {
+    "adminSafe": {
+      "address": "0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C",
+      "threshold": "3/5",
+      "role": "parameter governance behind 48h timelock"
+    },
+    "treasurySafe": {
+      "address": "0x7b37F85575F1568a37dBA342BC5FE6d393F0872f",
+      "threshold": "3/5",
+      "role": "protocol fee recipient"
+    },
+    "emergencySafe": {
+      "address": "0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961",
+      "threshold": "2/3",
+      "role": "emergency pause (auto-expiry + cooldown)"
+    },
+    "deployerEOA": {
+      "address": "0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6",
+      "role": "deployment only; holds no protocol authority"
+    }
+  },
+  "fees": {
+    "permissionRegistrationFee": {
+      "capWei": "10000000000000000",
+      "capNote": "0.01 native-unit ceiling; immutable, applies per 18-decimal native token; enforced in SailGovernance",
+      "mechanismNote": "flat native-token fee per permission registration; excess msg.value refunded; the active rate is a governance parameter (tunable post-deploy via the 48h timelock, not a constructor immutable), which is why it can vary per chain while contract addresses stay identical. The perChainActive values below are the deploy-time initial rates recorded in the per-chain manifests (initialPermissionRegistrationFee).",
+      "perChainActive": {
+        "1": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "10": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "56": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "BNB",
+          "activeLabel": "0.00015 BNB"
+        },
+        "130": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "480": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "999": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "HYPE",
+          "activeLabel": "0.00015 HYPE"
+        },
+        "4326": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "8453": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "42161": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "84532": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        },
+        "11155111": {
+          "activeWei": "150000000000000",
+          "nativeSymbol": "ETH",
+          "activeLabel": "0.00015 ETH"
+        }
+      }
+    },
+    "protocolCutOnManagerFees": {
+      "activeBps": 0,
+      "capBps": 2500,
+      "note": "0 at launch; cap 25%, immutable"
+    }
+  },
+  "chains": [
+    {
+      "name": "Ethereum",
+      "chainId": 1,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 25432741,
+      "templatesDeployBlock": 25433597,
+      "explorerVerified": true,
+      "manifest": "deployments/1/core.json",
+      "templatesManifest": "deployments/1/templates.shared.json"
+    },
+    {
+      "name": "Optimism",
+      "chainId": 10,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 153625159,
+      "templatesDeployBlock": 153630821,
+      "explorerVerified": true,
+      "manifest": "deployments/10/core.json",
+      "templatesManifest": "deployments/10/templates.shared.json"
+    },
+    {
+      "name": "Unichain",
+      "chainId": 130,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 52100873,
+      "templatesDeployBlock": 52112215,
+      "explorerVerified": true,
+      "manifest": "deployments/130/core.json",
+      "templatesManifest": "deployments/130/templates.shared.json"
+    },
+    {
+      "name": "Arbitrum",
+      "chainId": 42161,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 25432669,
+      "templatesDeployBlock": 25433628,
+      "explorerVerified": true,
+      "manifest": "deployments/42161/core.json",
+      "templatesManifest": "deployments/42161/templates.shared.json"
+    },
+    {
+      "name": "MegaETH",
+      "chainId": 4326,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 20056530,
+      "templatesDeployBlock": 20066041,
+      "explorerVerified": true,
+      "manifest": "deployments/4326/core.json",
+      "templatesManifest": "deployments/4326/templates.shared.json"
+    },
+    {
+      "name": "World",
+      "chainId": 480,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 31756901,
+      "templatesDeployBlock": 31763531,
+      "explorerVerified": true,
+      "manifest": "deployments/480/core.json",
+      "templatesManifest": "deployments/480/templates.shared.json"
+    },
+    {
+      "name": "BSC",
+      "chainId": 56,
+      "isTestnet": false,
+      "nativeSymbol": "BNB",
+      "coreDeployBlock": 107312662,
+      "templatesDeployBlock": 107337878,
+      "explorerVerified": true,
+      "manifest": "deployments/56/core.json",
+      "templatesManifest": "deployments/56/templates.shared.json"
+    },
+    {
+      "name": "Base",
+      "chainId": 8453,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 48029413,
+      "templatesDeployBlock": 48035387,
+      "explorerVerified": true,
+      "manifest": "deployments/8453/core.json",
+      "templatesManifest": "deployments/8453/templates.shared.json"
+    },
+    {
+      "name": "HyperEVM",
+      "chainId": 999,
+      "isTestnet": false,
+      "nativeSymbol": "HYPE",
+      "coreDeployBlock": 39238629,
+      "templatesDeployBlock": 39251223,
+      "explorerVerified": false,
+      "manifest": "deployments/999/core.json",
+      "templatesManifest": "deployments/999/templates.shared.json",
+      "verificationNote": "no block explorer available"
+    },
+    {
+      "name": "EthSepolia",
+      "chainId": 11155111,
+      "isTestnet": true,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 11174750,
+      "templatesDeployBlock": 11175702,
+      "explorerVerified": true,
+      "manifest": "deployments/11155111/core.json",
+      "templatesManifest": "deployments/11155111/templates.shared.json"
+    },
+    {
+      "name": "BaseSepolia",
+      "chainId": 84532,
+      "isTestnet": true,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 43539604,
+      "templatesDeployBlock": 43545056,
+      "explorerVerified": true,
+      "manifest": "deployments/84532/core.json",
+      "templatesManifest": "deployments/84532/templates.shared.json"
+    }
+  ],
+  "provenanceNote": "Deployment manifests were generated from working trees recorded with a -dirty git suffix; exact source-commit tagging + reproducible-build verification is tracked as a separate pre-launch step."
+}
