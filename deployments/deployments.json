@@ -47,62 +47,84 @@
     "permissionRegistrationFee": {
       "capWei": "10000000000000000",
       "capNote": "0.01 native-unit ceiling; immutable, applies per 18-decimal native token; enforced in SailGovernance",
-      "mechanismNote": "flat native-token fee per permission registration; excess msg.value refunded; the active rate is a governance parameter (tunable post-deploy via the 48h timelock, not a constructor immutable), which is why it can vary per chain while contract addresses stay identical. The perChainActive values below are the deploy-time initial rates recorded in the per-chain manifests (initialPermissionRegistrationFee).",
+      "mechanismNote": "Flat native-token fee per permission registration; excess msg.value refunded. Each chain has two both-true values. deployTimeActiveWei is the immutable historical constructor value recorded in the per-chain manifest (initialPermissionRegistrationFee); it is identical (0.00015) on every chain because the CREATE2 same-address property requires byte-identical constructor arguments, so a different deploy-time fee would have produced a different contract address. currentActiveWei is the live rate in effect now, which governance may change post-deploy via the 48h timelock without affecting the (already locked) address; on HyperEVM(999) and BSC(56) governance raised it after deployment. Both values are <= capWei.",
       "perChainActive": {
         "1": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "10": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "56": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "BNB",
-          "activeLabel": "0.00015 BNB"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 BNB",
+          "currentActiveWei": "450000000000000",
+          "currentActiveLabel": "0.00045 BNB",
+          "nativeSymbol": "BNB"
         },
         "130": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "480": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "999": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "HYPE",
-          "activeLabel": "0.00015 HYPE"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 HYPE",
+          "currentActiveWei": "5000000000000000",
+          "currentActiveLabel": "0.005 HYPE",
+          "nativeSymbol": "HYPE"
         },
         "4326": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "8453": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "42161": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "84532": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         },
         "11155111": {
-          "activeWei": "150000000000000",
-          "nativeSymbol": "ETH",
-          "activeLabel": "0.00015 ETH"
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         }
       }
     },

@@ -46,7 +46,8 @@ summary of the addresses, governance, fees, and per-chain metadata below, valida
 | Emergency Safe (2/3)                | `0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961` — emergency pause (auto-expiry + cooldown) |
 | Deployer EOA                        | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` — deployment only; holds no protocol authority |
 | `maxPermissionFeeWei` (cap)         | `0.01` native-unit ceiling — immutable, applies per 18-decimal native token |
-| `initialPermissionRegistrationFee`  | `0.00015` in each chain's native unit (ETH; BNB on BSC; HYPE on HyperEVM) |
+| Registration fee — deploy-time      | `0.00015` in each chain's native unit — identical on all 11 chains (CREATE2 requires byte-identical constructor args, so the address is only reproducible with the same fee) |
+| Registration fee — current (live)   | `0.00015 ETH` on the 9 ETH-gas chains; `0.005 HYPE` on HyperEVM; `0.00045 BNB` on BSC — governance-set post-deploy via the 48h timelock, which does not change the already-locked address |
 | Management / performance / distributor fees | `0` at launch (protocol-cut cap 2500 bps = 25%) |
 
 ## Shared permission template addresses (identical on every chain)

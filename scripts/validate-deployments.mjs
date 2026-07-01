@@ -6,7 +6,7 @@
 //   2. Cross-chain address parity: each canonical core + template address is
 //      byte-identical in every chain's manifest.
 //   3. Governance parity: the three Safes + deployer are identical everywhere.
-//   4. Fee-cap invariant: every perChainActive activeWei <= capWei (BigInt).
+//   4. Fee-cap invariant: every perChainActive deploy-time + current fee <= capWei (BigInt).
 //   5. Chain count: exactly 11 (9 mainnet + 2 testnet), expected chainId set.
 //   6. Exit 0 only if all assertions pass; nonzero + report otherwise.
 //
@@ -94,11 +94,14 @@ for (const [gname, field] of Object.entries(GOV_FIELD)) {
   }
 }
 
-// ---- 4. fee-cap invariant (BigInt) ------------------------------------------
+// ---- 4. fee-cap invariant (BigInt) — both deploy-time and current fees ------
 const capWei = BigInt(idx.fees.permissionRegistrationFee.capWei);
 for (const [cid, f] of Object.entries(idx.fees.permissionRegistrationFee.perChainActive)) {
-  const active = BigInt(f.activeWei);
-  if (active > capWei) fail(`[fee-cap] chain ${cid}: activeWei ${active} > capWei ${capWei}`);
+  for (const field of ['deployTimeActiveWei', 'currentActiveWei']) {
+    if (f[field] === undefined) { fail(`[fee-cap] chain ${cid}: missing ${field}`); continue; }
+    const v = BigInt(f[field]);
+    if (v > capWei) fail(`[fee-cap] chain ${cid}: ${field} ${v} > capWei ${capWei}`);
+  }
 }
 
 // ---- 5. chain count + id set -------------------------------------------------
@@ -122,7 +125,7 @@ const checks = [
   'manifests present',
   'core + template address parity across 11 chains',
   'governance (3 Safes + deployer) parity',
-  'fee-cap invariant (activeWei <= capWei)',
+  'fee-cap invariant (deploy-time + current fee <= capWei)',
   'chain count + chainId set (9 mainnet + 2 testnet)',
 ];
 console.log('Sail deployments validation');
