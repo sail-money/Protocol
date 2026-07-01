@@ -2,7 +2,7 @@
 
 This guide explains the seven permission templates that ship with Sail at launch: what each one is for, what you configure on it, **how it actually decides** whether to allow a transaction (branch by branch, in plain language), and — just as importantly — what it **cannot** protect against.
 
-It is written to be understandable without reading Solidity. For the exact source, each template's header NatSpec in `contracts/templates/` is the canonical boundary text and this guide expands on it; for the kernel and governance security model, see [`SECURITY.md`](./SECURITY.md) and [`spec.md`](./spec.md).
+It is written to be understandable without reading Solidity. For the exact source, each template's header NatSpec in `contracts/templates/` is the canonical boundary text and this guide expands on it; for the kernel and governance security model, see [`SECURITY_MODEL.md`](./SECURITY_MODEL.md) and [`spec.md`](./spec.md).
 
 ---
 
@@ -31,7 +31,7 @@ All seven templates inherit the same configuration-and-evaluation spine from a s
 
 **Evaluation is fail-closed.** Deny is the default. A template denies on a `false` return, *and* on any revert or out-of-gas — the kernel treats all three identically as "deny." There is no way for an error to accidentally allow a transaction.
 
-**The first check is always "is this configuration current?"** Every template's first decision is a freshness gate: it denies unless the account is configured **and** the configuration it has matches the *current registration epoch* for that account-and-template. In plain terms: if a permission was revoked and re-registered, any configuration left over from before is treated as stale and ignored until you configure again. This closes a class of attacks where an old, broader configuration could be revived. The mechanism (the config↔registration-epoch binding) is described in [`SECURITY.md`](./SECURITY.md); you don't need to re-derive it here — just know that **a stale or absent configuration always denies.**
+**The first check is always "is this configuration current?"** Every template's first decision is a freshness gate: it denies unless the account is configured **and** the configuration it has matches the *current registration epoch* for that account-and-template. In plain terms: if a permission was revoked and re-registered, any configuration left over from before is treated as stale and ignored until you configure again. This closes a class of attacks where an old, broader configuration could be revived. The mechanism (the config↔registration-epoch binding) is described in [`SECURITY_MODEL.md`](./SECURITY_MODEL.md); you don't need to re-derive it here — just know that **a stale or absent configuration always denies.**
 
 **Gas is bounded, and one permission decides each dispatch.** A single transaction is gated by exactly **one** permission that the manager names in their signature (selective authorization); the kernel does not consult every permission you've registered. That one permission's `evaluate` runs under a fixed **150,000-gas** cap (`PERMISSION_GAS_CAP`). The one batch-aware template runs its `evaluateBatch` under a larger **1,000,000-gas** cap (`BATCH_EVAL_GAS_CAP`), and a batch may contain at most **16** sub-calls (`MAX_BATCH_LENGTH`). If a permission runs out of gas, that is a deny.
 

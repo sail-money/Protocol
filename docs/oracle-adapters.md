@@ -112,7 +112,7 @@ A non-zero `maxPriceAgeSec` is mandatory whenever an oracle is configured, so th
 freshness bound is always active for an oracle-gated account.
 
 **Adapter responsibilities** ([`IOracle.sol:9-14`](../contracts/interfaces/IOracle.sol),
-[`SECURITY.md`](./SECURITY.md)):
+[`SECURITY_MODEL.md`](./SECURITY_MODEL.md)):
 
 - Return a **meaningful `updatedAt`** for every price. Returning `0` or a constant
   timestamp disables freshness protection downstream.

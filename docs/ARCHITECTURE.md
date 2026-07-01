@@ -161,4 +161,4 @@ The **trusted core** consists of `SailKernel` and `SailGovernance`. These are th
 
 Permission templates and fee policies are **outside the trusted core**. A bug in a template affects only accounts that registered it; a bug in a fee policy affects only accounts using that policy. The blast radius of any template or policy bug is bounded by the accounts that opted into it.
 
-See [SECURITY.md](./SECURITY.md) for a complete threat model.
+See [SECURITY_MODEL.md](./SECURITY_MODEL.md) for a complete threat model.

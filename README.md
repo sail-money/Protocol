@@ -183,7 +183,7 @@ The protocol provides six guarantees as properties of the deployed bytecode:
 - **Upgradeable permissions.** The kernel binds a registered permission by its address and does not re-check its code on each dispatch. An upgradeable or otherwise mutable permission can change its `evaluate` behaviour after the Permission Signer has approved it. Register only non-upgradeable, reviewed permission contracts.
 - **Manager-attested NAV.** The reference fee policy uses a manager-attested NAV reported at collection time. An inflated NAV could unlock a fee the kernel bounds only by the account's own balance — in the limit approaching a full withdrawal of the account. This model fits accounts where the manager and the owner are the same party; a third-party allocation warrants a fee policy that validates NAV without manager attestation.
 
-See [docs/SECURITY.md](./docs/SECURITY.md) for the full security model and threat analysis.
+See [docs/SECURITY_MODEL.md](./docs/SECURITY_MODEL.md) for the full security model and threat analysis.
 
 ## Deterministic deployment and supported chains
 
@@ -211,8 +211,8 @@ The protocol is deployed on **Ethereum, Base, Arbitrum, and Unichain** (with Bas
 
 **Operate & govern**
 - [docs/GOVERNANCE.md](./docs/GOVERNANCE.md) — governance parameters and process
-- [docs/SECURITY.md](./docs/SECURITY.md) — security model and known limitations
-- [DEPLOYMENT.md](./DEPLOYMENT.md) — deployment runbook
+- [docs/SECURITY_MODEL.md](./docs/SECURITY_MODEL.md) — security model and known limitations
+- [DEPLOYMENT.md](./docs/DEPLOYMENT.md) — deployment runbook
 
 **Reference**
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — architecture overview
