@@ -19,7 +19,10 @@
 This directory contains the canonical deployment manifests for the Sail protocol. Per-chain
 manifests are written to `deployments/<chainId>/core.json` (by `script/core/DeployCore.s.sol`) and
 `deployments/<chainId>/templates.shared.json` (by `script/templates/DeploySharedTemplates.s.sol`).
-Superseded manifests are archived under `deployments/<chainId>/_archive/`.
+
+Machine-readable index: [`deployments/deployments.json`](./deployments.json) — a tooling-grade
+summary of the addresses, governance, fees, and per-chain metadata below, validated by
+`scripts/validate-deployments.mjs`.
 
 ---
 
@@ -38,12 +41,14 @@ Superseded manifests are archived under `deployments/<chainId>/_archive/`.
 
 | Parameter                          | Value                                          |
 |-------------------------------------|------------------------------------------------|
-| Governance / fee manager            | admin Safe `0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C` |
-| Treasury                            | `0x7b37F85575F1568a37dBA342BC5FE6d393F0872f`   |
-| Emergency admin                     | `0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961`   |
-| `maxPermissionFeeWei`               | `0.01 ETH` (constitutional cap)                |
-| `initialPermissionRegistrationFee`  | `0.00015 ETH`                                  |
-| Management / performance / distributor fees | `0`                                     |
+| Admin Safe (3/5)                    | `0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C` — parameter governance behind the 48h timelock |
+| Treasury Safe (3/5)                 | `0x7b37F85575F1568a37dBA342BC5FE6d393F0872f` — protocol fee recipient |
+| Emergency Safe (2/3)                | `0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961` — emergency pause (auto-expiry + cooldown) |
+| Deployer EOA                        | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` — deployment only; holds no protocol authority |
+| `maxPermissionFeeWei` (cap)         | `0.01` native-unit ceiling — immutable, applies per 18-decimal native token |
+| Registration fee — deploy-time      | `0.00015` in each chain's native unit — identical on all 11 chains (CREATE2 requires byte-identical constructor args, so the address is only reproducible with the same fee) |
+| Registration fee — current (live)   | `0.00015 ETH` on the 9 ETH-gas chains; `0.005 HYPE` on HyperEVM; `0.00045 BNB` on BSC — governance-set post-deploy via the 48h timelock, which does not change the already-locked address |
+| Management / performance / distributor fees | `0` at launch (protocol-cut cap 2500 bps = 25%) |
 
 ## Shared permission template addresses (identical on every chain)
 

@@ -58,7 +58,7 @@ constructor. The constructor enforces all four injected-timelock invariants and 
 
 Deploy the immutable `SafeModuleEnabler` **before** the kernel: the kernel captures the helper's
 runtime codehash at construction and pins it as the only permissible `Safe.setup` delegatecall
-target (the codehash pin — see [SECURITY.md](./SECURITY.md)). The enabler is dependency-free (no constructor args),
+target (the codehash pin — see [SECURITY_MODEL.md](./SECURITY_MODEL.md)). The enabler is dependency-free (no constructor args),
 so its address and codehash are deterministic per chain.
 
 ```solidity

@@ -17,7 +17,7 @@ import {ConfigurablePermission} from "./ConfigurablePermission.sol";
 ///         semantics, but it does NOT verify that this permission's logic correctly enforces
 ///         what its NatSpec claims, so registrants remain responsible for reviewing it. The
 ///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template
-///         set (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         set (currently empty), not this hardened launch set. See docs/SECURITY_MODEL.md for the
 ///         reference-template documentation.
 ///
 ///         WHAT IT IS. A reference transfer template. One deployment serves any number of accounts;

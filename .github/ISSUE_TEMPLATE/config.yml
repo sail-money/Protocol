@@ -1,0 +1,10 @@
+# Blank issues stay enabled — full-open contribution posture.
+blank_issues_enabled: true
+contact_links:
+  - name: Security disclosure (do NOT open a public issue)
+    url: https://github.com/sail-money/Protocol/blob/main/SECURITY.md
+    about: Report vulnerabilities privately per the Security Policy — email hello@sail.money.
+  - name: Questions
+    url: mailto:hello@sail.money
+    about: Non-security questions about Sail Protocol.
+  # OWNER TO SPECIFY: community channel (Discord/forum) — none confirmed; add here if one exists.

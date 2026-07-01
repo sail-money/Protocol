@@ -2,7 +2,7 @@
 
 This guide explains the seven permission templates that ship with Sail at launch: what each one is for, what you configure on it, **how it actually decides** whether to allow a transaction (branch by branch, in plain language), and — just as importantly — what it **cannot** protect against.
 
-It is written to be understandable without reading Solidity. For the exact source, each template's header NatSpec in `contracts/templates/` is the canonical boundary text and this guide expands on it; for the kernel and governance security model, see [`SECURITY.md`](./SECURITY.md) and [`spec.md`](./spec.md).
+It is written to be understandable without reading Solidity. For the exact source, each template's header NatSpec in `contracts/templates/` is the canonical boundary text and this guide expands on it; for the kernel and governance security model, see [`SECURITY_MODEL.md`](./SECURITY_MODEL.md) and [`spec.md`](./spec.md).
 
 ---
 
@@ -17,7 +17,7 @@ Two framings matter, and they are easy to confuse:
 - **The protocol is permissionless.** Sail does not bless a fixed menu of permissions. Anyone can write and deploy their own permission contract for any venue, and the kernel will register and dispatch through *any* contract that implements the `IPermission` interface. The seven templates below are not "the protocol" — they are a **curated starting set**.
 - **These seven are the hardened reference set.** They are the launch templates: hardened, and documented here with honest limits. They are **not** marked "UNAUDITED — EXPERIMENTAL" — that label is reserved for the future *experimental* set (see the end of this document), which is currently empty. "Outside the trusted core" (which they are) is a statement about *blast radius* — a bug in one template can only affect accounts that registered that template, never the kernel or other accounts — not a statement that they are unreviewed.
 
-The shared permission templates were reviewed by Octane Security alongside the core contracts across multiple analyses; all reported vulnerabilities resolved or acknowledged, and the remaining lower-severity warnings are documented or accepted by design. The most recent analysis (2026-06-29) identified no critical- or high-severity findings (see [Security](../README.md#security) and [docs/security](./security/)). Each template documents the boundary of what it enforces — review a template against your intended use before registering it.
+The shared permission templates were part of Sail's AI security review by Octane, alongside the trusted core, across three successive analyses. Findings from the earlier analyses were resolved or acknowledged, and the third and final analysis (2026-06-29) identified no critical- or high-severity findings (see [Security](../README.md#security) and [docs/security](./security/)). A security review is not a correctness guarantee: these are example shared templates demonstrating the `IPermission` pattern — reusable and forkable — and the correctness of any registered permission remains the author's responsibility (see [Known Limitations](./SECURITY_MODEL.md#known-limitations-and-operator-responsibilities)). Each template documents the boundary of what it enforces; review a template against your intended use before registering it.
 
 ---
 
@@ -31,7 +31,7 @@ All seven templates inherit the same configuration-and-evaluation spine from a s
 
 **Evaluation is fail-closed.** Deny is the default. A template denies on a `false` return, *and* on any revert or out-of-gas — the kernel treats all three identically as "deny." There is no way for an error to accidentally allow a transaction.
 
-**The first check is always "is this configuration current?"** Every template's first decision is a freshness gate: it denies unless the account is configured **and** the configuration it has matches the *current registration epoch* for that account-and-template. In plain terms: if a permission was revoked and re-registered, any configuration left over from before is treated as stale and ignored until you configure again. This closes a class of attacks where an old, broader configuration could be revived. The mechanism (the config↔registration-epoch binding) is described in [`SECURITY.md`](./SECURITY.md); you don't need to re-derive it here — just know that **a stale or absent configuration always denies.**
+**The first check is always "is this configuration current?"** Every template's first decision is a freshness gate: it denies unless the account is configured **and** the configuration it has matches the *current registration epoch* for that account-and-template. In plain terms: if a permission was revoked and re-registered, any configuration left over from before is treated as stale and ignored until you configure again. This closes a class of attacks where an old, broader configuration could be revived. The mechanism (the config↔registration-epoch binding) is described in [`SECURITY_MODEL.md`](./SECURITY_MODEL.md); you don't need to re-derive it here — just know that **a stale or absent configuration always denies.**
 
 **Gas is bounded, and one permission decides each dispatch.** A single transaction is gated by exactly **one** permission that the manager names in their signature (selective authorization); the kernel does not consult every permission you've registered. That one permission's `evaluate` runs under a fixed **150,000-gas** cap (`PERMISSION_GAS_CAP`). The one batch-aware template runs its `evaluateBatch` under a larger **1,000,000-gas** cap (`BATCH_EVAL_GAS_CAP`), and a batch may contain at most **16** sub-calls (`MAX_BATCH_LENGTH`). If a permission runs out of gas, that is a deny.
 
@@ -167,7 +167,7 @@ Each of the seven follows the same four-part structure:
    - amount (or shares — see below) ≤ `maxAmountPerTx` → else deny;
    - the position recipient (`receiver` for ERC-4626, `onBehalfOf` for Aave-style) is **the account** → else deny.
 
-**What it cannot protect against.** On the `mint(shares, receiver)` path, the cap is denominated in **shares, not underlying assets** — by design. The `deposit(assets, ...)` path and both Aave paths cap the *asset* amount directly; `mint` bounds *shares*, whose asset/USD value floats with the share price. These templates are intentionally oracle-free, so an asset cap on the mint path would reintroduce a vault price-read; shares stay bounded, so there is no drain, but an operator sizing a mint cap must account for the share price.
+**What it cannot protect against.** On the `mint(shares, receiver)` path, the cap is denominated in **shares, not underlying assets** — by design. The `deposit(assets, ...)` path and both Aave paths cap the *asset* amount directly; `mint` bounds *shares*, whose underlying-asset value floats with the share price. These templates are intentionally oracle-free, so an asset cap on the mint path would reintroduce a vault price-read; shares stay bounded, so there is no drain, but an operator sizing a mint cap must account for the share price.
 
 For ERC-4626, **`mint(shares)` is the donation-safe path**: it pins the share outcome (you receive exactly `shares`, credited to the account). The `deposit(assets)` path has no minimum-shares guard, so a classic vault **donation/inflation attack** can cause a manager-triggered `deposit(assets)` to mint near-zero shares to the account. This is **negative-EV griefing** (the attacker must donate more than they destroy) and the assets/shares stay credited to the account (griefing, not theft) — but operators wanting a pinned outcome should prefer `mint(shares)`.
 
@@ -226,7 +226,7 @@ If every check passes, the batch is allowed.
 
 ## The experimental set (currently empty)
 
-There is no experimental template directory in the repository today (`contracts/experimental/` is absent). This is where future, **not-yet-audited** templates will live — candidates include bridging, Hyperliquid/CoreWriter trading, Pendle, prediction markets, and the aggregator / Universal-Router / Uniswap-V4 "balance-delta" swap path that the hardened `Swap` templates deliberately exclude.
+There is no experimental template directory in the repository today (`contracts/experimental/` is absent). This is where future, **not-yet-reviewed** templates will live — candidates include bridging, Hyperliquid/CoreWriter trading, Pendle, prediction markets, and the aggregator / Universal-Router / Uniswap-V4 "balance-delta" swap path that the hardened `Swap` templates deliberately exclude.
 
 When that set is populated, each contract in it will carry a loud **"UNAUDITED — EXPERIMENTAL"** banner and will **not** be part of the hardened launch set described above. That banner belongs *only* to the experimental set — it does **not** apply to the seven launch templates, which are the hardened reference set. Treat anything in the experimental set as unreviewed until stated otherwise, and review it against your own use before registering it.
 

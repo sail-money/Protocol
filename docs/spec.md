@@ -6,7 +6,7 @@
  
 Sail is a minimal account-abstraction primitive for onchain Separately Managed Accounts. The protocol does five things: it instantiates Safe accounts from any signer setup; it registers permission modules deployed by users; it gates a delegated manager's transactions through those permissions; it charges fees per permission deployed; and it tracks principal while routing manager-collected fees through a protocol-enforced split with a hard 25% cap. All permission logic, valuation math, and fee schedules live in user-deployed contracts outside the core. The protocol separates three roles — Owner, Permission Signer, Manager — and is governed by a contract initially held by the team multisig, transferable later.
  
-The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account, deploy an SMA, and operate as a manager — all without protocol approval. The permissionless surface is bounded by a small set of governance-curated, safety-critical infrastructure allowlists — the Safe factory, the Safe singleton, the proxy codehash, the fee policies, and the `Safe.setup` module-setup helpers — which are curated precisely because trusting the wrong value there would compromise account custody itself. Permissions and managers are never curated; the infrastructure inputs are. "Fully permissionless" should be read with that distinction in mind. The trusted core is roughly 1,150 lines of Solidity (the kernel itself ~820), small enough to audit in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
+The architecture is minimal-core, permissionless-extension: anyone can deploy a permission contract and register it on an account, deploy an SMA, and operate as a manager — all without protocol approval. The permissionless surface is bounded by a small set of governance-curated, safety-critical infrastructure allowlists — the Safe factory, the Safe singleton, the proxy codehash, the fee policies, and the `Safe.setup` module-setup helpers — which are curated precisely because trusting the wrong value there would compromise account custody itself. Permissions and managers are never curated; the infrastructure inputs are. "Fully permissionless" should be read with that distinction in mind. The trusted core is roughly 1,022 nSLOC (the kernel itself ~791), and the seven shared permission templates are ~1,038 nSLOC over a ~111 nSLOC base (logical SLOC via solidity-code-metrics, comments and blanks excluded) — small enough to review in isolation. Permissions are deployed contracts implementing a standard `IPermission` interface. Fee schedules live in user-deployed `IFeePolicy` contracts. Governance has constitutional caps that bound it forever in the source code.
  
 ## Design Principles
  
@@ -137,7 +137,7 @@ total fee = permissionRegistrationFee × n_permissions
  
 `permissionRegistrationFee` is a governance-tunable parameter set at deployment and changed only through the timelock; it is bounded by the immutable per-deployment ceiling `MAX_PERMISSION_FEE_WEI`, itself capped at a constitutional `0.01 ether` (0.01 of the chain's native token). Proceeds go to the protocol treasury; no split. Excess `msg.value` is refunded.
  
-Denominated in native ETH (no oracle dependency). The ETH cost is bounded by the ceiling; USD cost varies with ETH price, and governance is expected to retune the rate periodically.
+Denominated in the chain's native token (no oracle dependency). The native-token cost is bounded by the ceiling, and governance is expected to retune the rate periodically.
  
 #### Fee 2 — Protocol Cut on Manager-collected Fees
  
@@ -196,22 +196,13 @@ Governance can lower or raise parameters within the caps but never raise the cap
  
 ## Security Model
  
-The trusted surface is roughly 1,150 lines of Solidity (the kernel itself ~820). The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts called from the kernel via `staticcall` with strict gas caps.
+The trusted core is roughly 1,022 nSLOC (kernel ~791), small enough to review in full. The remaining protocol behaviour — policy logic, fee schedules, NAV computation — lives in user-deployed contracts the kernel calls via `staticcall` under strict gas caps, so a bug in a template or fee policy is bounded to the accounts that opted into it and cannot reach the kernel or other accounts. A trusted surface this small is also tractable for formal-verification tools (Certora, Halmos, Kontrol).
  
-This architecture provides three security properties:
- 
-**Bounded blast radius.** A bug in a permission template affects only users who registered that specific template. A bug in a fee policy affects only accounts using that policy. The kernel itself is small enough to review in full.
- 
-**Modular reasoning.** Proving the protocol safe decomposes into three independently verifiable claims:
- 
-1. The kernel handles signature verification, session validity, dispatch, fee splits, and custody isolation correctly.
-2. Each canonical permission template enforces what it claims.
-3. Composition is by construction — the kernel calls each permission independently; there is no cross-permission interaction.
-**Formal verification feasibility.** A trusted core on the order of 1,150 lines is tractable for tools like Certora, Halmos, and Kontrol. Critical invariants (custody isolation, fee cap enforcement, signature verification) are amenable to formal analysis.
+See [SECURITY_MODEL.md](./SECURITY_MODEL.md) for the canonical trust model, security properties, and known limitations.
  
 ## Canonical Templates
  
-The protocol ships with a reference set of seven launch permission templates covering common patterns. This is the **hardened reference set** — documented with honest "what this cannot protect against" boundaries in each contract's NatSpec header; it is *not* an "unaudited example" set (that loud framing is reserved for the future experimental set, currently empty). They remain outside the trusted core — a bug in one affects only accounts that registered it — and they are swappable defaults: any contract implementing `IPermission` can be registered instead. Every launch template fails closed on a stale or absent configuration: evaluation denies unless the account is configured *and* its stamped config epoch matches the kernel's current registration epoch for that `(account, permission)`. The launch set:
+The protocol ships with a reference set of seven launch permission templates covering common patterns. This is the **hardened reference set** — documented with honest "what this cannot protect against" boundaries in each contract's NatSpec header; it does *not* carry the reserved `UNAUDITED — EXPERIMENTAL` banner (that label is reserved for the future experimental set, currently empty). They remain outside the trusted core — a bug in one affects only accounts that registered it — and they are swappable defaults: any contract implementing `IPermission` can be registered instead. Every launch template fails closed on a stale or absent configuration: evaluation denies unless the account is configured *and* its stamped config epoch matches the kernel's current registration epoch for that `(account, permission)`. The launch set:
  
 - **SwapPermission** / **SwapPermissionNoOracle** — gate DEX swaps with router and token allowlists, a size cap, output paid to the account, and a slippage floor (against an independent oracle, or the reference pool's own live price).
 - **BorrowPermission** — gates lending borrows with protocol and asset allowlists, a size cap, the position credited to the account, and an optional LTV ceiling.
@@ -238,13 +229,13 @@ Things the protocol explicitly does *not* include:
 - **NAV computation.** Lives in user-deployed valuation modules; oracle choice is an ecosystem concern, not a protocol concern.
 - **ERC-8004 identity in the kernel.** Permission modules may consult ERC-8004 registries; the kernel stays agnostic.
 - **A registry of curators or template authors.** Marketplace function, handled off-chain.
-Each exclusion reduces what the protocol owns. The protocol owns less, by design, so that what it does own is provable, auditable, and stable for years.
+Each exclusion reduces what the protocol owns. The protocol owns less, by design, so that what it does own is provable, reviewable, and stable for years.
  
 ## Headline Properties
  
 | Property | Value |
 |----------|-------|
-| Trusted core size | ~1,150 lines of Solidity (kernel ~820) |
+| Trusted core size | ~1,022 nSLOC (kernel ~791); shared templates ~1,038 nSLOC + ~111 base |
 | Permission evaluation gas cap | 150,000 (single dispatch) / 1,000,000 (batch) |
 | Protocol fee cap (immutable) | 25% of manager-collected fees |
 | Permission evaluation | `staticcall`, gas-bounded, no state mutation |

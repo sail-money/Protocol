@@ -1,3 +1,17 @@
+Sail Protocol is licensed under the GNU General Public License, version 2
+or (at your option) any later version (SPDX: GPL-2.0-or-later).
+
+The per-file SPDX header is authoritative for each source file:
+
+  - Trusted core, the shared permission templates and their base contract,
+    and supporting implementation contracts: GPL-2.0-or-later
+  - Interface and import-surface files, and the SafeModuleEnabler helper: MIT
+
+The complete, unmodified text of the GNU General Public License, version 2,
+follows below.
+
+--------------------------------------------------------------------------------
+
 GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991
 

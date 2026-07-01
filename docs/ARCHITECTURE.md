@@ -31,6 +31,8 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 
 **Institutional setup:** roles separate. A fund management firm holds the Manager key; an independent compliance officer or the client holds the PermissionSigner key and controls what the manager can trade. The Safe signers (Owner) retain custody and can always revoke the module.
 
+For the full role semantics and the authority each key carries, see [spec.md](./spec.md) — *Roles*.
+
 ---
 
 ## Data Flow — Manager Dispatch
@@ -84,7 +86,7 @@ The kernel maintains two separate nonce sequences per account:
 | `managerNonces` | `mapping(address => uint256)` | `dispatch` calls |
 | `signerNonces` | `mapping(address => uint256)` | All permission-registry operations: `registerPermission`, `revokePermission`, `replacePermission`, `revokeSession`, `activateSession`, `setFeePolicy`, `registerPermissions`, `revokePermissions` |
 
-The separation prevents cross-operation replay. A dispatch signature cannot be replayed as a registry operation and vice versa.
+The separation prevents cross-operation replay. A dispatch signature cannot be replayed as a registry operation and vice versa. (Batch dispatch consumes its own `batchNonces` namespace.) See [spec.md](./spec.md) — *EIP-712 Authorization Surface* — for the full typed-signature and nonce-namespace reference.
 
 ---
 
@@ -161,4 +163,4 @@ The **trusted core** consists of `SailKernel` and `SailGovernance`. These are th
 
 Permission templates and fee policies are **outside the trusted core**. A bug in a template affects only accounts that registered it; a bug in a fee policy affects only accounts using that policy. The blast radius of any template or policy bug is bounded by the accounts that opted into it.
 
-See [SECURITY.md](./SECURITY.md) for a complete threat model.
+See [SECURITY_MODEL.md](./SECURITY_MODEL.md) for a complete threat model.
