@@ -1,29 +1,52 @@
 {
-  "version": "create2-2026-06-09",
-  "note": "Core contracts deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each core contract therefore has the SAME address on every chain, and so does the resulting Safe initializer / SMA address. Addresses below are LIVE on chains 1, 8453, 42161, 130, 84532, 11155111 (deployed 2026-06-09, commit 1199b33) with onboarding allowlists seeded at genesis via bootstrapAllowlists. The same-address property holds because the deployment used identical configuration across all chains (governance, treasury, emergencyAdmin, feeManager, distributor, and all fee parameters). All deployments use zero fees (managementFeeBps=0, performanceFeeBps=0, initialPermissionRegistrationFee=0).",
+  "version": "create2-2026-07-01",
+  "note": "Trusted core and shared permission templates deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each contract's initCode is identical on every chain, so every core contract and every template lands at the SAME address on every chain. This is the Safe-governed configuration (commit 1dc1960), superseding the prior EOA-governed 2026-06-09 deploy. Onboarding allowlists have been bootstrapped on-chain via SailGovernance.bootstrapAllowlists() (verified live: allowlistBootstrapped()==true) on all 11 chains below.",
   "deploymentMode": "create2-global-salt",
   "create2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
   "safeProxyFactory_1_4_1": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+  "deployer": "0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6",
   "core": {
-    "_comment": "Identical address on every supported chain (live on 1, 8453, 42161, 130, 84532).",
-    "governance": "0x7A478118715791728BDE3bc7A4D7ECfdEB89C6EC",
-    "timelock": "0xE48Ba8DB6d748adafD13155c3590f62e58a77f56",
-    "kernel": "0x02ABC18B65A328de2e749F56ba79ACF2718a6659",
-    "mandateFactory": "0x14EDd6c2a56EfC0d71E215ab13094B9AF90543d2",
-    "standardFeePolicy": "0xe7B5901b839cFFDEd9D4108A22712C8BfdA1D80D",
+    "_comment": "Identical address on every supported chain.",
+    "governance": "0x4315B37cA4A315A7042af1Fcb37F8436f4D24356",
+    "timelock": "0xC1E5F9A581D4100Aa949f80204540a33aD97A7b6",
+    "kernel": "0x38b508756c976e876EFF05a29E731A4d348BA6ED",
+    "mandateFactory": "0x6d2C802ffa0d9A8Ed69A5Bf22c1b63ccB566B8Fc",
+    "standardFeePolicy": "0x1087312447C8a2BfA15EB9cE23590E3502DBA04b",
     "safeModuleEnabler": "0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F"
   },
-  "fees": {
+  "config": {
+    "governance": "0x4315B37cA4A315A7042af1Fcb37F8436f4D24356",
+    "adminSafe_feeManager": "0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C",
+    "treasury": "0x7b37F85575F1568a37dBA342BC5FE6d393F0872f",
+    "emergencyAdmin": "0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961",
+    "maxPermissionFeeWei": "10000000000000000",
+    "initialPermissionRegistrationFee": "150000000000000",
     "managementFeeBps": 0,
     "performanceFeeBps": 0,
-    "initialPermissionRegistrationFee": 0
+    "distributor": "0x0000000000000000000000000000000000000000",
+    "distributorBps": 0
+  },
+  "templates": {
+    "_comment": "Shared, multi-tenant permission templates. Identical address on every supported chain. Constructor is (kernel, author); kernel is the canonical core kernel above, author is the deployer EOA.",
+    "swap": "0x35cEEa0db96997Cc3CF3beB42FFa36A499342F7C",
+    "swapNoOracle": "0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519",
+    "borrow": "0x3e2666051599223cEAb10De55C89A0842857d8AF",
+    "deposit": "0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f",
+    "withdraw": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8",
+    "transfer": "0xda909a1CC584fb7559Ce4A828b008B473Da095e1",
+    "approveAndCallBatch": "0x0535A4D51333484ef583103DAB1a9449756ab732"
   },
   "chains": {
-    "1": { "name": "ethereum", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
-    "8453": { "name": "base", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
-    "42161": { "name": "arbitrum", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
-    "130": { "name": "unichain", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
-    "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" },
-    "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "core": "see top-level core (identical across chains)" }
+    "1": { "name": "ethereum", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "8453": { "name": "base", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "42161": { "name": "arbitrum", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "10": { "name": "optimism", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "130": { "name": "unichain", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "56": { "name": "bsc", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "480": { "name": "world", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "999": { "name": "hyperevm", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "no block explorer / verifier available" },
+    "4326": { "name": "megaeth", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
+    "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true }
   }
 }

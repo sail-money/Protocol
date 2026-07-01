@@ -25,6 +25,9 @@ optimism      = "${OP_RPC_URL}"
 plasma        = "${PLASMA_RPC_URL}"
 hyperliquid   = "${HYPERLIQUID_RPC_URL}"
 unichain      = "${UNICHAIN_RPC_URL}"
+bsc           = "${BSC_RPC_URL}"
+world         = "${WORLD_RPC_URL}"
+megaeth       = "${MEGAETHEREUM_RPC_URL}"
 
 [etherscan]
 # Etherscan V2 unified endpoint — one ETHERSCAN_API_KEY works across all supported chains.
@@ -35,3 +38,6 @@ base_sepolia  = { key = "${ETHERSCAN_API_KEY}", chain = 84532,    url = "https:/
 arbitrum      = { key = "${ETHERSCAN_API_KEY}", chain = 42161,    url = "https://api.etherscan.io/v2/api?chainid=42161" }
 optimism      = { key = "${ETHERSCAN_API_KEY}", chain = 10,       url = "https://api.etherscan.io/v2/api?chainid=10" }
 unichain      = { key = "${ETHERSCAN_API_KEY}", chain = 130,      url = "https://api.etherscan.io/v2/api?chainid=130" }
+bsc           = { key = "${ETHERSCAN_API_KEY}", chain = 56,       url = "https://api.etherscan.io/v2/api?chainid=56" }
+world         = { key = "${ETHERSCAN_API_KEY}", chain = 480,      url = "https://api.etherscan.io/v2/api?chainid=480" }
+megaeth       = { key = "${ETHERSCAN_API_KEY}", chain = 4326,     url = "https://api.etherscan.io/v2/api?chainid=4326" }
