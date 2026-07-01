@@ -31,6 +31,8 @@ The key insight is that custody never leaves the Safe. The manager does not hold
 
 **Institutional setup:** roles separate. A fund management firm holds the Manager key; an independent compliance officer or the client holds the PermissionSigner key and controls what the manager can trade. The Safe signers (Owner) retain custody and can always revoke the module.
 
+For the full role semantics and the authority each key carries, see [spec.md](./spec.md) — *Roles*.
+
 ---
 
 ## Data Flow — Manager Dispatch
@@ -84,7 +86,7 @@ The kernel maintains two separate nonce sequences per account:
 | `managerNonces` | `mapping(address => uint256)` | `dispatch` calls |
 | `signerNonces` | `mapping(address => uint256)` | All permission-registry operations: `registerPermission`, `revokePermission`, `replacePermission`, `revokeSession`, `activateSession`, `setFeePolicy`, `registerPermissions`, `revokePermissions` |
 
-The separation prevents cross-operation replay. A dispatch signature cannot be replayed as a registry operation and vice versa.
+The separation prevents cross-operation replay. A dispatch signature cannot be replayed as a registry operation and vice versa. (Batch dispatch consumes its own `batchNonces` namespace.) See [spec.md](./spec.md) — *EIP-712 Authorization Surface* — for the full typed-signature and nonce-namespace reference.
 
 ---
 

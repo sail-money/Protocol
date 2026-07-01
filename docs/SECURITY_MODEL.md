@@ -8,11 +8,13 @@ This document describes the trust model, security properties, and known limitati
 
 The **trusted core** consists of two contracts:
 
-| Contract | Approximate LOC | Role |
+| Contract | nSLOC | Role |
 |---|---|---|
-| `SailKernel` | ~985 | Execution engine, permission evaluation, fee accounting |
-| `SailGovernance` | ~200 | Protocol parameter store |
-| `IFeePolicy`, `IPermission` | ~50 combined | Interface definitions |
+| `SailKernel` | ~791 | Execution engine, permission evaluation, fee accounting |
+| `SailGovernance` | ~214 | Protocol parameter store |
+| `IFeePolicy`, `IPermission` | ~17 combined | Interface definitions |
+
+The trusted core is ≈1,022 nSLOC in total (logical SLOC via solidity-code-metrics, comments and blanks excluded), consistent with [spec.md](./spec.md).
 
 The reference permission templates (`SwapPermission`, `BorrowPermission`, `TransferPermission`, `DepositPermission`, `WithdrawPermission`, `ApproveAndCallBatchPermission`) and fee policies (`StandardFeePolicy`) are all **outside the trusted core**. Their correctness is important for the accounts that use them, but a bug in one template or policy does not affect the kernel itself or accounts using other policies.
 
