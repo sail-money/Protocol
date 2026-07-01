@@ -1,10 +1,11 @@
 # Security Review
 
-The Sail Protocol trusted core and the shared permission templates were the subject of a
-security review by **Octane** ([octane.security](https://www.octane.security)), conducted as a
-series of analyses during pre-launch. All reported issues have been resolved or acknowledged;
-the remaining lower-severity warnings are documented or accepted by design. The most recent
-analysis (2026-06-29) identified no critical- or high-severity findings.
+These are the reports from Sail's **AI security review** by **Octane**
+([octane.security](https://www.octane.security)), an AI source-code security scanner. The review
+covered **both the trusted core and the seven shared permission templates** — not the core alone
+— across **three successive security analyses** (2026-06-24, 2026-06-26, 2026-06-29). The
+**third and final analysis (2026-06-29) identified no critical- or high-severity findings**, and
+all other findings were resolved or acknowledged.
 
 **What was reviewed.** The trusted core (`SailKernel`, `SailGovernance`, the timelock, and the
 core interfaces) together with the shared permission templates (`SwapPermission`,

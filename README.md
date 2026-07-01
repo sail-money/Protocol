@@ -14,7 +14,7 @@
 
 Sail Protocol is an onchain primitive for separately managed accounts (SMAs) run by agents. Capital stays in a self-custodial Safe the owner controls; a designated manager — typically an autonomous agent — executes only what a mandate allows. The mandate is a set of user-deployed Solidity permission contracts registered to the account; on each dispatch the manager names one registered permission, and the kernel evaluates that permission under a gas cap via `staticcall`, forwarding the call to the Safe only if it returns true. Because permissions are arbitrary Solidity, any DeFi primitive can be expressed as one. Protocol fees are bounded by immutable constitutional caps.
 
-The core contracts and shared permission templates were reviewed by Octane Security across multiple analyses; all reported vulnerabilities resolved or acknowledged. The most recent analysis (2026-06-29) identified no critical- or high-severity findings. See [Security](#security).
+Trusted core and shared templates reviewed by Octane — AI security review, three analyses. See [docs/security/](docs/security/).
 
 ## Why it exists
 
@@ -235,7 +235,7 @@ Contributions are welcome. `main` is protected and changes land via pull request
 
 ## Security
 
-Sail's trusted core and shared permission templates were the subject of a security review by Octane; the reports are in [docs/security](./docs/security/). A security review is not a guarantee of correctness — see [Known Limitations](./docs/SECURITY_MODEL.md#known-limitations-and-operator-responsibilities).
+Sail's trusted core and its seven shared permission templates underwent an AI security review by Octane ([octane.security](https://www.octane.security)), an AI source-code security scanner, across three successive analyses (2026-06-24, 2026-06-26, 2026-06-29). The third and final analysis (2026-06-29) identified no critical- or high-severity findings, and all other findings were resolved or acknowledged. Reports are in [docs/security](./docs/security/). A security review is not a guarantee of correctness — see [Known Limitations](./docs/SECURITY_MODEL.md#known-limitations-and-operator-responsibilities).
 
 To report a vulnerability, see the [Security Policy](./SECURITY.md).
 

@@ -33,6 +33,10 @@ reporters who wish to be acknowledged.
 
 ## Security review
 
-The trusted core and the shared permission templates were the subject of a security review by
-Octane. The reports and index are in [docs/security](./docs/security/). A security review is
-not a guarantee of correctness.
+The trusted core **and** the seven shared permission templates underwent an **AI security
+review** by **Octane** ([octane.security](https://www.octane.security)), an AI source-code
+security scanner, across three successive analyses (2026-06-24, 2026-06-26, 2026-06-29; `main`
+through PR #79). The third and final analysis (2026-06-29) identified no critical- or
+high-severity findings, and all other findings were resolved or acknowledged. The reports and
+index are in
+[docs/security](./docs/security/). A security review is not a guarantee of correctness.
