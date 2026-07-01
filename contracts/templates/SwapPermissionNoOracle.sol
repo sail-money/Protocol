@@ -35,7 +35,7 @@ interface IUniswapV3PoolLike {
 ///         it does NOT verify that this permission's logic correctly enforces what its NatSpec
 ///         claims, so registrants remain responsible for understanding its narrow guarantee. The
 ///         loud "UNAUDITED — EXPERIMENTAL" banner is reserved for the future experimental template set
-///         (currently empty), not this hardened launch set. See docs/SECURITY.md for the
+///         (currently empty), not this hardened launch set. See docs/SECURITY_MODEL.md for the
 ///         reference-template documentation.
 ///
 ///         WHAT IT IS. A swap template for tokens that have NO oracle — i.e. no independent,

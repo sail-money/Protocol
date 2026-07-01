@@ -34,7 +34,7 @@ interface ISailKernelView {
 ///         or accounts that have not registered the subclass. Registrants remain responsible for
 ///         reviewing the subclass they register. The loud "UNAUDITED — EXPERIMENTAL" banner is reserved for
 ///         the future experimental template set (currently empty), not this hardened launch set.
-///         See docs/SECURITY.md for the reference-template documentation.
+///         See docs/SECURITY_MODEL.md for the reference-template documentation.
 ///
 ///         This base carries the per-account, multi-tenant config lifecycle the launch set inherits:
 ///         configuration is permissionSigner-authorised (EIP-712 signature, epoch-bound) and
