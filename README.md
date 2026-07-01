@@ -158,7 +158,7 @@ The contracts target the **Cancun** EVM and their bytecode uses `MCOPY`; deploy 
 
 ## Security
 
-Sail's trusted core and its seven shared permission templates underwent an AI security review by Octane ([octane.security](https://www.octane.security)), an AI source-code security scanner, across three successive analyses (2026-06-24, 2026-06-26, 2026-06-29). The third and final analysis (2026-06-29) identified no critical- or high-severity findings, and all other findings were resolved or acknowledged. Reports are in [docs/security/](./docs/security/). A security review is not a guarantee of correctness — see the [Known Limitations](./docs/SECURITY_MODEL.md#known-limitations-and-operator-responsibilities) in the security model.
+Sail's trusted core and its seven shared permission templates underwent an AI security review by Octane ([octane.security](https://www.octane.security)), an AI source-code security scanner, across three successive analyses (2026-06-24, 2026-06-26, 2026-06-29). The third and final analysis (2026-06-29) identified no critical- or high-severity findings; all reported vulnerabilities were resolved or acknowledged, and the remaining lower-severity warnings are documented, accepted by design, or out of scope. Reports are in [docs/security/](./docs/security/). A security review is not a guarantee of correctness — see the [Known Limitations](./docs/SECURITY_MODEL.md#known-limitations-and-operator-responsibilities) in the security model.
 
 To report a vulnerability, do not open a public issue — see the [Security Policy](./SECURITY.md) and report privately to hello@sail.money.
 

@@ -4,8 +4,9 @@ These are the reports from Sail's **AI security review** by **Octane**
 ([octane.security](https://www.octane.security)), an AI source-code security scanner. The review
 covered **both the trusted core and the seven shared permission templates** — not the core alone
 — across **three successive security analyses** (2026-06-24, 2026-06-26, 2026-06-29). The
-**third and final analysis (2026-06-29) identified no critical- or high-severity findings**, and
-all other findings were resolved or acknowledged.
+**third and final analysis (2026-06-29) identified no critical- or high-severity findings**; all
+reported vulnerabilities were resolved or acknowledged, and the remaining lower-severity warnings
+are documented, accepted by design, or out of scope.
 
 **What was reviewed.** The trusted core (`SailKernel`, `SailGovernance`, the timelock, and the
 core interfaces) together with the shared permission templates (`SwapPermission`,
