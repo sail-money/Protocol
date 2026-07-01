@@ -235,9 +235,9 @@ Contributions are welcome. `main` is protected and changes land via pull request
 
 ## Security
 
-The core contracts and shared permission templates were reviewed by Octane Security across multiple analyses during pre-launch; all reported vulnerabilities have been resolved or acknowledged, and the remaining lower-severity warnings are documented or accepted by design. The most recent analysis (2026-06-29) identified no critical- or high-severity findings. Full reports and the security log are in [docs/security](./docs/security/).
+Sail's trusted core and shared permission templates were the subject of a security review by Octane; the reports are in [docs/security](./docs/security/). A security review is not a guarantee of correctness — see [Known Limitations](./docs/SECURITY_MODEL.md#known-limitations-and-operator-responsibilities).
 
-To report a vulnerability: hello@sail.money. Please do not open public issues for security reports.
+To report a vulnerability, see the [Security Policy](./SECURITY.md).
 
 ## License
 
