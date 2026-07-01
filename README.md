@@ -195,7 +195,7 @@ boundSalt = keccak256(saltNonce, caller, permissionSigner, manager, feePolicy)
 
 Binding the principals into the salt means a counterfactual address cannot be front-run with different principals: a deployment supplying a different manager or signer lands at a different address. The same-address property holds only where the construction arguments match — including the registration-fee ceiling, which is denominated in the chain's native token; a chain whose native token differs materially may be deployed with a different ceiling and resolve to different addresses.
 
-The protocol is deployed on **Ethereum, Base, Arbitrum, and Unichain** (with Base Sepolia and Ethereum Sepolia testnets). See [deployments/addresses.md](./deployments/addresses.md) for the authoritative, per-chain contract addresses.
+The protocol is deployed on **nine mainnets** — Ethereum, Optimism, Unichain, Arbitrum, MegaETH, World, BSC, Base, and HyperEVM — plus the **Ethereum Sepolia and Base Sepolia** testnets (eleven chains total). See [deployments/addresses.md](./deployments/addresses.md) for the authoritative, per-chain contract addresses and [deployments/deployments.json](./deployments/deployments.json) for the machine-readable index.
 
 ## Documentation
 
