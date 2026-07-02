@@ -122,8 +122,6 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | Ethereum Sepolia | 11155111 | ETH |
 | Base Sepolia | 84532 | ETH |
 
-*HyperEVM (999) has no public block explorer; its core and templates are unverified there, but deploy at the same addresses as every other chain.*
-
 **Governance** (identical on every chain; Safe threshold m/n):
 
 | Role | Threshold | Address |

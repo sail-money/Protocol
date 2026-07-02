@@ -77,7 +77,7 @@ core `kernel` above (constructor is `(kernel, author)`, `author` = deployer EOA
 | Unichain     | 130       | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | BSC          | 56        | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | World        | 480       | live (CREATE2, bootstrapped)   | ✅ | ✅ |
-| HyperEVM     | 999       | live (CREATE2, bootstrapped)   | ⬜ no explorer | ⬜ no explorer |
+| HyperEVM     | 999       | live (CREATE2, bootstrapped)   | ⬜ | ⬜ |
 | MegaETH      | 4326      | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Base Sepolia | 84532     | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Eth Sepolia  | 11155111  | live (CREATE2, bootstrapped)   | ✅ | ✅ |
@@ -105,8 +105,6 @@ addresses on all eleven chains, so the same-address property is achievable on ea
   - `trustedFeePolicy = [0x1087312447C8a2BfA15EB9cE23590E3502DBA04b]` (StandardFeePolicy)
   - `trustedSafeProxyCodehash = [0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c]`
   Confirmed live on all 11 chains via `allowlistBootstrapped() == true`.
-- HyperEVM (999) has no available block explorer/verifier, so core and templates are deployed but
-  unverified there; addresses are identical to every other chain regardless.
 - MegaETH (4326) core required a deferred follow-up deploy (`f2e1bdc`) after an initial RPC
   failure; it now matches the canonical addresses and is fully verified (core + templates).
 
