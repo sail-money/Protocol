@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/brand/sail_logo.png" alt="Sail Protocol" width="120" />
+  <img src="./docs/brand/sail_logo_nobg.png" alt="Sail Protocol" width="120" />
 </p>
 
 # Sail Protocol
