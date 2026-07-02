@@ -4,13 +4,13 @@
 
 # Sail Protocol
 
-**Onchain Separately Managed Accounts run by agents.**
+**Onchain Separately Managed Accounts Run By Agents**
 
-Sail is a minimal account-abstraction primitive for Separately Managed Accounts (SMAs). Capital stays in a self-custodial [Safe](https://safe.global/) owned by the LP; a designated manager — typically an autonomous agent — executes only within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed contracts implementing `IPermission`. On each dispatch the manager names one registered permission, and the kernel evaluates it via `staticcall` under a gas cap, forwarding the call to the Safe only if it returns `true`. Because a permission is arbitrary Solidity, any DeFi primitive can be expressed as one — adding an integration is a contract deployment, not a protocol upgrade.
+Sail is a minimal account-abstraction primitive for Separately Managed Accounts (SMAs). Capital is held in a self-custodial [Safe](https://safe.global/) the owner controls; a designated manager — typically an autonomous agent — executes only within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed contracts implementing `IPermission`. On each dispatch the manager names one registered permission, and the kernel evaluates it via `staticcall` under a gas cap, forwarding the call to the Safe only if it returns `true`. Because a permission is arbitrary Solidity, any DeFi primitive can be expressed as one — adding an integration is a contract deployment, not a protocol upgrade.
 
 [Whitepaper](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf) · [sail.money](https://sail.money) · [Documentation](./docs/README.md)
 
-Trusted core and shared templates reviewed by Octane — AI security review, three analyses. See [docs/security/](./docs/security/).
+The trusted core and shared permission templates were reviewed by Octane, an AI source-code security scanner, across three analyses. See [docs/security/](./docs/security/).
 
 ## How it works
 
@@ -108,19 +108,21 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 
 **Chains:**
 
-| Chain | Chain ID | Native | Explorer-verified |
-|---|---|---|---|
-| Ethereum | 1 | ETH | yes |
-| Optimism | 10 | ETH | yes |
-| Unichain | 130 | ETH | yes |
-| Arbitrum | 42161 | ETH | yes |
-| MegaETH | 4326 | ETH | yes |
-| World | 480 | ETH | yes |
-| BSC | 56 | BNB | yes |
-| Base | 8453 | ETH | yes |
-| HyperEVM | 999 | HYPE | no explorer |
-| Ethereum Sepolia | 11155111 | ETH | yes |
-| Base Sepolia | 84532 | ETH | yes |
+| Chain | Chain ID | Native |
+|---|---|---|
+| Ethereum | 1 | ETH |
+| Optimism | 10 | ETH |
+| Unichain | 130 | ETH |
+| Arbitrum | 42161 | ETH |
+| MegaETH | 4326 | ETH |
+| World | 480 | ETH |
+| BSC | 56 | BNB |
+| Base | 8453 | ETH |
+| HyperEVM | 999 | HYPE |
+| Ethereum Sepolia | 11155111 | ETH |
+| Base Sepolia | 84532 | ETH |
+
+*HyperEVM (999) has no public block explorer; its core and templates are unverified there, but deploy at the same addresses as every other chain.*
 
 **Governance** (identical on every chain; Safe threshold m/n):
 
@@ -178,7 +180,7 @@ Start with the [documentation index](./docs/README.md). Key documents:
 - [oracle-adapters.md](./docs/oracle-adapters.md) — `IOracle` adapter specification
 - [agent-identity.md](./docs/agent-identity.md) · [off-chain-attribution.md](./docs/off-chain-attribution.md) — advanced topics
 
-The off-chain SDK, CLI, and local dashboard for building and operating mandated agents — **Sailor** — is a separate, open-source project, not part of this repository or the trusted core. OWNER TO SPECIFY: Sailor repository URL.
+The off-chain SDK, CLI, and local dashboard for building and operating mandated agents — **Sailor** — is a separate, open-source project ([sail-money/Sailor](https://github.com/sail-money/Sailor)), not part of this repository or the trusted core.
 
 ## Contributing
 
