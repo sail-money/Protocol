@@ -1,10 +1,12 @@
+# Sail Protocol
+
+> Onchain Separately Managed Accounts Run By Agents
+
 <p align="center">
   <img src="./docs/brand/protocol-banner.jpg" alt="Sail Protocol Banner" width="100%" />
 </p>
 
-# Sail Protocol
-
-**Onchain Separately Managed Accounts Run By Agents**
+[![license](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](./LICENSE)
 
 Sail is a minimal account-abstraction primitive for Separately Managed Accounts (SMAs). Capital is held in a self-custodial [Safe](https://safe.global/) the owner controls; a designated manager — typically an autonomous agent — executes only within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed contracts implementing `IPermission`. On each dispatch the manager names one registered permission, and the kernel evaluates it via `staticcall` under a gas cap, forwarding the call to the Safe only if it returns `true`. Because a permission is arbitrary Solidity, any DeFi primitive can be expressed as one — adding an integration is a contract deployment, not a protocol upgrade.
 
