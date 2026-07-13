@@ -2,10 +2,6 @@
   <img src="./docs/brand/protocol-banner.jpg" alt="Sail Protocol Banner" width="100%" />
 </p>
 
-<p align="center">
-  <img src="./docs/brand/sail_logo_nobg.png" alt="Sail Protocol" width="120" />
-</p>
-
 # Sail Protocol
 
 **Onchain Separately Managed Accounts Run By Agents**
