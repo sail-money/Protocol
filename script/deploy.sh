@@ -6,7 +6,11 @@
 #
 # <chain> is one of the keys in foundry.toml [rpc_endpoints]:
 #   mainnet | sepolia | base | base_sepolia | arbitrum | optimism
-#   plasma  | hyperliquid | unichain
+#   plasma  | hyperliquid | unichain | robinhood
+# (bsc, world, megaeth are also valid rpc_endpoints but predate this script's
+#  chain_id_for() coverage — unrelated to this change, left as-is) | robinhood
+# (bsc, world, megaeth are also valid rpc_endpoints but predate this script's
+#  chain_id_for() coverage — unrelated to this change, left as-is)
 #
 # Targets (comma-separated; default: core,templates-shared):
 #   core                  — SailKernel, Governance, MandateFactory, StandardFeePolicy, SafeModuleEnabler
@@ -86,6 +90,7 @@ chain_id_for() {
     base_sepolia) echo 84532 ;;
     arbitrum)     echo 42161 ;;
     optimism)     echo 10 ;;
+    robinhood)    echo 4663 ;;
     *)            echo "" ;;
   esac
 }

@@ -81,7 +81,7 @@ Two independent fee mechanisms, each capped by an immutable constitutional limit
 
 ## Deployments
 
-The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 9 mainnets and 2 testnets (11 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
+The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 9 mainnets and 2 testnets (11 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. A 12th chain, **Robinhood (4663)**, has the trusted core deployed at the same addresses (via calldata-replay from Base's original deploy transactions — see [`deployments/addresses.md`](./deployments/addresses.md)); its shared templates and genesis allowlist bootstrap are still pending, so onboarding isn't functional there yet. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
 
 **Core (identical on every chain):**
 
@@ -121,6 +121,7 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | HyperEVM | 999 | HYPE | no explorer |
 | Ethereum Sepolia | 11155111 | ETH | yes |
 | Base Sepolia | 84532 | ETH | yes |
+| Robinhood | 4663 | ETH | no explorer yet — core only, templates + bootstrap pending |
 
 **Governance** (identical on every chain; Safe threshold m/n):
 

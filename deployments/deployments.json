@@ -125,6 +125,13 @@
           "currentActiveWei": "150000000000000",
           "currentActiveLabel": "0.00015 ETH",
           "nativeSymbol": "ETH"
+        },
+        "4663": {
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
         }
       }
     },
@@ -256,6 +263,20 @@
       "explorerVerified": true,
       "manifest": "deployments/84532/core.json",
       "templatesManifest": "deployments/84532/templates.shared.json"
+    },
+    {
+      "name": "Robinhood",
+      "chainId": 4663,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 11313197,
+      "templatesDeployBlock": null,
+      "explorerVerified": false,
+      "manifest": "deployments/4663/core.json",
+      "templatesManifest": "deployments/4663/templates.shared.json",
+      "templatesPending": true,
+      "allowlistBootstrapped": false,
+      "verificationNote": "No block explorer/verifier confirmed yet. Core deployed via calldata-replay (exact salt+initCode recovered from the Base(8453) CREATE2-factory transactions, replayed verbatim) rather than a fresh forge build, because a fresh rebuild's solc metadata hash diverges from what is live elsewhere (see deployments/4663/core.json deploymentNote). Shared templates not yet deployed (templatesManifest does not exist yet) and genesis allowlists not yet bootstrapped, so onboarding (createAccount/registerAccount) is not yet functional on this chain."
     }
   ],
   "provenanceNote": "Deployment manifests were generated from working trees recorded with a -dirty git suffix; exact source-commit tagging + reproducible-build verification is tracked as a separate pre-launch step."

@@ -14,7 +14,8 @@
 > This deploy supersedes the prior EOA-governed 2026-06-09 addresses (commit `1199b33`): governance
 > is now the admin Safe, and onboarding allowlists were seeded post-deploy via
 > `SailGovernance.bootstrapAllowlists()` rather than at genesis. Bootstrap has been confirmed live
-> (`allowlistBootstrapped() == true`) on all 11 chains below.
+> (`allowlistBootstrapped() == true`) on 11 of the 12 chains below — Robinhood (4663) has the core
+> deployed at the same addresses but is not yet bootstrapped (see its row below).
 
 This directory contains the canonical deployment manifests for the Sail protocol. Per-chain
 manifests are written to `deployments/<chainId>/core.json` (by `script/core/DeployCore.s.sol`) and
@@ -81,10 +82,21 @@ core `kernel` above (constructor is `(kernel, author)`, `author` = deployer EOA
 | MegaETH      | 4326      | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Base Sepolia | 84532     | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Eth Sepolia  | 11155111  | live (CREATE2, bootstrapped)   | ✅ | ✅ |
+| Robinhood    | 4663      | core live (CREATE2); templates + bootstrap pending | ⬜ no explorer yet | ⬜ not deployed |
 
 The CREATE2 factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) and the Safe v1.4.1 proxy
 factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical
-addresses on all eleven chains, so the same-address property is achievable on each.
+addresses on all twelve chains, so the same-address property is achievable on each.
+
+**Robinhood (4663)** is a newer addition: the trusted core is deployed at the identical addresses
+above, but a fresh local rebuild from current source produces a different solc metadata hash than
+what's live on the other 11 chains (a cosmetic bytecode-trailer difference, not a logic change —
+see `deployments/4663/core.json`'s `deploymentNote`), so the core was deployed by replaying the
+exact `salt + initCode` calldata recovered from the corresponding Base (8453) CREATE2-factory
+transactions, verified first on a local fork before broadcasting. The 7 shared permission
+templates are not yet deployed on this chain, and the genesis allowlist bootstrap (`onlyGovernance`,
+via the admin Safe) has not been submitted yet — so onboarding (`createAccount`/`registerAccount`)
+does not work on Robinhood yet.
 
 ---
 
@@ -109,7 +121,14 @@ addresses on all eleven chains, so the same-address property is achievable on ea
   unverified there; addresses are identical to every other chain regardless.
 - MegaETH (4326) core required a deferred follow-up deploy (`f2e1bdc`) after an initial RPC
   failure; it now matches the canonical addresses and is fully verified (core + templates).
+- Robinhood (4663): core deployed at the canonical addresses via calldata-replay from Base's
+  original CREATE2-factory transactions (see the note under "Supported chains" above and
+  `deployments/4663/core.json`). Shared templates and the genesis allowlist bootstrap are still
+  outstanding — tracked as follow-up work.
 
 Last updated: 2026-07-01 — Safe-governed CREATE2 core (commits `1dc1960`, `f2e1bdc`) and shared
 templates (commit `0316883`) live and bootstrapped on all 11 chains: Ethereum, Base, Arbitrum,
 Optimism, Unichain, BSC, World, HyperEVM, MegaETH, Base Sepolia, Eth Sepolia.
+
+Update 2026-07-16: Robinhood (4663) core deployed at the same canonical addresses (templates and
+genesis bootstrap pending — see above).
