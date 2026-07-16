@@ -270,13 +270,12 @@
       "isTestnet": false,
       "nativeSymbol": "ETH",
       "coreDeployBlock": 11313197,
-      "templatesDeployBlock": null,
+      "templatesDeployBlock": 11367461,
       "explorerVerified": false,
       "manifest": "deployments/4663/core.json",
       "templatesManifest": "deployments/4663/templates.shared.json",
-      "templatesPending": true,
-      "allowlistBootstrapped": false,
-      "verificationNote": "No block explorer/verifier confirmed yet. Core deployed via calldata-replay (exact salt+initCode recovered from the Base(8453) CREATE2-factory transactions, replayed verbatim) rather than a fresh forge build, because a fresh rebuild's solc metadata hash diverges from what is live elsewhere (see deployments/4663/core.json deploymentNote). Shared templates not yet deployed (templatesManifest does not exist yet) and genesis allowlists not yet bootstrapped, so onboarding (createAccount/registerAccount) is not yet functional on this chain."
+      "allowlistBootstrapped": true,
+      "verificationNote": "No block explorer/verifier confirmed yet. Core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from the corresponding Base(8453) CREATE2-factory transactions, replayed verbatim) rather than a fresh forge build, because a fresh rebuild's solc metadata hash diverges from what is live elsewhere (see deployments/4663/core.json and templates.shared.json deploymentNote). Genesis allowlists bootstrapped by the admin Safe via the transaction-builder/robinhood-bootstrap-allowlists.json payload — confirmed on-chain (allowlistBootstrapped()==true, trustedSafeFactory/trustedModuleSetup/trustedFeePolicy all true). Onboarding (createAccount/registerAccount) is fully functional on this chain."
     }
   ],
   "provenanceNote": "Deployment manifests were generated from working trees recorded with a -dirty git suffix; exact source-commit tagging + reproducible-build verification is tracked as a separate pre-launch step."

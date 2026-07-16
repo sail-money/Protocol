@@ -1,6 +1,6 @@
 {
   "version": "create2-2026-07-01",
-  "note": "Trusted core and shared permission templates deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each contract's initCode is identical on every chain, so every core contract and every template lands at the SAME address on every chain. This is the Safe-governed configuration (commit 1dc1960), superseding the prior EOA-governed 2026-06-09 deploy. Onboarding allowlists have been bootstrapped on-chain via SailGovernance.bootstrapAllowlists() (verified live: allowlistBootstrapped()==true) on 11 of the 12 chains below; Robinhood (4663) has the core deployed at the same addresses but templates and the bootstrap call are still pending.",
+  "note": "Trusted core and shared permission templates deploy via deterministic CREATE2 with a global (chain-independent) salt per contract, through the standard CREATE2 factory 0x4e59b44847b379578588920cA78FbF26c0B4956C. Each contract's initCode is identical on every chain, so every core contract and every template lands at the SAME address on every chain. This is the Safe-governed configuration (commit 1dc1960), superseding the prior EOA-governed 2026-06-09 deploy. Onboarding allowlists have been bootstrapped on-chain via SailGovernance.bootstrapAllowlists() (verified live: allowlistBootstrapped()==true) on all 12 chains below.",
   "deploymentMode": "create2-global-salt",
   "create2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
   "safeProxyFactory_1_4_1": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
@@ -48,6 +48,6 @@
     "4326": { "name": "megaeth", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
     "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
     "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "4663": { "name": "robinhood", "status": "live (create2, core only — templates + bootstrap pending)", "coreVerified": false, "templatesVerified": false, "note": "core deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no block explorer/verifier confirmed yet; shared templates and genesis allowlist bootstrap not yet done, so onboarding is not yet functional here" }
+    "4663": { "name": "robinhood", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no block explorer/verifier available yet (same situation as HyperEVM)" }
   }
 }

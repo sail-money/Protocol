@@ -24,7 +24,7 @@
   "managementFeeBps": 0,
   "performanceFeeBps": 0,
   "distributorBps": 0,
-  "allowlistBootstrapped": false,
+  "allowlistBootstrapped": true,
   "deployTxs": {
     "timelock": "0x98ca90abef4ea9bf5598ba84674dbd31a2f86e334d239bd213de85b46ef816fb",
     "governance": "0x0eda633423eeb724d2adf9dbdb435d557a3954b25620e480faf41bce82c3d31d",
@@ -51,9 +51,9 @@
     "totalWei": 655355647969552
   },
   "postDeployTodo": [
-    "Genesis allowlists NOT bootstrapped in this run (Safe-governed flow: bootstrapAllowlists() must be submitted by the admin Safe 0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C, not the deployer EOA)",
-    "Deploy the 7 shared permission templates (script/templates/DeploySharedTemplates.s.sol) — not yet done on this chain",
-    "Capture/confirm SAFE_PROXY_CODEHASH on this chain before bootstrapping (expected to match 0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c per docs/DEPLOYMENT.md)",
-    "Update deployments/deployments.json, addresses.json, addresses.md, README.md, and the Sailor SDK (packages/sdk/src/deployments.ts) to add Robinhood (4663)"
+    "DONE: shared templates deployed — see deployments/4663/templates.shared.json",
+    "DONE: genesis allowlists bootstrapped via the admin Safe (0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C) submitting SailGovernance.bootstrapAllowlists(); confirmed on-chain via allowlistBootstrapped()==true and trustedSafeFactory/trustedModuleSetup/trustedFeePolicy all true. The SAFE_PROXY_CODEHASH used (0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c) was confirmed correct by the call succeeding.",
+    "DONE: deployments/deployments.json, addresses.json, addresses.md, README.md updated for Robinhood (4663)",
+    "Still outstanding: the Sailor SDK (packages/sdk/src/deployments.ts) has not been updated for this chain (deferred per request)"
   ]
 }
