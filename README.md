@@ -81,7 +81,7 @@ Two independent fee mechanisms, each capped by an immutable constitutional limit
 
 ## Deployments
 
-The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 9 mainnets and 2 testnets (11 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. A 12th chain, **Robinhood (4663)**, has the trusted core and shared templates both deployed at the same addresses (via calldata-replay from Base's original deploy transactions — see [`deployments/addresses.md`](./deployments/addresses.md)), with genesis allowlists bootstrapped by the admin Safe — fully live, same as the other 11 chains. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
+The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 10 mainnets and 2 testnets (12 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. The most recent addition, **Robinhood (4663)**, has both the trusted core and the shared templates deployed at those same addresses (via calldata-replay from Base's original deploy transactions — see [`deployments/addresses.md`](./deployments/addresses.md)), with genesis allowlists bootstrapped by the admin Safe — fully live, identical to every other chain. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
 
 **Core (identical on every chain):**
 
@@ -121,7 +121,7 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | HyperEVM | 999 | HYPE | no explorer |
 | Ethereum Sepolia | 11155111 | ETH | yes |
 | Base Sepolia | 84532 | ETH | yes |
-| Robinhood | 4663 | ETH | no explorer |
+| Robinhood | 4663 | ETH | no verifier (Blockscout live) |
 
 **Governance** (identical on every chain; Safe threshold m/n):
 
@@ -139,7 +139,7 @@ The deployer EOA `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` was used for deplo
 |---|---|
 | Registration fee cap (immutable ceiling) | `0.01` native token (`10000000000000000` wei) |
 | Registration fee — deploy-time (all chains) | `0.00015` native token |
-| Registration fee — live | `0.00015 ETH` (nine ETH-gas chains) · `0.005 HYPE` (HyperEVM) · `0.00045 BNB` (BSC) |
+| Registration fee — live | `0.00015 ETH` (ten ETH-gas chains) · `0.005 HYPE` (HyperEVM) · `0.00045 BNB` (BSC) |
 | Manager fee cut | `0` at launch; immutable cap `25%` |
 
 The registration fee is set immutably at construction to the same value on every chain — a prerequisite for the identical CREATE2 address — and then tuned per chain post-deploy by governance through the 48h timelock, which does not affect the already-locked addresses. The live per-chain values differ for that reason.

@@ -8,8 +8,6 @@
 #   mainnet | sepolia | base | base_sepolia | arbitrum | optimism
 #   plasma  | hyperliquid | unichain | robinhood
 # (bsc, world, megaeth are also valid rpc_endpoints but predate this script's
-#  chain_id_for() coverage — unrelated to this change, left as-is) | robinhood
-# (bsc, world, megaeth are also valid rpc_endpoints but predate this script's
 #  chain_id_for() coverage — unrelated to this change, left as-is)
 #
 # Targets (comma-separated; default: core,templates-shared):

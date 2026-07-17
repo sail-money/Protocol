@@ -18,7 +18,7 @@ the factory is the same everywhere — so the address is identical **iff the con
 `initCode`) are identical.** Change one value on one chain and that contract's address diverges on
 that chain, cascading to every contract that references it.
 
-**These env vars MUST be identical on all eleven supported chains:**
+**These env vars MUST be identical on all twelve supported chains:**
 
 | Env var | Why it must match |
 |---|---|
@@ -49,7 +49,7 @@ may differ per chain **without** affecting addresses — **except** that the gen
 > `INITIAL_PERMISSION_REGISTRATION_FEE = 0.00015 ether` (`150000000000000`), and
 > `MGMT_FEE_BPS = PERF_FEE_BPS = DISTRIBUTOR_BPS = 0`. To reproduce the canonical addresses you
 > must use these exact args (see §1). The **live** per-chain registration fee was then tuned by
-> governance post-deploy via the 48h timelock — currently `0.00015 ETH` on the nine ETH-gas
+> governance post-deploy via the 48h timelock — currently `0.00015 ETH` on the ten ETH-gas
 > chains, `0.005 HYPE` on HyperEVM, and `0.00045 BNB` on BSC — which does not affect the
 > already-locked addresses. The authoritative figures are in
 > [`../deployments/deployments.json`](../deployments/deployments.json).
@@ -59,7 +59,7 @@ may differ per chain **without** affecting addresses — **except** that the gen
 ## 2. Prerequisites
 
 - **Foundry** installed (`forge` / `cast`). `forge --version`.
-- **RPC URLs** for all eleven supported chains, exported as the env vars the `foundry.toml` aliases reference:
+- **RPC URLs** for all twelve supported chains, exported as the env vars the `foundry.toml` aliases reference:
   - `BASE_MAINNET_RPC_URL`     → alias `base`
   - `ARBITRUM_MAINNET_RPC_URL` → alias `arbitrum`
   - `UNICHAIN_RPC_URL`         → alias `unichain`
@@ -80,7 +80,7 @@ may differ per chain **without** affecting addresses — **except** that the gen
 - **(Optional) `GIT_COMMIT`** — recorded into each manifest header for provenance.
 
 The standard CREATE2 factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) and the Safe v1.4.1 proxy
-factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are already present on all eleven supported chains — no
+factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are already present on all twelve supported chains — no
 factory deployment step is required.
 
 ---

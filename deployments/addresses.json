@@ -48,6 +48,6 @@
     "4326": { "name": "megaeth", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
     "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
     "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "4663": { "name": "robinhood", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no block explorer/verifier available yet (same situation as HyperEVM)" }
+    "4663": { "name": "robinhood", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no Etherscan-v2 contract verifier, though a Blockscout explorer is live at https://robinhoodchain.blockscout.com (contracts not source-verified there)" }
   }
 }

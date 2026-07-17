@@ -46,8 +46,8 @@ summary of the addresses, governance, fees, and per-chain metadata below, valida
 | Emergency Safe (2/3)                | `0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961` — emergency pause (auto-expiry + cooldown) |
 | Deployer EOA                        | `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` — deployment only; holds no protocol authority |
 | `maxPermissionFeeWei` (cap)         | `0.01` native-unit ceiling — immutable, applies per 18-decimal native token |
-| Registration fee — deploy-time      | `0.00015` in each chain's native unit — identical on all 11 chains (CREATE2 requires byte-identical constructor args, so the address is only reproducible with the same fee) |
-| Registration fee — current (live)   | `0.00015 ETH` on the 9 ETH-gas chains; `0.005 HYPE` on HyperEVM; `0.00045 BNB` on BSC — governance-set post-deploy via the 48h timelock, which does not change the already-locked address |
+| Registration fee — deploy-time      | `0.00015` in each chain's native unit — identical on all 12 chains (CREATE2 requires byte-identical constructor args, so the address is only reproducible with the same fee) |
+| Registration fee — current (live)   | `0.00015 ETH` on the 10 ETH-gas chains; `0.005 HYPE` on HyperEVM; `0.00045 BNB` on BSC — governance-set post-deploy via the 48h timelock, which does not change the already-locked address |
 | Management / performance / distributor fees | `0` at launch (protocol-cut cap 2500 bps = 25%) |
 
 ## Shared permission template addresses (identical on every chain)
@@ -81,7 +81,7 @@ core `kernel` above (constructor is `(kernel, author)`, `author` = deployer EOA
 | MegaETH      | 4326      | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Base Sepolia | 84532     | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Eth Sepolia  | 11155111  | live (CREATE2, bootstrapped)   | ✅ | ✅ |
-| Robinhood    | 4663      | live (CREATE2, bootstrapped)   | ⬜ no explorer | ⬜ no explorer |
+| Robinhood    | 4663      | live (CREATE2, bootstrapped)   | ⬜ no verifier | ⬜ no verifier |
 
 The CREATE2 factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) and the Safe v1.4.1 proxy
 factory (`0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67`) are both present at their canonical
@@ -117,7 +117,7 @@ payload (workspace root) and is confirmed live on-chain — `allowlistBootstrapp
   - `trustedModuleSetup = [0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F]` (SafeModuleEnabler)
   - `trustedFeePolicy = [0x1087312447C8a2BfA15EB9cE23590E3502DBA04b]` (StandardFeePolicy)
   - `trustedSafeProxyCodehash = [0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c]`
-  Confirmed live on all 11 chains via `allowlistBootstrapped() == true`.
+  Confirmed live on all 12 chains via `allowlistBootstrapped() == true`.
 - HyperEVM (999) has no available block explorer/verifier, so core and templates are deployed but
   unverified there; addresses are identical to every other chain regardless.
 - MegaETH (4326) core required a deferred follow-up deploy (`f2e1bdc`) after an initial RPC
@@ -127,9 +127,9 @@ payload (workspace root) and is confirmed live on-chain — `allowlistBootstrapp
   bootstrapped by the admin Safe (see the note under "Supported chains" above and
   `deployments/4663/core.json` / `templates.shared.json`). Fully live, same as the other 11 chains.
 
-Last updated: 2026-07-01 — Safe-governed CREATE2 core (commits `1dc1960`, `f2e1bdc`) and shared
-templates (commit `0316883`) live and bootstrapped on all 11 chains: Ethereum, Base, Arbitrum,
-Optimism, Unichain, BSC, World, HyperEVM, MegaETH, Base Sepolia, Eth Sepolia.
+Last updated: 2026-07-16 — Safe-governed CREATE2 core (commits `1dc1960`, `f2e1bdc`) and shared
+templates (commit `0316883`) live and bootstrapped on all 12 chains: Ethereum, Base, Arbitrum,
+Optimism, Unichain, BSC, World, HyperEVM, MegaETH, Base Sepolia, Eth Sepolia, Robinhood.
 
 Update 2026-07-16: Robinhood (4663) added as a 12th chain — core and shared templates deployed at
 the same canonical addresses, genesis allowlists bootstrapped by the admin Safe. Fully live.
