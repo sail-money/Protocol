@@ -207,7 +207,7 @@ The protocol ships with a reference set of seven launch permission templates cov
 - **SwapPermission** / **SwapPermissionNoOracle** — gate DEX swaps with router and token allowlists, a size cap, output paid to the account, and a slippage floor (against an independent oracle, or the reference pool's own live price).
 - **BorrowPermission** — gates lending borrows with protocol and asset allowlists, a size cap, the position credited to the account, and an optional LTV ceiling.
 - **DepositPermission** — gates vault and lending-pool deposits with token and target allowlists and a size cap, crediting the position to the account.
-- **WithdrawPermission** — pins ERC-20 movements to one configured recipient, with a token allowlist and size cap.
+- **WithdrawPermission** — gates ERC-4626 and Aave v2/v3 exits with a vault/pool allowlist and size cap, pinning every calldata recipient (`receiver` AND `owner` on 4626, `to` on Aave) to the account.
 - **TransferPermission** — gates ERC-20 sends to an allowlisted recipient set.
 - **ApproveAndCallBatchPermission** — gates an atomic approve / protocol-call / reset batch.
 

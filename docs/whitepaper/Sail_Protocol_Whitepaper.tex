@@ -294,7 +294,7 @@ BorrowPermission & Lending borrows. Protocol and asset allowlists, size cap, pos
 \addlinespace[2pt]
 DepositPermission & Deposits into allowlisted vaults and lending pools. Token and target allowlists, size cap, position credited to the account. \\
 \addlinespace[2pt]
-WithdrawPermission & ERC-20 movements pinned to one configured recipient. Token allowlist, size cap, \texttt{transferFrom} source must be the account. \\
+WithdrawPermission & Exits from allowlisted vaults and lending pools (ERC-4626 \texttt{withdraw}/\texttt{redeem}, Aave v2/v3 \texttt{withdraw}). Target allowlist, size cap; every calldata recipient (\texttt{receiver} and \texttt{owner}, or \texttt{to}) pinned to the account. \\
 \addlinespace[2pt]
 TransferPermission & ERC-20 sends to an allowlisted recipient set. Token allowlist, size cap, \texttt{transferFrom} source must be the account, native ETH rejected. \\
 \addlinespace[2pt]

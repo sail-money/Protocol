@@ -238,9 +238,15 @@ The `currentNav` value in `collectFees` is provided by the manager. The kernel d
 
 ### `transferFrom` Source Restriction
 
-`WithdrawPermission` and `TransferPermission` require `from == ctx.account` on the `transferFrom` path, so tokens move only from the account itself and never from third parties that have granted the account an allowance.
+`TransferPermission` requires `from == ctx.account` on the `transferFrom` path, so tokens move only from the account itself and never from third parties that have granted the account an allowance.
 
 **Operator responsibility:** confirm the template in use enforces this restriction before relying on it. A custom permission must check `from == ctx.account` explicitly.
+
+### Exit Recipient and Owner Pinning
+
+`WithdrawPermission` gates vault and lending-pool exits and pins every recipient-naming calldata argument to the account: on the ERC-4626 `withdraw`/`redeem` paths **both** `receiver` (where proceeds go) **and** `owner` (whose shares are burned) must equal `ctx.account` — pinning `receiver` alone would still allow a compromised manager to drain a third party's vault position through a share allowance granted to the account. On the Aave v2/v3 `withdraw(asset, amount, to)` path, `to` must equal `ctx.account`. Exits whose destination is `msg.sender` rather than a calldata argument (Compound v2/v3, Aave v4's Spoke `withdraw`) are not recognized — their safety would be structural rather than calldata-checkable, and admitting them would weaken the uniform pinned-exit guarantee.
+
+**Operator responsibility:** the vault/pool allowlist is yours — an allowlisted but malicious or insolvent venue is not vetted by the template. The `redeem` cap is denominated in shares (oracle-free by design); size it with the share price in mind.
 
 ### V2 Intermediate Path Tokens
 
