@@ -118,8 +118,6 @@ payload (workspace root) and is confirmed live on-chain — `allowlistBootstrapp
   - `trustedFeePolicy = [0x1087312447C8a2BfA15EB9cE23590E3502DBA04b]` (StandardFeePolicy)
   - `trustedSafeProxyCodehash = [0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c]`
   Confirmed live on all 12 chains via `allowlistBootstrapped() == true`.
-- HyperEVM (999) has no available block explorer/verifier, so core and templates are deployed but
-  unverified there; addresses are identical to every other chain regardless.
 - MegaETH (4326) core required a deferred follow-up deploy (`f2e1bdc`) after an initial RPC
   failure; it now matches the canonical addresses and is fully verified (core + templates).
 - Robinhood (4663): core and shared templates both deployed at the canonical addresses via
