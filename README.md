@@ -1,16 +1,18 @@
-<p align="center">
-  <img src="./docs/brand/sail_logo.png" alt="Sail Protocol" width="120" />
-</p>
-
 # Sail Protocol
 
-**Onchain Separately Managed Accounts run by agents.**
+> Onchain Separately Managed Accounts Run By Agents
 
-Sail is a minimal account-abstraction primitive for Separately Managed Accounts (SMAs). Capital stays in a self-custodial [Safe](https://safe.global/) owned by the LP; a designated manager — typically an autonomous agent — executes only within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed contracts implementing `IPermission`. On each dispatch the manager names one registered permission, and the kernel evaluates it via `staticcall` under a gas cap, forwarding the call to the Safe only if it returns `true`. Because a permission is arbitrary Solidity, any DeFi primitive can be expressed as one — adding an integration is a contract deployment, not a protocol upgrade.
+<p align="center">
+  <img src="./docs/brand/protocol-banner.jpg" alt="Sail Protocol Banner" width="100%" />
+</p>
+
+[![license](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](./LICENSE)
+
+Sail is a minimal account-abstraction primitive for Separately Managed Accounts (SMAs). Capital is held in a self-custodial [Safe](https://safe.global/) the owner controls; a designated manager — typically an autonomous agent — executes only within a mandate enforced by smart contracts on every dispatch. The mandate is a set of user-deployed contracts implementing `IPermission`. On each dispatch the manager names one registered permission, and the kernel evaluates it via `staticcall` under a gas cap, forwarding the call to the Safe only if it returns `true`. Because a permission is arbitrary Solidity, any DeFi primitive can be expressed as one — adding an integration is a contract deployment, not a protocol upgrade.
 
 [Whitepaper](./docs/whitepaper/Sail_Protocol_Whitepaper.pdf) · [sail.money](https://sail.money) · [Documentation](./docs/README.md)
 
-Trusted core and shared templates reviewed by Octane — AI security review, three analyses. See [docs/security/](./docs/security/).
+The trusted core and shared permission templates were reviewed by Octane, an AI source-code security scanner, across three analyses. See [docs/security/](./docs/security/).
 
 ## How it works
 
@@ -179,7 +181,7 @@ Start with the [documentation index](./docs/README.md). Key documents:
 - [oracle-adapters.md](./docs/oracle-adapters.md) — `IOracle` adapter specification
 - [agent-identity.md](./docs/agent-identity.md) · [off-chain-attribution.md](./docs/off-chain-attribution.md) — advanced topics
 
-The off-chain SDK, CLI, and local dashboard for building and operating mandated agents — **Sailor** — is a separate, open-source project, not part of this repository or the trusted core. OWNER TO SPECIFY: Sailor repository URL.
+The off-chain SDK, CLI, and local dashboard for building and operating mandated agents — **Sailor** — is a separate, open-source project ([sail-money/Sailor](https://github.com/sail-money/Sailor)), not part of this repository or the trusted core.
 
 ## Contributing
 

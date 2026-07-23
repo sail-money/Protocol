@@ -77,7 +77,7 @@ core `kernel` above (constructor is `(kernel, author)`, `author` = deployer EOA
 | Unichain     | 130       | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | BSC          | 56        | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | World        | 480       | live (CREATE2, bootstrapped)   | ✅ | ✅ |
-| HyperEVM     | 999       | live (CREATE2, bootstrapped)   | ⬜ no explorer | ⬜ no explorer |
+| HyperEVM     | 999       | live (CREATE2, bootstrapped)   | ⬜ | ⬜ |
 | MegaETH      | 4326      | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Base Sepolia | 84532     | live (CREATE2, bootstrapped)   | ✅ | ✅ |
 | Eth Sepolia  | 11155111  | live (CREATE2, bootstrapped)   | ✅ | ✅ |
