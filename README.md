@@ -75,7 +75,7 @@ script/         deployment scripts (not deployed as protocol)
 
 ## Permission templates
 
-A reference set of multi-tenant templates ships with the protocol as swappable defaults. All inherit a shared base, `ConfigurablePermission`, which provides per-account configuration (EIP-712 domain, per-account nonces, ECDSA and ERC-1271 verification) and is not deployed on its own. In brief: **SwapPermission** (oracle-gated DEX swaps), **SwapPermissionNoOracle** (swaps sanity-banded against a reference pool's live price), **BorrowPermission** (bounded lending borrows with an optional LTV ceiling), **DepositPermission** (deposits into allowlisted vaults/pools, credited to the account), **WithdrawPermission** (ERC-20 moves pinned to one recipient), **TransferPermission** (ERC-20 sends to an allowlisted recipient set), and **ApproveAndCallBatchPermission** (an atomic approve / call / reset-to-zero batch). Each template documents the exact boundary of what it enforces — and what it does not — in [docs/TEMPLATES.md](./docs/TEMPLATES.md).
+A reference set of multi-tenant templates ships with the protocol as swappable defaults. All inherit a shared base, `ConfigurablePermission`, which provides per-account configuration (EIP-712 domain, per-account nonces, ECDSA and ERC-1271 verification) and is not deployed on its own. In brief: **SwapPermission** (oracle-gated DEX swaps), **SwapPermissionNoOracle** (swaps sanity-banded against a reference pool's live price), **BorrowPermission** (bounded lending borrows with an optional LTV ceiling), **DepositPermission** (deposits into allowlisted vaults/pools, credited to the account), **WithdrawPermission** (exits from allowlisted vaults/lending pools — ERC-4626 withdraw/redeem, Aave v2/v3 withdraw — with recipients pinned to the account), **TransferPermission** (ERC-20 sends to an allowlisted recipient set), and **ApproveAndCallBatchPermission** (an atomic approve / call / reset-to-zero batch). Each template documents the exact boundary of what it enforces — and what it does not — in [docs/TEMPLATES.md](./docs/TEMPLATES.md).
 
 ## Fee model
 
@@ -110,20 +110,20 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 
 **Chains:**
 
-| Chain | Chain ID | Native | Explorer-verified |
-|---|---|---|---|
-| Ethereum | 1 | ETH | yes |
-| Optimism | 10 | ETH | yes |
-| Unichain | 130 | ETH | yes |
-| Arbitrum | 42161 | ETH | yes |
-| MegaETH | 4326 | ETH | yes |
-| World | 480 | ETH | yes |
-| BSC | 56 | BNB | yes |
-| Base | 8453 | ETH | yes |
-| HyperEVM | 999 | HYPE | no explorer |
-| Ethereum Sepolia | 11155111 | ETH | yes |
-| Base Sepolia | 84532 | ETH | yes |
-| Robinhood | 4663 | ETH | no verifier (Blockscout live) |
+| Chain | Chain ID | Native |
+|---|---|---|
+| Ethereum | 1 | ETH |
+| Optimism | 10 | ETH |
+| Unichain | 130 | ETH |
+| Arbitrum | 42161 | ETH |
+| MegaETH | 4326 | ETH |
+| World | 480 | ETH |
+| BSC | 56 | BNB |
+| Base | 8453 | ETH |
+| HyperEVM | 999 | HYPE |
+| Ethereum Sepolia | 11155111 | ETH |
+| Base Sepolia | 84532 | ETH |
+| Robinhood | 4663 | ETH |
 
 **Governance** (identical on every chain; Safe threshold m/n):
 
