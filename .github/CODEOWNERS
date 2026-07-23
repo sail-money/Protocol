@@ -1,0 +1,7 @@
+# CODEOWNERS — Sail Protocol
+# Trusted core — code owners for sensitive paths (branch protection usually requires ≥1 approval from this set)
+/contracts/core/         @AlvaroAlonso-0 @dreski3 @aadopii
+/contracts/governance/   @AlvaroAlonso-0 @dreski3 @aadopii
+/contracts/interfaces/   @AlvaroAlonso-0 @dreski3 @aadopii
+# Whole protocol fallback
+/contracts/              @AlvaroAlonso-0 @dreski3 @aadopii

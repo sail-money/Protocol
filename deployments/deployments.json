@@ -239,8 +239,7 @@
       "templatesDeployBlock": 39251223,
       "explorerVerified": false,
       "manifest": "deployments/999/core.json",
-      "templatesManifest": "deployments/999/templates.shared.json",
-      "verificationNote": "no block explorer available"
+      "templatesManifest": "deployments/999/templates.shared.json"
     },
     {
       "name": "EthSepolia",
