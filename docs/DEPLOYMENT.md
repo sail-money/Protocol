@@ -145,6 +145,14 @@ What the bootstrap seeds (from `_bootstrapAllowlists` + `SafeConstants`):
 
 ## 5. Deploy commands — per chain
 
+> **⚠️ Deploying to a chain that is ALREADY live?** This section describes a first-time deploy. Do
+> not re-run `--target templates-shared` on an already-deployed chain: this tree no longer
+> reproduces the six unchanged templates' live bytecode (solc metadata drift), so the deploy
+> script's "already deployed" reuse check misses and it deploys six duplicates at non-canonical
+> addresses. `script/deploy.sh` blocks this. To ship a single new or rewritten template, add a
+> dedicated target — see [`DEPLOY_WITHDRAW_V2.md`](./DEPLOY_WITHDRAW_V2.md), the runbook for the
+> vault-exit `WithdrawPermission` rollout, which is the worked example of that pattern.
+
 Set the shared, identical config **once** (export so every chain run inherits it):
 
 ```bash

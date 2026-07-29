@@ -19,7 +19,14 @@
       "SwapPermission": "0x35cEEa0db96997Cc3CF3beB42FFa36A499342F7C",
       "SwapPermissionNoOracle": "0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519",
       "TransferPermission": "0xda909a1CC584fb7559Ce4A828b008B473Da095e1",
-      "WithdrawPermission": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8"
+      "WithdrawPermission": "0xB8A6CC40466c0C33a230f87a1EBC368568B96269"
+    },
+    "supersededTemplates": {
+      "WithdrawPermission.v1": {
+        "address": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8",
+        "status": "live but superseded",
+        "note": "Original ERC-20-transfer WithdrawPermission (single allowed recipient). Replaced by the vault-exit WithdrawPermission at canonicalAddresses.sharedTemplates.WithdrawPermission, deployed under a rotated salt (sail.template.withdraw.v2) so the two do not collide. This contract is NOT upgraded or disabled: accounts that already registered it keep working, and nothing revokes it on their behalf. New registrations should use the v2 address."
+      }
     }
   },
   "governance": {
@@ -98,6 +105,13 @@
           "currentActiveLabel": "0.00015 ETH",
           "nativeSymbol": "ETH"
         },
+        "4663": {
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
+        },
         "8453": {
           "deployTimeActiveWei": "150000000000000",
           "deployTimeActiveLabel": "0.00015 ETH",
@@ -120,13 +134,6 @@
           "nativeSymbol": "ETH"
         },
         "11155111": {
-          "deployTimeActiveWei": "150000000000000",
-          "deployTimeActiveLabel": "0.00015 ETH",
-          "currentActiveWei": "150000000000000",
-          "currentActiveLabel": "0.00015 ETH",
-          "nativeSymbol": "ETH"
-        },
-        "4663": {
           "deployTimeActiveWei": "150000000000000",
           "deployTimeActiveLabel": "0.00015 ETH",
           "currentActiveWei": "150000000000000",

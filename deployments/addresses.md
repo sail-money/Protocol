@@ -62,9 +62,24 @@ core `kernel` above (constructor is `(kernel, author)`, `author` = deployer EOA
 | SwapPermissionNoOracle          | `0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519` |
 | BorrowPermission                | `0x3e2666051599223cEAb10De55C89A0842857d8AF` |
 | DepositPermission               | `0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f` |
-| WithdrawPermission              | `0xF5eF5dda450a130e3020d54f565E830e4a7531f8` |
+| WithdrawPermission              | `0xB8A6CC40466c0C33a230f87a1EBC368568B96269` |
 | TransferPermission              | `0xda909a1CC584fb7559Ce4A828b008B473Da095e1` |
 | ApproveAndCallBatchPermission   | `0x0535A4D51333484ef583103DAB1a9449756ab732` |
+
+### Superseded templates (still live on-chain)
+
+| Template                        | Address                                      | Notes |
+|---------------------------------|----------------------------------------------|-------|
+| WithdrawPermission (v1)         | `0xF5eF5dda450a130e3020d54f565E830e4a7531f8` | Original ERC-20-transfer withdraw gate (`transfer` / `transferFrom` to one allowed recipient). Replaced by the vault-exit `WithdrawPermission` above, deployed under a rotated salt (`sail.template.withdraw.v2`) so the two do not collide. |
+
+The v1 contract is **not** disabled or revoked — permission templates are immutable and the protocol
+has no kill switch for them. Accounts that already registered it keep working unchanged; migrating is
+a per-account `replacePermission` (or revoke + register) that needs that account's permission-signer
+signature. New registrations should use the v2 address. Note the two are **not** config-compatible:
+the blob changed from `(address[] tokens, address allowedRecipient, uint256 maxAmountPerTx)` to
+`(address[] targets, address[] tokens, uint256 maxAmountPerTx)`, and the introspection identity was
+bumped to `sail.permission.WithdrawPermission.v2` / `keccak256("v2")` so consumers can tell them
+apart.
 
 ## Supported chains
 

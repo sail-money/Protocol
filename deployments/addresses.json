@@ -32,22 +32,85 @@
     "swapNoOracle": "0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519",
     "borrow": "0x3e2666051599223cEAb10De55C89A0842857d8AF",
     "deposit": "0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f",
-    "withdraw": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8",
+    "withdraw": "0xB8A6CC40466c0C33a230f87a1EBC368568B96269",
     "transfer": "0xda909a1CC584fb7559Ce4A828b008B473Da095e1",
-    "approveAndCallBatch": "0x0535A4D51333484ef583103DAB1a9449756ab732"
+    "approveAndCallBatch": "0x0535A4D51333484ef583103DAB1a9449756ab732",
+    "withdrawV1Superseded": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8"
   },
   "chains": {
-    "1": { "name": "ethereum", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "8453": { "name": "base", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "42161": { "name": "arbitrum", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "10": { "name": "optimism", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "130": { "name": "unichain", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "56": { "name": "bsc", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "480": { "name": "world", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "999": { "name": "hyperevm", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "no block explorer / verifier available" },
-    "4326": { "name": "megaeth", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "84532": { "name": "base_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "11155111": { "name": "eth_sepolia", "status": "live (create2, bootstrapped)", "coreVerified": true, "templatesVerified": true },
-    "4663": { "name": "robinhood", "status": "live (create2, bootstrapped)", "coreVerified": false, "templatesVerified": false, "note": "core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no Etherscan-v2 contract verifier, though a Blockscout explorer is live at https://robinhoodchain.blockscout.com (contracts not source-verified there)" }
+    "1": {
+      "name": "ethereum",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "10": {
+      "name": "optimism",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "56": {
+      "name": "bsc",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "130": {
+      "name": "unichain",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "480": {
+      "name": "world",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "999": {
+      "name": "hyperevm",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": false,
+      "templatesVerified": false,
+      "note": "no block explorer / verifier available"
+    },
+    "4326": {
+      "name": "megaeth",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "4663": {
+      "name": "robinhood",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": false,
+      "templatesVerified": false,
+      "note": "core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from Base(8453) tx history) to guarantee address parity, since a fresh rebuild's solc metadata hash diverges from what's live elsewhere; no Etherscan-v2 contract verifier, though a Blockscout explorer is live at https://robinhoodchain.blockscout.com (contracts not source-verified there)"
+    },
+    "8453": {
+      "name": "base",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "42161": {
+      "name": "arbitrum",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "84532": {
+      "name": "base_sepolia",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    },
+    "11155111": {
+      "name": "eth_sepolia",
+      "status": "live (create2, bootstrapped)",
+      "coreVerified": true,
+      "templatesVerified": true
+    }
   }
 }

@@ -202,12 +202,23 @@ contract WithdrawPermission is ConfigurablePermission, IPermissionIntrospection 
 
     // ── IPermissionIntrospection ──────────────────────────────────────────────
 
+    /// @dev `.v2`, unlike the other six templates' `.v1`. This template was REWRITTEN — from an
+    ///      ERC-20 single-recipient transfer gate into this vault/pool exit permission — and both
+    ///      contracts are live simultaneously: the old one stays deployed at its `.v1`-salt address
+    ///      and keeps working for accounts that already registered it. They share a name and a
+    ///      capability but have disjoint selector sets and incompatible config blobs
+    ///      (`(address[] tokens, address allowedRecipient, uint256)` there vs
+    ///      `(address[] targets, address[] tokens, uint256)` here), so a consumer that resolves a
+    ///      permission through IPermissionIntrospection rather than by raw address MUST be able to
+    ///      tell them apart — above all to pick the right config ABI. Reusing `.v1` here would make
+    ///      that impossible. Unrelated to the "2" in the EIP712 domain (see the constructor), which
+    ///      is the domain version and is `"2"` on every template.
     function permissionId() external pure override returns (bytes32) {
-        return keccak256("sail.permission.WithdrawPermission.v1");
+        return keccak256("sail.permission.WithdrawPermission.v2");
     }
 
     function permissionVersion() external pure override returns (bytes32) {
-        return keccak256("v1");
+        return keccak256("v2");
     }
 
     function metadataURI() external pure override returns (string memory) {

@@ -75,11 +75,16 @@ contract WithdrawPermissionTest is Test {
         for (uint256 i; i < len; i++) out[i] = data[i];
     }
 
-    // ── author + introspection (identity strings unchanged from the old contract) ──
+    // ── author + introspection ────────────────────────────────────────────────────
+    // `discriminator` and the WITHDRAW capability carry over from the old contract; `permissionId`
+    // and `permissionVersion` are bumped to `.v2` / `v2` because the two contracts are live at the
+    // same time with incompatible config blobs, so introspection must distinguish them.
     function test_Author_IsRecorded() public view { assertEq(wp.author(), AUTHOR); }
     function test_Introspection_Ids() public view {
         assertEq(wp.discriminator(), keccak256("WithdrawPermission"));
-        assertEq(wp.permissionId(),  keccak256("sail.permission.WithdrawPermission.v1"));
+        assertEq(wp.permissionId(),  keccak256("sail.permission.WithdrawPermission.v2"));
+        assertEq(wp.permissionVersion(), keccak256("v2"));
+        assertNotEq(wp.permissionId(), keccak256("sail.permission.WithdrawPermission.v1"));
         bytes32[] memory ids = wp.capabilityIds();
         assertEq(ids.length, 1);
         assertEq(ids[0], SailCapabilities.WITHDRAW);

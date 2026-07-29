@@ -104,9 +104,13 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | SwapPermissionNoOracle | `0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519` |
 | BorrowPermission | `0x3e2666051599223cEAb10De55C89A0842857d8AF` |
 | DepositPermission | `0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f` |
-| WithdrawPermission | `0xF5eF5dda450a130e3020d54f565E830e4a7531f8` |
+| WithdrawPermission | `0xB8A6CC40466c0C33a230f87a1EBC368568B96269` |
 | TransferPermission | `0xda909a1CC584fb7559Ce4A828b008B473Da095e1` |
 | ApproveAndCallBatchPermission | `0x0535A4D51333484ef583103DAB1a9449756ab732` |
+
+The original ERC-20-transfer `WithdrawPermission` remains live but superseded at
+`0xF5eF5dda450a130e3020d54f565E830e4a7531f8` — see
+[`deployments/addresses.md`](deployments/addresses.md#superseded-templates-still-live-on-chain).
 
 **Chains:**
 
