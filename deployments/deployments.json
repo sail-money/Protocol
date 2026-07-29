@@ -19,7 +19,14 @@
       "SwapPermission": "0x35cEEa0db96997Cc3CF3beB42FFa36A499342F7C",
       "SwapPermissionNoOracle": "0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519",
       "TransferPermission": "0xda909a1CC584fb7559Ce4A828b008B473Da095e1",
-      "WithdrawPermission": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8"
+      "WithdrawPermission": "0xB8A6CC40466c0C33a230f87a1EBC368568B96269"
+    },
+    "supersededTemplates": {
+      "WithdrawPermission.v1": {
+        "address": "0xF5eF5dda450a130e3020d54f565E830e4a7531f8",
+        "status": "live but superseded",
+        "note": "Original ERC-20-transfer WithdrawPermission (single allowed recipient). Replaced by the vault-exit WithdrawPermission at canonicalAddresses.sharedTemplates.WithdrawPermission, deployed under a rotated salt (sail.template.withdraw.v2) so the two do not collide. This contract is NOT upgraded or disabled: accounts that already registered it keep working, and nothing revokes it on their behalf. New registrations should use the v2 address."
+      }
     }
   },
   "governance": {
@@ -92,6 +99,13 @@
           "nativeSymbol": "HYPE"
         },
         "4326": {
+          "deployTimeActiveWei": "150000000000000",
+          "deployTimeActiveLabel": "0.00015 ETH",
+          "currentActiveWei": "150000000000000",
+          "currentActiveLabel": "0.00015 ETH",
+          "nativeSymbol": "ETH"
+        },
+        "4663": {
           "deployTimeActiveWei": "150000000000000",
           "deployTimeActiveLabel": "0.00015 ETH",
           "currentActiveWei": "150000000000000",
@@ -255,6 +269,19 @@
       "explorerVerified": true,
       "manifest": "deployments/84532/core.json",
       "templatesManifest": "deployments/84532/templates.shared.json"
+    },
+    {
+      "name": "Robinhood",
+      "chainId": 4663,
+      "isTestnet": false,
+      "nativeSymbol": "ETH",
+      "coreDeployBlock": 11313197,
+      "templatesDeployBlock": 11367461,
+      "explorerVerified": false,
+      "manifest": "deployments/4663/core.json",
+      "templatesManifest": "deployments/4663/templates.shared.json",
+      "allowlistBootstrapped": true,
+      "verificationNote": "No Etherscan-v2 contract verifier for this chain; a Blockscout explorer is live at https://robinhoodchain.blockscout.com, but contracts are not source-verified there (explorerVerified=false). Core and shared templates both deployed via calldata-replay (exact salt+initCode recovered from the corresponding Base(8453) CREATE2-factory transactions, replayed verbatim) rather than a fresh forge build, because a fresh rebuild's solc metadata hash diverges from what is live elsewhere (see deployments/4663/core.json and templates.shared.json deploymentNote). Genesis allowlists bootstrapped by the admin Safe via the transaction-builder/robinhood-bootstrap-allowlists.json payload — confirmed on-chain (allowlistBootstrapped()==true, trustedSafeFactory/trustedModuleSetup/trustedFeePolicy all true). Onboarding (createAccount/registerAccount) is fully functional on this chain."
     }
   ],
   "provenanceNote": "Deployment manifests were generated from working trees recorded with a -dirty git suffix; exact source-commit tagging + reproducible-build verification is tracked as a separate pre-launch step."

@@ -175,25 +175,31 @@ For ERC-4626, **`mint(shares)` is the donation-safe path**: it pins the share ou
 
 ---
 
-## 6. WithdrawPermission — ERC-20 move to a single pinned recipient
+## 6. WithdrawPermission — vault / lending-pool exits paid to the account
 
-**Purpose.** Gate ERC-20 movements so funds can only ever reach **one configured recipient** — typically the owner's own Safe (e.g. safe-to-safe consolidation).
+**Purpose.** Gate protocol **exits** — ERC-4626 vault withdrawals/redemptions and Aave v2/v3 pool withdrawals — so redeemed funds can only ever be paid **to the account itself**, and shares can only ever be burned **from the account's own position**. (This template was rewritten from an earlier ERC-20-transfer gate; for a bounded ERC-20 move to a fixed recipient, use `TransferPermission` with a one-entry recipient allowlist. The current vault-exit implementation postdates the Octane security review referenced above.)
 
 **What you configure.**
-- `tokens[]` — allowlisted tokens (≤ 50, non-empty, no zero addresses).
-- `allowedRecipient` — the **single** address funds may go to (non-zero).
-- `maxAmountPerTx` — per-move cap (0 allowed; blocks all non-zero withdrawals — fail-closed).
+- `targets[]` — allowlisted vaults / pools the account may exit from (≤ 50, non-empty, no zero addresses).
+- `tokens[]` — allowlisted underlying assets, consulted on the Aave path where the asset appears in calldata (≤ 50, non-empty, no zero addresses).
+- `maxAmountPerTx` — per-exit cap (0 allowed; blocks all non-zero exits — fail-closed).
 
 **How evaluation decides** (in order):
 1. **Configuration current?** Deny if not configured for the current epoch.
 2. **Any ETH attached?** Deny if `value != 0`.
-3. **Token allowlisted?** Deny if the call target isn't in `tokens[]`.
-4. **Recognized transfer shape?** Exactly `transfer` and `transferFrom`; any other selector (including `approve`) denied. Then:
-   - amount ≤ `maxAmountPerTx` → else deny;
-   - the destination must equal **the single `allowedRecipient`** (not an open set) → else deny;
-   - on `transferFrom`, `from` must be **the account itself**.
+3. **Vault/pool allowlisted?** Deny if the call target isn't in `targets[]`.
+4. **Recognized exit shape?** Exactly three selectors; anything else denied. Then per shape:
+   - **ERC-4626 `withdraw(assets, receiver, owner)`** — `assets` ≤ cap; **both** `receiver` and `owner` must equal **the account**.
+   - **ERC-4626 `redeem(shares, receiver, owner)`** — `shares` ≤ cap (**the cap is in shares** — see below); **both** `receiver` and `owner` must equal **the account**.
+   - **Aave v2/v3 `withdraw(asset, amount, to)`** (identical signature on both versions — one branch covers both) — `asset` must be in `tokens[]`; `amount` ≤ cap; `to` must equal **the account**.
 
-**What it cannot protect against.** The recipient is **not immutable** — it is whatever the latest configuration set, and the permission signer can change it by reconfiguring, so the pin is only as trustworthy as that key. The cap is per-transaction, not cumulative. It moves ERC-20s to a pinned address — it is **not** a protocol-withdraw interface and does not recognize vault/pool redeem or withdraw calls; to redeem from a vault, pair it with a separate permission.
+**Why the `owner` pin matters.** On the ERC-4626 paths, `receiver` is where proceeds go and `owner` is whose shares are burned (a caller may burn a third party's shares given a share allowance). Pinning only `receiver` would still let a compromised manager drain a **third party's** vault position into the account. Both pins are enforced.
+
+**What it cannot protect against.** An allowlisted vault or pool is **not vetted** — the template constrains where proceeds go and how much exits per call, not the venue's honesty or solvency. The cap on the `redeem` path is denominated in **shares, not underlying assets** — by design (these templates are oracle-free): its asset value floats with the share price, so operators sizing a redeem cap must account for that. The cap is per-transaction, not cumulative. Venues whose exits pay `msg.sender` with **no recipient in calldata** — Compound v2 `redeem`/`redeemUnderlying`, Compound v3 `withdraw`, and Aave v4's Spoke `withdraw` (funds go to `msg.sender`; its `onBehalfOf` names the debited position, not the destination) — are intentionally **not recognized**: their "funds stay with the account" property is structural rather than checkable in calldata, and admitting them would weaken the uniform every-exit-is-pinned guarantee. They need a dedicated permission if demanded.
+
+**The allowlist is the security decision (venue-honesty boundary).** The pin binds the *calldata* `receiver`/`owner`/`to` to the account, and the kernel executes exactly the calldata that was evaluated. That guarantees proceeds return to the account **only when the allowlisted venue honours standard ERC-4626 / Aave semantics** — i.e. actually pays the `receiver`/`to` named in the calldata and burns only the `owner`'s shares. A venue that accepts the standard call signature but routes funds elsewhere is not something this (or any) permission can prevent by inspecting calldata: the template authorises the *shape and recipient encoded in the call*, not the venue's behaviour once invoked. Consequently the `targets[]` allowlist is the operative trust decision — allowlist only vaults and pools you trust to implement the standard faithfully. This is an operator-trust boundary, not a gap in the template: the template enforces exactly what it claims (recipient pinned in calldata, allowlisted target, per-tx cap, fail-closed), and stops there.
+
+**Sizing the cap — assets vs shares.** Because the `redeem` cap counts **shares** and a share's asset value floats with the share price (and can rise without bound), a fixed share cap does not bound the underlying value a `redeem` can extract. An operator who needs a fixed *value* ceiling per exit should cap on the `withdraw` path, whose cap counts **assets** directly, rather than on `redeem`. Use `redeem` when bounding a share count is what you want; use `withdraw` when bounding asset value is what you want.
 
 ---
 

@@ -1,0 +1,59 @@
+{
+  "schema": "sail.deploy.core",
+  "chainId": 4663,
+  "chainName": "Robinhood",
+  "blockNumber": 11313197,
+  "timestamp": 1784210511,
+  "create2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  "deployer": "0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6",
+  "deploymentMode": "create2-global-salt-calldata-replay",
+  "deploymentNote": "A fresh forge build from current HEAD reproduces byte-identical *logic* to what is live on the other 11 chains, but solc's trailing CBOR metadata hash differs (confirmed: SafeModuleEnabler's source is unchanged since the original deploy commit, yet a local rebuild's runtime bytecode diverges from the live Base bytecode only in the last 32-byte metadata trailer). Since CREATE2 hashes the entire initCode, that alone would have produced non-canonical addresses. Instead, the exact salt+initCode calldata for each contract was recovered from its original CREATE2-factory transaction on Base (chainId 8453) and replayed verbatim here, guaranteeing identical addresses by construction. See sourceTxs below. Verified first on a local Anvil fork of this chain before broadcasting for real.",
+  "timelock": "0xC1E5F9A581D4100Aa949f80204540a33aD97A7b6",
+  "governance": "0x4315B37cA4A315A7042af1Fcb37F8436f4D24356",
+  "safeModuleEnabler": "0x7897Cb53a4be4a2eaAf46D60573C4Fd83b33fE1F",
+  "kernel": "0x38b508756c976e876EFF05a29E731A4d348BA6ED",
+  "mandateFactory": "0x6d2C802ffa0d9A8Ed69A5Bf22c1b63ccB566B8Fc",
+  "standardFeePolicy": "0x1087312447C8a2BfA15EB9cE23590E3502DBA04b",
+  "initialGovernance": "0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C",
+  "treasury": "0x7b37F85575F1568a37dBA342BC5FE6d393F0872f",
+  "emergencyAdmin": "0xFf02DE6630F192Bc6d14608f5C52a9f1ae478961",
+  "feeManager": "0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C",
+  "distributor": "0x0000000000000000000000000000000000000000",
+  "maxPermissionFeeWei": 10000000000000000,
+  "initialPermissionRegistrationFee": 150000000000000,
+  "managementFeeBps": 0,
+  "performanceFeeBps": 0,
+  "distributorBps": 0,
+  "allowlistBootstrapped": true,
+  "deployTxs": {
+    "timelock": "0x98ca90abef4ea9bf5598ba84674dbd31a2f86e334d239bd213de85b46ef816fb",
+    "governance": "0x0eda633423eeb724d2adf9dbdb435d557a3954b25620e480faf41bce82c3d31d",
+    "safeModuleEnabler": "0xdd38b445bbfa4d587b4b0030d9e981ce8318e5671249719dac514b2a776c7de0",
+    "kernel": "0xf4352f391556eae52d6eae5eed5ff8a82ce5cf09cdf50c35c8c92c4d89821c96",
+    "mandateFactory": "0x12195c9c080e542bf4416241b61ef241ec2e28ad1cf1ca6a5851fa43aef74d12",
+    "standardFeePolicy": "0xfccb6ddb5885dda956cf1c3059482b5b8dd4069c3f4c25658b04fc3319694dc5"
+  },
+  "sourceTxsOnBase8453": {
+    "timelock": "0x27934250f60a786b872bcd55e57be8387378b1e0b93f1fa5debb2f73fb1bab4d (entry #1 of a Safe MultiSendCallOnly batch)",
+    "governance": "0x6703f3a73394b6551eaf700281c8f898be110b8ec9b5a1ae26f644542e603dcc",
+    "safeModuleEnabler": "0x423b817d13f33a02607f88147d0fa925703075725443fe58b015fc75c41bb6cf",
+    "kernel": "0xa81de946b271b53663ddc56446356f7a1d636d32c40387a7698093eb07ecca69",
+    "mandateFactory": "0xebb0ff5c8214fe68bf7f507466a067ee3be36274c8c99c6bc09c9eadbb5927be",
+    "standardFeePolicy": "0xe90ee2baca6832275a8438893e2d94e0eb42e58873b522c43c4ce85b548f5741"
+  },
+  "gasUsed": {
+    "timelock": 1379827,
+    "governance": 1339979,
+    "safeModuleEnabler": 102524,
+    "kernel": 5399291,
+    "mandateFactory": 1213619,
+    "standardFeePolicy": 822316,
+    "totalWei": 655355647969552
+  },
+  "postDeployTodo": [
+    "DONE: shared templates deployed — see deployments/4663/templates.shared.json",
+    "DONE: genesis allowlists bootstrapped via the admin Safe (0x152a32c851d317Cd54F1E6423377d7D58Dd3DE8C) submitting SailGovernance.bootstrapAllowlists(); confirmed on-chain via allowlistBootstrapped()==true and trustedSafeFactory/trustedModuleSetup/trustedFeePolicy all true. The SAFE_PROXY_CODEHASH used (0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c) was confirmed correct by the call succeeding.",
+    "DONE: deployments/deployments.json, addresses.json, addresses.md, README.md updated for Robinhood (4663)",
+    "Still outstanding: the Sailor SDK (packages/sdk/src/deployments.ts) has not been updated for this chain (deferred per request)"
+  ]
+}

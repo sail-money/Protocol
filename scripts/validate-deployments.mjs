@@ -7,8 +7,14 @@
 //      byte-identical in every chain's manifest.
 //   3. Governance parity: the three Safes + deployer are identical everywhere.
 //   4. Fee-cap invariant: every perChainActive deploy-time + current fee <= capWei (BigInt).
-//   5. Chain count: exactly 11 (9 mainnet + 2 testnet), expected chainId set.
+//   4b. WithdrawPermission v2 rollout: per-chain templates.withdraw.v2.json manifests agree with
+//      each other and with canonical; canonical never advertises v2 ahead of a complete rollout.
+//   5. Chain count: exactly 12 (10 mainnet + 2 testnet), expected chainId set.
 //   6. Exit 0 only if all assertions pass; nonzero + report otherwise.
+//
+// Chains flagged `templatesPending: true` in a chain entry (core deployed, shared
+// templates not yet deployed there) are exempt from the templates-manifest-exists
+// and template-parity checks (2) but still count toward chain-count/id-set (5).
 //
 // Dependency-free: Node stdlib only. Run: node scripts/validate-deployments.mjs
 
@@ -48,7 +54,7 @@ const GOV_FIELD = {
   emergencySafe: 'emergencyAdmin',
   deployerEOA: 'deployer',
 };
-const EXPECTED_IDS = [1, 10, 130, 42161, 4326, 480, 56, 8453, 999, 11155111, 84532];
+const EXPECTED_IDS = [1, 10, 130, 42161, 4326, 480, 56, 8453, 999, 11155111, 84532, 4663];
 const EXPECTED_TESTNETS = new Set([11155111, 84532]);
 
 if (!existsSync(INDEX)) {
@@ -62,10 +68,11 @@ const core = {};
 const tmpl = {};
 for (const c of idx.chains) {
   const corePath = join(REPO, c.manifest);
-  const tmplPath = join(REPO, c.templatesManifest);
   if (!existsSync(corePath)) { fail(`[manifest] chain ${c.chainId}: missing core manifest ${c.manifest}`); continue; }
-  if (!existsSync(tmplPath)) { fail(`[manifest] chain ${c.chainId}: missing templates manifest ${c.templatesManifest}`); continue; }
   core[c.chainId] = load(corePath);
+  if (c.templatesPending) continue; // shared templates not deployed on this chain yet
+  const tmplPath = join(REPO, c.templatesManifest);
+  if (!existsSync(tmplPath)) { fail(`[manifest] chain ${c.chainId}: missing templates manifest ${c.templatesManifest}`); continue; }
   tmpl[c.chainId] = load(tmplPath);
 }
 
@@ -80,6 +87,7 @@ for (const [name, field] of Object.entries(CORE_FIELD)) {
 for (const [name, field] of Object.entries(TEMPLATE_FIELD)) {
   const want = idx.canonicalAddresses.sharedTemplates[name];
   for (const c of idx.chains) {
+    if (c.templatesPending) continue;
     const got = tmpl[c.chainId]?.[field];
     if (!eq(got, want)) fail(`[parity/template] ${name} on chain ${c.chainId}: manifest ${got} != canonical ${want}`);
   }
@@ -104,12 +112,59 @@ for (const [cid, f] of Object.entries(idx.fees.permissionRegistrationFee.perChai
   }
 }
 
+// ---- 4b. WithdrawPermission v2 rollout coverage ------------------------------
+// The vault-exit WithdrawPermission ships under a rotated salt (sail.template.withdraw.v2) via
+// script/templates/DeployWithdrawPermission.s.sol, which writes a per-chain
+// templates.withdraw.v2.json. Two half-states are the dangerous ones and both fail here:
+//   - canonical already advertises v2 while some chain has no v2 deploy (address published before
+//     it exists on that chain), and
+//   - a chain's v2 manifest disagrees with canonical (parity broken).
+// Before the rollout starts (no v2 manifests anywhere) this section is a no-op.
+{
+  const canonicalWithdraw = idx.canonicalAddresses.sharedTemplates.WithdrawPermission;
+  const superseded = idx.canonicalAddresses.supersededTemplates?.['WithdrawPermission.v1']?.address;
+  const v2 = {};
+  for (const c of idx.chains) {
+    const p = join(REPO, 'deployments', String(c.chainId), 'templates.withdraw.v2.json');
+    if (existsSync(p)) v2[c.chainId] = load(p);
+  }
+  const deployedOn = Object.keys(v2).map(Number);
+  const canonicalIsV2 = superseded !== undefined && !eq(canonicalWithdraw, superseded);
+
+  if (deployedOn.length > 0) {
+    // Every v2 manifest must agree with every other, and with the canonical kernel.
+    const ref = v2[deployedOn[0]];
+    for (const cid of deployedOn) {
+      for (const field of ['withdraw', 'initCodeHash', 'kernel', 'author']) {
+        if (!eq(v2[cid][field], ref[field])) {
+          fail(`[withdraw-v2] chain ${cid}: ${field} ${v2[cid][field]} != ${ref[field]} (chain ${deployedOn[0]})`);
+        }
+      }
+      if (!eq(v2[cid].kernel, idx.canonicalAddresses.core.SailKernel)) {
+        fail(`[withdraw-v2] chain ${cid}: kernel ${v2[cid].kernel} != canonical SailKernel`);
+      }
+    }
+    // If canonical has been advanced to v2, the rollout must be complete and consistent.
+    if (canonicalIsV2) {
+      if (!eq(ref.withdraw, canonicalWithdraw)) {
+        fail(`[withdraw-v2] canonical WithdrawPermission ${canonicalWithdraw} != deployed v2 ${ref.withdraw}`);
+      }
+      const notDeployed = idx.chains.map((c) => c.chainId).filter((id) => !deployedOn.includes(id));
+      if (notDeployed.length) {
+        fail(`[withdraw-v2] canonical advertises v2 but no deploy on chain(s): ${notDeployed.join(', ')}`);
+      }
+    }
+  } else if (canonicalIsV2) {
+    fail('[withdraw-v2] canonical advertises a v2 WithdrawPermission but no chain has a templates.withdraw.v2.json');
+  }
+}
+
 // ---- 5. chain count + id set -------------------------------------------------
 const ids = idx.chains.map((c) => c.chainId);
-if (ids.length !== 11) fail(`[chains] expected 11 chains, found ${ids.length}`);
+if (ids.length !== 12) fail(`[chains] expected 12 chains, found ${ids.length}`);
 const mainnets = idx.chains.filter((c) => !c.isTestnet).length;
 const testnets = idx.chains.filter((c) => c.isTestnet).length;
-if (mainnets !== 9) fail(`[chains] expected 9 mainnets, found ${mainnets}`);
+if (mainnets !== 10) fail(`[chains] expected 10 mainnets, found ${mainnets}`);
 if (testnets !== 2) fail(`[chains] expected 2 testnets, found ${testnets}`);
 const missing = EXPECTED_IDS.filter((x) => !ids.includes(x));
 const extra = ids.filter((x) => !EXPECTED_IDS.includes(x));
@@ -123,10 +178,11 @@ for (const c of idx.chains) {
 // ---- report ------------------------------------------------------------------
 const checks = [
   'manifests present',
-  'core + template address parity across 11 chains',
+  'core + template address parity across 12 chains (excluding templatesPending chains from template checks)',
   'governance (3 Safes + deployer) parity',
   'fee-cap invariant (deploy-time + current fee <= capWei)',
-  'chain count + chainId set (9 mainnet + 2 testnet)',
+  'WithdrawPermission v2 rollout coverage + parity (no-op before the rollout starts)',
+  'chain count + chainId set (10 mainnet + 2 testnet)',
 ];
 console.log('Sail deployments validation');
 console.log('===========================');

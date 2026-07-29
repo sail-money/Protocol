@@ -75,7 +75,7 @@ script/         deployment scripts (not deployed as protocol)
 
 ## Permission templates
 
-A reference set of multi-tenant templates ships with the protocol as swappable defaults. All inherit a shared base, `ConfigurablePermission`, which provides per-account configuration (EIP-712 domain, per-account nonces, ECDSA and ERC-1271 verification) and is not deployed on its own. In brief: **SwapPermission** (oracle-gated DEX swaps), **SwapPermissionNoOracle** (swaps sanity-banded against a reference pool's live price), **BorrowPermission** (bounded lending borrows with an optional LTV ceiling), **DepositPermission** (deposits into allowlisted vaults/pools, credited to the account), **WithdrawPermission** (ERC-20 moves pinned to one recipient), **TransferPermission** (ERC-20 sends to an allowlisted recipient set), and **ApproveAndCallBatchPermission** (an atomic approve / call / reset-to-zero batch). Each template documents the exact boundary of what it enforces — and what it does not — in [docs/TEMPLATES.md](./docs/TEMPLATES.md).
+A reference set of multi-tenant templates ships with the protocol as swappable defaults. All inherit a shared base, `ConfigurablePermission`, which provides per-account configuration (EIP-712 domain, per-account nonces, ECDSA and ERC-1271 verification) and is not deployed on its own. In brief: **SwapPermission** (oracle-gated DEX swaps), **SwapPermissionNoOracle** (swaps sanity-banded against a reference pool's live price), **BorrowPermission** (bounded lending borrows with an optional LTV ceiling), **DepositPermission** (deposits into allowlisted vaults/pools, credited to the account), **WithdrawPermission** (exits from allowlisted vaults/lending pools — ERC-4626 withdraw/redeem, Aave v2/v3 withdraw — with recipients pinned to the account), **TransferPermission** (ERC-20 sends to an allowlisted recipient set), and **ApproveAndCallBatchPermission** (an atomic approve / call / reset-to-zero batch). Each template documents the exact boundary of what it enforces — and what it does not — in [docs/TEMPLATES.md](./docs/TEMPLATES.md).
 
 ## Fee model
 
@@ -83,7 +83,7 @@ Two independent fee mechanisms, each capped by an immutable constitutional limit
 
 ## Deployments
 
-The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 9 mainnets and 2 testnets (11 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
+The trusted core and the shared templates are deployed at **identical CREATE2 addresses on 10 mainnets and 2 testnets (12 chains total)**, through the standard CREATE2 factory `0x4e59b44847b379578588920cA78FbF26c0B4956C` with chain-independent salts and byte-for-byte identical constructor arguments — so every core contract and every template has the same address on every chain. The most recent addition, **Robinhood (4663)**, has both the trusted core and the shared templates deployed at those same addresses (via calldata-replay from Base's original deploy transactions — see [`deployments/addresses.md`](./deployments/addresses.md)), with genesis allowlists bootstrapped by the admin Safe — fully live, identical to every other chain. Addresses are shown once below; per-chain manifests are under [`deployments/`](./deployments/). The machine-readable, validated index is [`deployments/deployments.json`](./deployments/deployments.json); the human-readable version is [`deployments/addresses.md`](./deployments/addresses.md).
 
 **Core (identical on every chain):**
 
@@ -104,9 +104,13 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | SwapPermissionNoOracle | `0x34Ba96CbEd1f46c88A5265E645DC5fe41662b519` |
 | BorrowPermission | `0x3e2666051599223cEAb10De55C89A0842857d8AF` |
 | DepositPermission | `0xBfB5e13a97b12Ee89d2F2b9B65eCf7e0E371911f` |
-| WithdrawPermission | `0xF5eF5dda450a130e3020d54f565E830e4a7531f8` |
+| WithdrawPermission | `0xB8A6CC40466c0C33a230f87a1EBC368568B96269` |
 | TransferPermission | `0xda909a1CC584fb7559Ce4A828b008B473Da095e1` |
 | ApproveAndCallBatchPermission | `0x0535A4D51333484ef583103DAB1a9449756ab732` |
+
+The original ERC-20-transfer `WithdrawPermission` remains live but superseded at
+`0xF5eF5dda450a130e3020d54f565E830e4a7531f8` — see
+[`deployments/addresses.md`](deployments/addresses.md#superseded-templates-still-live-on-chain).
 
 **Chains:**
 
@@ -123,6 +127,7 @@ The trusted core and the shared templates are deployed at **identical CREATE2 ad
 | HyperEVM | 999 | HYPE |
 | Ethereum Sepolia | 11155111 | ETH |
 | Base Sepolia | 84532 | ETH |
+| Robinhood | 4663 | ETH |
 
 **Governance** (identical on every chain; Safe threshold m/n):
 
@@ -140,7 +145,7 @@ The deployer EOA `0xB01dCE443d052e44b7D13726c0EC9fFB7f5815B6` was used for deplo
 |---|---|
 | Registration fee cap (immutable ceiling) | `0.01` native token (`10000000000000000` wei) |
 | Registration fee — deploy-time (all chains) | `0.00015` native token |
-| Registration fee — live | `0.00015 ETH` (nine ETH-gas chains) · `0.005 HYPE` (HyperEVM) · `0.00045 BNB` (BSC) |
+| Registration fee — live | `0.00015 ETH` (ten ETH-gas chains) · `0.005 HYPE` (HyperEVM) · `0.00045 BNB` (BSC) |
 | Manager fee cut | `0` at launch; immutable cap `25%` |
 
 The registration fee is set immutably at construction to the same value on every chain — a prerequisite for the identical CREATE2 address — and then tuned per chain post-deploy by governance through the 48h timelock, which does not affect the already-locked addresses. The live per-chain values differ for that reason.

@@ -28,6 +28,7 @@ unichain      = "${UNICHAIN_RPC_URL}"
 bsc           = "${BSC_RPC_URL}"
 world         = "${WORLD_RPC_URL}"
 megaeth       = "${MEGAETHEREUM_RPC_URL}"
+robinhood     = "${ROBINHOOD_RPC_URL}"
 
 [etherscan]
 # Etherscan V2 unified endpoint — one ETHERSCAN_API_KEY works across all supported chains.
@@ -41,3 +42,6 @@ unichain      = { key = "${ETHERSCAN_API_KEY}", chain = 130,      url = "https:/
 bsc           = { key = "${ETHERSCAN_API_KEY}", chain = 56,       url = "https://api.etherscan.io/v2/api?chainid=56" }
 world         = { key = "${ETHERSCAN_API_KEY}", chain = 480,      url = "https://api.etherscan.io/v2/api?chainid=480" }
 megaeth       = { key = "${ETHERSCAN_API_KEY}", chain = 4326,     url = "https://api.etherscan.io/v2/api?chainid=4326" }
+# robinhood (4663) omitted — no Etherscan v2 verifier confirmed yet, same as hyperliquid/plasma.
+# Add `robinhood = { key = "${ETHERSCAN_API_KEY}", chain = 4663, url = "..." }` once a verifier
+# endpoint exists, and drop --no-verify from the deploy command for this chain.

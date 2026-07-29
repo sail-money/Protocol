@@ -18,6 +18,12 @@ core interfaces) together with the shared permission templates (`SwapPermission`
 logic. Scope was defined by files and contracts; the reviewer did not state a line-count
 figure.
 
+> **Note:** the `WithdrawPermission` covered by these reviews was the earlier ERC-20-transfer
+> gate. It has since been rewritten as the vault/lending-pool exit permission (ERC-4626
+> `withdraw`/`redeem` and Aave v2/v3 `withdraw`). The current vault-exit implementation is new
+> code that postdates the review boundary above: it is not covered by these reports and has not
+> been independently reviewed.
+
 ## Reports
 
 The reports are Octane's signed deliverables and are kept here as PDFs (they are not

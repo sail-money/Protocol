@@ -69,7 +69,11 @@ contract DeploySharedTemplates is Script {
     bytes32 internal constant SALT_SWAP                   = keccak256("sail.template.swap.v1");
     bytes32 internal constant SALT_SWAP_NO_ORACLE         = keccak256("sail.template.swapnooracle.v1");
     bytes32 internal constant SALT_TRANSFER               = keccak256("sail.template.transfer.v1");
-    bytes32 internal constant SALT_WITHDRAW               = keccak256("sail.template.withdraw.v1");
+    // .v2: deliberate address rotation — WithdrawPermission was rewritten from an ERC-20
+    // single-recipient gate to the vault/pool exit permission. The old bytecode remains live at
+    // the .v1 address (0xF5eF5dda450a130e3020d54f565E830e4a7531f8) on every deployed chain; the
+    // new contract MUST NOT collide with it.
+    bytes32 internal constant SALT_WITHDRAW               = keccak256("sail.template.withdraw.v2");
 
     struct Deployment {
         address kernel;
